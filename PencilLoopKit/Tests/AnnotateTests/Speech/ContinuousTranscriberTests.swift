@@ -33,8 +33,12 @@ final class ContinuousTranscriberTests: XCTestCase {
             if seen.count == 3 { break }
         }
 
+        // At least three, not exactly three: the wrapper starts listening again
+        // the instant a segment ends, so whether a fourth is in flight when the
+        // caller stops reading is a race and not a contract. The text is the
+        // contract.
         let starts = await engine.startCount
-        XCTAssertEqual(starts, 3, "the engine should have been restarted twice")
+        XCTAssertGreaterThanOrEqual(starts, 3, "the engine should have been restarted twice")
         XCTAssertEqual(seen.last, "Hello there second thought third one")
     }
 

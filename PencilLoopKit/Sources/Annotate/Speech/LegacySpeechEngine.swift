@@ -50,6 +50,30 @@ public actor LegacySpeechEngine: SpeechTranscribing {
     private var latestText = ""
     private var authorisationRequested = false
 
+    /// Kept so a finished utterance can be followed by another one without
+    /// giving the microphone back — see `renew()`.
+    private var recogniser: SFSpeechRecognizer?
+    private var contextualStrings: [String] = []
+
+    /// Text from recognition tasks that have already finalised during *this*
+    /// recording. `SFSpeechRecognizer` ends a task at end of speech, so a
+    /// recording of any length is several tasks, and only this knows that.
+    private var carried = ""
+
+    /// Which recognition task's callbacks count. A finished task can report
+    /// once more after it has been replaced, and acting on that would either
+    /// duplicate an utterance or tear down its successor.
+    private var generation = 0
+
+    /// When recognition was last renewed, for the spin guard in `mayRenew()`.
+    private var recentRenewals: [Date] = []
+
+    /// A recogniser that finalises this often, this fast, is not listening to
+    /// anybody — it is failing. Silence is not the same thing and must never
+    /// trip this: a person pausing to think produces no finalisations at all.
+    private static let maximumRenewalsPerWindow = 10
+    private static let renewalWindow: TimeInterval = 2
+
     public init(locale: Locale) {
         self.locale = locale
         self.capture = MicrophoneCapture()
@@ -212,23 +236,14 @@ public actor LegacySpeechEngine: SpeechTranscribing {
             return
         }
 
-        let audioRequest = SFSpeechAudioBufferRecognitionRequest()
-        audioRequest.shouldReportPartialResults = true
-        // Never a server round trip, on any path (CLAUDE.md non-negotiable 1).
-        audioRequest.requiresOnDeviceRecognition = true
-        // The one thing this engine can do that the analyser cannot: bias the
-        // vocabulary towards the document's own words.
-        audioRequest.contextualStrings = Array(contextualTerms.prefix(TermListCorrector.maximumTerms))
-        request = audioRequest
+        self.recogniser = recogniser
+        self.contextualStrings = Array(contextualTerms.prefix(TermListCorrector.maximumTerms))
+        self.carried = ""
+        self.recentRenewals = []
 
         do {
             let chunks = try await capture.startWaitingForInput()
-            task = recogniser.recognitionTask(with: audioRequest) { result, error in
-                let text = result?.bestTranscription.formattedString
-                let isFinal = result?.isFinal ?? false
-                let failed = error != nil
-                Task { await self.ingest(text: text, isFinal: isFinal, failed: failed) }
-            }
+            startRecognition()
             pumpTask = Task { await self.pump(chunks) }
         } catch let error as PencilLoopError {
             finishStream(with: error)
@@ -252,7 +267,12 @@ public actor LegacySpeechEngine: SpeechTranscribing {
     /// reporting: `endAudio()` produces one, and so does a cancelled task.
     /// Losing a comment because the teardown was noisy would be the wrong
     /// trade.
-    private func ingest(text: String?, isFinal: Bool, failed: Bool) {
+    private func ingest(generation reporting: Int, text: String?, isFinal: Bool, failed: Bool) {
+        // A task that has already been replaced, reporting once more on its way
+        // out. Acting on it would either repeat an utterance or stop the task
+        // that took its place.
+        guard reporting == generation else { return }
+
         if let text, text.isEmpty == false {
             latestText = text
             if isFinal {
@@ -260,22 +280,108 @@ public actor LegacySpeechEngine: SpeechTranscribing {
             }
         }
         if failed {
-            if settledText.isEmpty, latestText.isEmpty {
+            if carried.isEmpty, settledText.isEmpty, latestText.isEmpty {
                 finishStream(with: .speechUnavailable(reason: "Dictation stopped unexpectedly."))
             } else {
-                finishStream(with: nil)
+                // The recogniser gave up on this utterance, not on the
+                // recording. Keep what it heard and listen again.
+                foldSegment()
+                renew()
             }
             return
         }
         if isFinal {
+            foldSegment()
             streamContinuation?.yield(
-                TranscriptionUpdate(volatileText: "", finalisedText: settledText)
+                TranscriptionUpdate(volatileText: "", finalisedText: carried)
             )
+            renew()
         } else {
             streamContinuation?.yield(
-                TranscriptionUpdate(volatileText: latestText, finalisedText: "")
+                TranscriptionUpdate(volatileText: latestText, finalisedText: partialPrefix)
             )
         }
+    }
+
+    /// Starts a recognition task against the audio already flowing.
+    ///
+    /// The microphone, the audio session and the pump are untouched — this is
+    /// only the recogniser, which is the part that keeps deciding it is done.
+    private func startRecognition() {
+        guard let recogniser else { return }
+        generation += 1
+        let mine = generation
+
+        let audioRequest = SFSpeechAudioBufferRecognitionRequest()
+        audioRequest.shouldReportPartialResults = true
+        // Never a server round trip, on any path (CLAUDE.md non-negotiable 1).
+        audioRequest.requiresOnDeviceRecognition = true
+        // The one thing this engine can do that the analyser cannot: bias the
+        // vocabulary towards the document's own words.
+        audioRequest.contextualStrings = contextualStrings
+        request = audioRequest
+
+        task = recogniser.recognitionTask(with: audioRequest) { result, error in
+            let text = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal ?? false
+            let failed = error != nil
+            Task { await self.ingest(generation: mine, text: text, isFinal: isFinal, failed: failed) }
+        }
+    }
+
+    /// Listens again, on the same open microphone.
+    ///
+    /// `SFSpeechRecognizer` ends a task at end of speech — after about five
+    /// seconds in practice — so without this a voice note simply stopped there,
+    /// and stopped *silently*, which is what made it look like a length limit.
+    /// Giving the audio session back and taking it again was tried first and is
+    /// worse: the session does not reliably come back mid-sentence, and every
+    /// word spoken during the handover is lost. Only the recogniser restarts.
+    private func renew() {
+        guard streamContinuation != nil else { return }
+        guard mayRenew() else {
+            logger.error("Recognition kept finalising with nothing to show for it; stopping.")
+            finishStream(with: nil)
+            return
+        }
+        request?.endAudio()
+        task?.finish()
+        request = nil
+        task = nil
+        startRecognition()
+        logger.debug("Recogniser finalised; listening again with the microphone still open.")
+    }
+
+    /// False when recognition is finalising so fast and so often that it is
+    /// failing rather than hearing sentence ends.
+    private func mayRenew() -> Bool {
+        let now = Date()
+        recentRenewals.append(now)
+        recentRenewals.removeAll { now.timeIntervalSince($0) > LegacySpeechEngine.renewalWindow }
+        return recentRenewals.count <= LegacySpeechEngine.maximumRenewalsPerWindow
+    }
+
+    /// Moves the utterance just finished into the running total.
+    private func foldSegment() {
+        let best = settledText.isEmpty ? latestText : settledText
+        carried = LegacySpeechEngine.joined(carried, best)
+        settledText = ""
+        latestText = ""
+    }
+
+    /// What goes in front of the in-progress hypothesis so the caller always
+    /// sees the whole recording. `displayText` concatenates the two directly,
+    /// so the separator lives here.
+    private var partialPrefix: String {
+        carried.isEmpty ? "" : carried + " "
+    }
+
+    private static func joined(_ first: String, _ second: String) -> String {
+        let left = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        let right = second.trimmingCharacters(in: .whitespacesAndNewlines)
+        if left.isEmpty { return right }
+        if right.isEmpty { return left }
+        return left + " " + right
     }
 
     /// Ends the recording and returns the best text there is.
@@ -288,16 +394,23 @@ public actor LegacySpeechEngine: SpeechTranscribing {
     public func stop() async -> String {
         guard streamContinuation != nil || task != nil else { return "" }
 
+        // Before anything else: the task about to be finished will report once
+        // more, and `ingest` must not read that as an utterance ending and
+        // start listening again after the user has let go.
+        generation += 1
+
         await capture.stop()
         pumpTask?.cancel()
         pumpTask = nil
         request?.endAudio()
         task?.finish()
 
-        let text = settledText.isEmpty ? latestText : settledText
+        foldSegment()
+        let text = carried
         finishStream(with: nil)
         request = nil
         task = nil
+        carried = ""
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -310,6 +423,7 @@ public actor LegacySpeechEngine: SpeechTranscribing {
     ///   wants. False on the way *into* a recording, where the session has just
     ///   been pre-warmed and `capture.start()` will replace the tap anyway.
     private func teardown(releasingCapture: Bool = true) async {
+        generation += 1
         pumpTask?.cancel()
         pumpTask = nil
         request?.endAudio()
