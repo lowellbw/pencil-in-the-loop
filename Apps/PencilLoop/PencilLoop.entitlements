@@ -6,5 +6,27 @@
 	<array>
 		<string>group.com.lowellweisbord.pencilloop</string>
 	</array>
+
+	<!-- The default sync folder is the app's own iCloud container, so that
+	     first run has no decision in it (Sync/Folder/DefaultSyncFolder.swift).
+	     CloudDocuments only: this app stores no key-value data and uses no
+	     CloudKit database, and an entitlement it does not use is a
+	     provisioning requirement it does not need.
+
+	     Deliberately not on the share extension. The extension writes to the
+	     App Group and nothing else; giving it iCloud would widen its
+	     provisioning profile for a capability it never calls. -->
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.lowellweisbord.pencilloop</string>
+	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>iCloud.com.lowellweisbord.pencilloop</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudDocuments</string>
+	</array>
 </dict>
 </plist>

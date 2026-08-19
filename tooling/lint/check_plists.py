@@ -28,6 +28,39 @@ EXT_ENTITLEMENTS = REPO_ROOT / "Apps/ReviewShareExtension/ReviewShareExtension.e
 
 APP_GROUP = "group.com.lowellweisbord.pencilloop"
 
+APP_XCCONFIG = REPO_ROOT / "Config/App.xcconfig"
+
+
+def bundle_id() -> str:
+    """The app's bundle id, read from the xcconfig that actually sets it.
+
+    Info.plist carries `$(PRODUCT_BUNDLE_IDENTIFIER)`, which is only resolved at
+    build time, so the xcconfig is the one place on disk that knows. Reading it
+    rather than hard-coding it is what lets the iCloud check below catch the
+    case FirstBuild.md § 2b can produce: a rename that reached some files and
+    not others.
+    """
+    for line in APP_XCCONFIG.read_text().splitlines():
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == "PRODUCT_BUNDLE_IDENTIFIER":
+            return value.strip()
+    return ""
+
+
+APP_BUNDLE_ID = bundle_id()
+
+# The app's iCloud container, which is the default sync folder
+# (Sync/Folder/DefaultSyncFolder.swift). By Apple's convention the identifier is
+# the bundle id with an `iCloud.` prefix, and that is checked rather than
+# assumed: the two are edited by different commands in FirstBuild.md § 2b, so
+# they can drift, and a container id that does not match the app is a folder
+# that resolves to nothing on the device.
+ICLOUD_CONTAINER = "iCloud." + APP_BUNDLE_ID
+ICLOUD_KEYS = {
+    "com.apple.developer.icloud-container-identifiers",
+    "com.apple.developer.ubiquity-container-identifiers",
+}
+
 ORIENTATIONS = {
     "UIInterfaceOrientationPortrait",
     "UIInterfaceOrientationPortraitUpsideDown",
@@ -166,6 +199,16 @@ def check_extension_plist(problems: list[str]) -> None:
 
 
 def check_entitlements(problems: list[str]) -> None:
+    # iCloud is the app's alone. The extension writes to the App Group and
+    # nothing else, so widening its profile would buy a capability it never
+    # calls — the rule below is per-file for exactly that reason.
+    allowed = {
+        APP_ENTITLEMENTS.name: {"com.apple.security.application-groups"}
+        | ICLOUD_KEYS
+        | {"com.apple.developer.icloud-services"},
+        EXT_ENTITLEMENTS.name: {"com.apple.security.application-groups"},
+    }
+
     groups_seen = {}
     for path in (APP_ENTITLEMENTS, EXT_ENTITLEMENTS):
         plist = load(path, problems)
@@ -177,7 +220,7 @@ def check_entitlements(problems: list[str]) -> None:
                 f"{path.name}: com.apple.security.application-groups is {groups!r}, "
                 f"expected ['{APP_GROUP}']"
             )
-        extra = set(plist) - {"com.apple.security.application-groups"}
+        extra = set(plist) - allowed[path.name]
         if extra:
             problems.append(
                 f"{path.name}: unexpected entitlement(s) {sorted(extra)} — every entitlement "
@@ -185,10 +228,67 @@ def check_entitlements(problems: list[str]) -> None:
             )
         groups_seen[path.name] = groups
 
+    check_icloud(problems)
+
     if len(groups_seen) == 2 and len(set(map(repr, groups_seen.values()))) != 1:
         problems.append(
             "the app and the share extension declare different App Groups — they must share "
             "a container or the extension writes where the app cannot read"
+        )
+
+
+def check_icloud(problems: list[str]) -> None:
+    """The iCloud container, its services, and the plist that publishes it.
+
+    Three files have to agree or the default sync folder resolves to nothing:
+    the entitlement names the container, `NSUbiquitousContainers` publishes the
+    same one, and `DefaultSyncFolder` asks for whichever container the
+    entitlement lists first. Only the last of those is code, and it is the only
+    one that cannot be wrong.
+    """
+    plist = load(APP_ENTITLEMENTS, problems)
+    if plist is None:
+        return
+
+    for key in sorted(ICLOUD_KEYS):
+        if plist.get(key) != [ICLOUD_CONTAINER]:
+            problems.append(
+                f"{APP_ENTITLEMENTS.name}: {key} is {plist.get(key)!r}, "
+                f"expected ['{ICLOUD_CONTAINER}'] — the container id is the bundle id "
+                "with an iCloud. prefix"
+            )
+
+    services = plist.get("com.apple.developer.icloud-services")
+    if services != ["CloudDocuments"]:
+        problems.append(
+            f"{APP_ENTITLEMENTS.name}: com.apple.developer.icloud-services is "
+            f"{services!r}, expected ['CloudDocuments'] — this app stores no "
+            "key-value data and uses no CloudKit database"
+        )
+
+    app = load(APP_PLIST, problems)
+    if app is None:
+        return
+
+    containers = app.get("NSUbiquitousContainers")
+    if not isinstance(containers, dict) or ICLOUD_CONTAINER not in containers:
+        problems.append(
+            f"Info.plist: NSUbiquitousContainers does not describe {ICLOUD_CONTAINER!r} — "
+            "without it the container exists but never appears in iCloud Drive, so the "
+            "default sync folder is invisible to the Mac"
+        )
+        return
+
+    described = containers[ICLOUD_CONTAINER]
+    if described.get("NSUbiquitousContainerIsDocumentScopePublic") is not True:
+        problems.append(
+            f"Info.plist: {ICLOUD_CONTAINER} is not IsDocumentScopePublic — the folder "
+            "would exist and be invisible, which is worse than not having one"
+        )
+    if not described.get("NSUbiquitousContainerName"):
+        problems.append(
+            f"Info.plist: {ICLOUD_CONTAINER} has no NSUbiquitousContainerName, so it "
+            "appears in iCloud Drive under its raw container id"
         )
 
 

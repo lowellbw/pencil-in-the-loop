@@ -32,6 +32,25 @@
 	<key>UIFileSharingEnabled</key>
 	<true/>
 
+	<!-- Publishes the iCloud container's Documents directory as
+	     `iCloud Drive/PencilLoop`, which is what makes the default sync folder
+	     visible on the Mac. Without IsDocumentScopePublic the container exists
+	     but nobody outside the app can see it, and a sync folder nothing can
+	     write to is not one. `Any` folder levels because inbox/ and outbox/ hold
+	     a directory per document. -->
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.lowellweisbord.pencilloop</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+			<key>NSUbiquitousContainerName</key>
+			<string>PencilLoop</string>
+		</dict>
+	</dict>
+
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PencilLoop records your voice while you hold to speak, so you can leave spoken comments on what you are reading.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

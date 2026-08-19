@@ -8,20 +8,32 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import Core
+import Sync
 
-/// Pick the sync folder. That is the whole screen.
+/// Settle the sync folder. That is the whole screen, and in the ordinary case
+/// nobody reads it.
 ///
-/// A short line of explanation and a button that opens `fileImporter`. No
-/// account, no login, no carousel, no logo (docs/01-design-principles.md § 6).
-/// The bookmark is stored and `inbox/`/`outbox/` are created by
-/// `SyncFolderChoice.adopt(_:folderAccess:settings:)`; once
-/// `AppSettings.hasCompletedFirstRun` is set, the shell shows the library
+/// **It tries the default first.** The app's own iCloud container needs no
+/// picking and is visible on the Mac as `iCloud Drive/PencilLoop`
+/// (`DefaultSyncFolder`), so on a device with iCloud Drive on, this screen
+/// resolves it, adopts it and is gone — one line of status, no decision, no
+/// account, no carousel, no logo (docs/01-design-principles.md § 6).
+///
+/// **The picker is the fallback, not the flow.** iCloud Drive can be off, the
+/// device can be signed out, and somebody may simply keep their documents
+/// somewhere else. Then the button appears, with the reason above it, and S0 is
+/// what it always was. Settings offers the same picker afterwards (S6), so the
+/// default is a default rather than a decision made on the user's behalf.
+///
+/// Either way the bookmark is stored and `inbox/`/`outbox/` are created by
+/// `SyncFolderChoice.adopt(_:folderAccess:settings:)` — one path for a picked
+/// folder and a defaulted one, so there is no second way to be half-set-up.
+/// Once `AppSettings.hasCompletedFirstRun` is set the shell shows the library
 /// instead and this screen is never seen again.
 ///
-/// **On failure:** the picker's error, or the folder's, appears under the
-/// button in secondary text and the button stays. There is no dead end here —
-/// the only way out of this screen is choosing a folder, so it must always be
-/// possible to try again.
+/// **On failure:** the reason appears in secondary text and the button stays.
+/// There is no dead end here — the only way out of this screen is a folder, so
+/// it must always be possible to try again.
 public struct FirstRunView: View {
 
     private let environment: any AppEnvironment
@@ -30,6 +42,11 @@ public struct FirstRunView: View {
     @State private var isChoosingFolder = false
     @State private var isPreparing = false
     @State private var problem: String?
+
+    /// Nil until the default has been tried. Until then the screen shows the
+    /// status line alone: offering a picker for half a second and then taking
+    /// it away as iCloud answers would be worse than showing nothing.
+    @State private var hasTriedDefault = false
 
     /// - Parameters:
     ///   - environment: settings are written through it, the folder is prepared
@@ -47,17 +64,21 @@ public struct FirstRunView: View {
 
     public var body: some View {
         VStack(spacing: 24) {
-            Text("Choose a folder this iPad shares with your computer. Documents put there appear in your library, and the reviews you send go back the same way.")
+            Text(explanation)
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
 
-            Button("Choose Folder…") {
-                isChoosingFolder = true
+            // Only once the default has been tried and did not work. Before
+            // that there is nothing to choose and nothing worth tapping.
+            if hasTriedDefault {
+                Button("Choose Folder…") {
+                    isChoosingFolder = true
+                }
+                .font(.body)
+                .disabled(isPreparing)
             }
-            .font(.body)
-            .disabled(isPreparing)
 
             if let problem {
                 Text(problem)
@@ -72,6 +93,41 @@ public struct FirstRunView: View {
         .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
             self.handle(result)
         }
+        .task {
+            await self.adoptDefaultFolder()
+        }
+    }
+
+    /// What the screen says, which depends only on whether the default is still
+    /// being tried.
+    private var explanation: String {
+        if hasTriedDefault {
+            return "Choose a folder this iPad shares with your computer. Documents put there appear in your library, and the reviews you send go back the same way."
+        }
+        return "Setting up your folder in iCloud Drive. Documents put there appear in your library, and the reviews you send go back the same way."
+    }
+
+    /// Resolve the app's iCloud folder and adopt it, falling back to the picker.
+    ///
+    /// The resolve is `Task.detached` because
+    /// `url(forUbiquityContainerIdentifier:)` blocks, for seconds on a first
+    /// call — running it on the main actor would hold the frame this screen is
+    /// currently drawing (`DefaultSyncFolder`, file header).
+    private func adoptDefaultFolder() async {
+        guard hasTriedDefault == false, isPreparing == false else { return }
+        isPreparing = true
+        do {
+            let url = try await Task.detached(priority: .userInitiated) {
+                try DefaultSyncFolder.locate()
+            }.value
+            try await self.finish(adopting: url)
+        } catch {
+            // Not an error the user did anything about, so it is stated rather
+            // than apologised for, and the picker appears underneath it.
+            self.problem = SyncFolderChoice.describe(error)
+            self.hasTriedDefault = true
+        }
+        isPreparing = false
     }
 
     private func handle(_ result: Result<URL, any Error>) {
@@ -88,20 +144,29 @@ public struct FirstRunView: View {
         problem = nil
         Task {
             do {
-                let folder = try await SyncFolderChoice.adopt(
-                    url,
-                    folderAccess: self.environment.folderAccess,
-                    settings: self.environment.settings
-                )
-                // Queued, not awaited to completion: the download runs in the
-                // background and Settings reports it (docs/03-architecture.md § 4).
-                await self.environment.transcriber.prepareAssets()
-                self.onFinish(folder)
+                try await self.finish(adopting: url)
             } catch {
                 self.problem = SyncFolderChoice.describe(error)
             }
             self.isPreparing = false
         }
+    }
+
+    /// Adopt a folder, however it was arrived at.
+    ///
+    /// The picked and the defaulted paths share this so that there is exactly
+    /// one place `hasCompletedFirstRun` is set and one place the speech assets
+    /// are queued.
+    private func finish(adopting url: URL) async throws {
+        let folder = try await SyncFolderChoice.adopt(
+            url,
+            folderAccess: self.environment.folderAccess,
+            settings: self.environment.settings
+        )
+        // Queued, not awaited to completion: the download runs in the
+        // background and Settings reports it (docs/03-architecture.md § 4).
+        await self.environment.transcriber.prepareAssets()
+        self.onFinish(folder)
     }
 }
 
