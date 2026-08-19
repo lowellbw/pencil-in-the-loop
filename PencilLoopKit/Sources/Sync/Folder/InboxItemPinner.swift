@@ -198,7 +198,18 @@ public struct InboxItemPinner: Sendable {
     /// name, newer contents — answers false and is re-ingested.
     public func isPinnedAndCurrent(_ item: InboxItem) -> Bool {
         guard let snapshot = pinnedSnapshot(forFolderNamed: item.folderName) else { return false }
-        if snapshot.modifiedAt < item.modifiedAt { return false }
+
+        // Compare at whole seconds, because that is all the sidecar can hold.
+        // `ContractCoding` writes dates as `2026-08-18T18:22:04Z` with no
+        // fractional part, so a snapshot written from this very item reads back
+        // up to a second *earlier* than the modification date it was taken
+        // from — and a straight `<` then calls every pinned document stale, on
+        // every scan, for ever. The symptom is not a wrong answer anywhere
+        // visible: it is the whole library being re-downloaded, re-copied and
+        // re-ingested every fifteen seconds.
+        let recorded = snapshot.modifiedAt.timeIntervalSince1970.rounded(.down)
+        let scanned = item.modifiedAt.timeIntervalSince1970.rounded(.down)
+        if recorded < scanned { return false }
         if item.byteCount > 0, snapshot.byteCount != item.byteCount { return false }
         return true
     }

@@ -88,7 +88,12 @@ public struct InkDebouncePolicy: Sendable, Hashable {
     /// Seconds to nanoseconds, saturating rather than trapping on nonsense
     /// input — a clock that jumps must not take the app down.
     public static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
-        guard seconds.isFinite, seconds > 0 else { return 0 }
+        // NaN and negatives are nonsense and mean "write now"; an infinite
+        // delay is an ordering, and saturates to the cap. `isFinite` used to be
+        // in this guard, which sent infinity to 0 — the opposite of saturating,
+        // and a write the debounce was explicitly asked not to make yet. NaN
+        // needs no test of its own: every comparison against it is false.
+        guard seconds > 0 else { return 0 }
         let scaled = seconds * 1_000_000_000
         guard scaled < 9_000_000_000_000_000_000 else { return 9_000_000_000_000_000_000 }
         return UInt64(scaled)

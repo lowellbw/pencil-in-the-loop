@@ -4,11 +4,16 @@
 //
 //  Folder preparation, bookmarks and the balance of the security scope.
 //
-//  A temp directory is not security-scoped, so
-//  `startAccessingSecurityScopedResource()` returns false throughout. That is
-//  the case these tests exist to pin down: false must mean "no scope needed",
-//  not "access denied", or the App Group path and every test in this target
+//  These tests pin down that `false` from
+//  `startAccessingSecurityScopedResource()` means "no scope needed", not
+//  "access denied" — otherwise the App Group path and every test in this target
 //  break.
+//
+//  What this header used to claim, and what turned out not to be true on iOS:
+//  that a temp directory returns `false`. It returns `true`, for a plain file
+//  URL and for one pointing at nothing at all, so the return value says nothing
+//  about whether the folder is there. Anything that needs to know that has to
+//  ask the filesystem — see `SyncFolderAccess.isDirectory(_:)`.
 //
 
 import XCTest

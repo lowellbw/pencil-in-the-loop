@@ -84,6 +84,18 @@ public struct SyncFolderAccess: FolderAccessing {
             throw PencilLoopError.accessDenied(path: url.path)
         }
 
+        // The root has to already exist. `startAccessingSecurityScopedResource`
+        // returns true on iOS for plain file URLs — including ones that point at
+        // nothing — so it cannot stand in for this check, and without it the
+        // `withIntermediateDirectories` below would cheerfully invent the whole
+        // tree. A picker that returned a folder that is gone is a folder that is
+        // gone; saying so is the only honest answer.
+        guard SyncFolderAccess.isDirectory(url) else {
+            throw PencilLoopError.folderUnavailable(
+                reason: "The folder is no longer there."
+            )
+        }
+
         var folder = SyncFolder(rootURL: url)
         do {
             try createDirectoryIfAbsent(at: folder.inboxURL)
@@ -338,9 +350,26 @@ public struct SyncFolderAccess: FolderAccessing {
         }
     }
 
-    private static func isDirectory(_ url: URL) -> Bool {
-        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
-        return values?.isDirectory == true
+    /// Whether `url` is a directory **right now**.
+    ///
+    /// `FileManager.fileExists` rather than `URL.resourceValues`, and the
+    /// difference is the whole point: a `URL` caches the resource values it has
+    /// already been asked for, so a root that was a directory when the folder
+    /// was picked keeps answering `true` from the same `URL` value long after
+    /// the volume was ejected or the provider signed out. `SyncFolder.rootURL`
+    /// lives for the whole run, so that cache would mean the app could never
+    /// notice its folder had gone — the case docs/02-spec.md § F7 is about, and
+    /// the one the status line exists to report.
+    ///
+    /// Made non-private so `PollingFolderWatcher` can ask the same question the
+    /// same way; two spellings of it is how one of them ends up cached again.
+    static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: url.path(percentEncoded: false),
+            isDirectory: &isDirectory
+        )
+        return exists && isDirectory.boolValue
     }
 
     private func createDirectoryIfAbsent(at url: URL) throws {

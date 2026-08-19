@@ -281,8 +281,11 @@ public actor PollingFolderWatcher: FolderWatching {
     /// - Returns: `.unreachable` when the root is not a readable directory.
     public static func sample(of folder: SyncFolder) -> Sample {
         let manager = FileManager.default
-        let rootValues = try? folder.rootURL.resourceValues(forKeys: [.isDirectoryKey])
-        guard rootValues?.isDirectory == true else { return .unreachable }
+        // Not `resourceValues`: the root URL outlives every poll, and a URL
+        // caches the resource values it has been asked for, so this check would
+        // answer "still there" for the rest of the run no matter what happened
+        // to the folder. See SyncFolderAccess.isDirectory(_:).
+        guard SyncFolderAccess.isDirectory(folder.rootURL) else { return .unreachable }
 
         return Sample(
             isReachable: true,

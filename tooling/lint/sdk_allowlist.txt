@@ -61,6 +61,7 @@ JSONDecoder JSONEncoder JSONSerialization
 Locale LocalizedError Logger
 Measurement
 Notification NotificationCenter NumberFormatter
+ObjCBool
 Operation OperationQueue
 Process ProcessInfo Progress PropertyListDecoder PropertyListEncoder
 RelativeDateTimeFormatter RunLoop

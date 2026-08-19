@@ -123,9 +123,25 @@ public enum DocumentContainer {
     /// Every destructive operation checks this first: purging deletes files,
     /// and it must never be able to reach the user's sync folder.
     public static func isInsideDocumentsRoot(_ url: URL) -> Bool {
-        let root = documentsRoot().standardizedFileURL.path(percentEncoded: false)
-        let prefix = root.hasSuffix("/") ? root : root + "/"
-        return url.standardizedFileURL.path(percentEncoded: false).hasPrefix(prefix)
+        // Both sides are stripped of a trailing slash first. `path` used to do
+        // that itself; `path(percentEncoded:)` keeps the slash a directory URL
+        // carries, so the root's own path arrived here already ending in one,
+        // matched the prefix built from it, and the root reported itself as
+        // being inside itself — which would make the whole documents directory
+        // a legal deletion target.
+        let root = DocumentContainer.pathWithoutTrailingSlash(documentsRoot())
+        return DocumentContainer.pathWithoutTrailingSlash(url).hasPrefix(root + "/")
+    }
+
+    /// A file URL's path with any trailing slash removed, so that two paths can
+    /// be compared without a directory URL and a file URL for the same place
+    /// disagreeing about their last character.
+    private static func pathWithoutTrailingSlash(_ url: URL) -> String {
+        var path = url.standardizedFileURL.path(percentEncoded: false)
+        while path.count > 1, path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path
     }
 
     /// Creates a directory when it is not already there, ignoring the failure.

@@ -115,8 +115,16 @@ final class DocumentStoreSearchTests: XCTestCase {
         let read = try await store.summaries(LibraryQuery(states: [.read]))
         XCTAssertEqual(read.map(\.folderName), ["2026-08-18-auth-refactor-plan"])
 
+        // The fixture inks a page of the latency budget, and a document's first
+        // annotation moves it to `.reviewing` (docs/04-flows.md § F2). So the
+        // section holding it is Reviewing, and Unread is empty — which is the
+        // stronger assertion anyway: a filter that narrows to one section has
+        // to be able to return none.
+        let reviewing = try await store.summaries(LibraryQuery(states: [.reviewing]))
+        XCTAssertEqual(reviewing.map(\.folderName), ["2026-08-19-latency-budget"])
+
         let unread = try await store.summaries(LibraryQuery(states: [.unread]))
-        XCTAssertEqual(unread.map(\.folderName), ["2026-08-19-latency-budget"])
+        XCTAssertTrue(unread.isEmpty)
     }
 
     func testSortOrders() async throws {
