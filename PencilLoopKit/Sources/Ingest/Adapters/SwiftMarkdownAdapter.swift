@@ -198,9 +198,12 @@ public struct SwiftMarkdownAdapter: MarkdownParsing {
         return merged(runs)
     }
 
+    // `InlineAttributes` is qualified throughout this file: swift-markdown has a
+    // markup node of that name too, and this is the one file that imports both
+    // it and Core. Everywhere else the bare name is unambiguous.
     private func collect(
         _ markup: Markup,
-        attributes: InlineAttributes,
+        attributes: Core.InlineAttributes,
         link: String?,
         index: SourceOffsetIndex,
         into runs: inout [InlineRun]
@@ -242,7 +245,7 @@ public struct SwiftMarkdownAdapter: MarkdownParsing {
 
     private func recurse(
         _ markup: Markup,
-        attributes: InlineAttributes,
+        attributes: Core.InlineAttributes,
         link: String?,
         index: SourceOffsetIndex,
         into runs: inout [InlineRun]
@@ -261,7 +264,7 @@ public struct SwiftMarkdownAdapter: MarkdownParsing {
     /// arrives in document order.
     private func add(
         _ text: String,
-        attributes: InlineAttributes,
+        attributes: Core.InlineAttributes,
         link: String?,
         markup: Markup,
         index: SourceOffsetIndex,
@@ -297,7 +300,7 @@ public struct SwiftMarkdownAdapter: MarkdownParsing {
     /// answer this module's rule prefers.
     private func addBreak(
         _ text: String,
-        attributes: InlineAttributes,
+        attributes: Core.InlineAttributes,
         link: String?,
         index: SourceOffsetIndex,
         into runs: inout [InlineRun]

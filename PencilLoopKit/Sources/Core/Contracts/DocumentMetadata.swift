@@ -142,8 +142,11 @@ public struct DocumentMetadata: Codable, Sendable, Hashable {
         _ container: KeyedDecodingContainer<CodingKeys>,
         _ key: CodingKeys
     ) -> URL? {
-        guard let text = try? container.decodeIfPresent(String.self, forKey: key) else { return nil }
-        guard let text, text.isEmpty == false else { return nil }
+        // `try?` flattens the `String??` that decodeIfPresent would otherwise
+        // give here, so an absent key and a key of the wrong type both arrive
+        // as nil — which is exactly the leniency this method is for.
+        guard let text = try? container.decodeIfPresent(String.self, forKey: key),
+              text.isEmpty == false else { return nil }
         return URL(string: text)
     }
 
