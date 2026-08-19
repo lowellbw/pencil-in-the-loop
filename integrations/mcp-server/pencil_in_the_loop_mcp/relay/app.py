@@ -220,9 +220,18 @@ def create_app(
                 staging / "meta.json",
                 json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
             )
+            # Size and hash are recorded for the files written here too, not
+            # just the uploaded ones. The iPad verifies every download against
+            # what the feed advertised, and a null hash would quietly turn that
+            # check off for exactly the two files every document has.
             written = [
-                {"name": "source.md", "present": True},
-                {"name": "meta.json", "present": True},
+                {
+                    "name": name,
+                    "present": True,
+                    "bytes": (staging / name).stat().st_size,
+                    "sha256": relay_files.sha256_of(staging / name),
+                }
+                for name in ("source.md", "meta.json")
             ]
             folder_name = index.reserve_document(
                 base=base,

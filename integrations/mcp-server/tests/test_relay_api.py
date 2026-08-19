@@ -123,6 +123,17 @@ class SendDocumentTests(RelayApiTestCase):
         self.assertEqual(response.json()["error"], "invalid_input")
         self.assertEqual(list((self.root / "inbox").glob("*")), [])
 
+    def test_the_feed_advertises_a_size_and_hash_for_every_file(self) -> None:
+        """The iPad verifies each download against what the feed said. A null
+        hash would turn that check off for the two files every document has."""
+        self.send()
+        feed = self.client.get("/v1/changes", headers=self.auth).json()
+        directory = self.root / "inbox" / feed["documents"][0]["folderName"]
+        for entry in feed["documents"][0]["files"]:
+            body = (directory / entry["name"]).read_bytes()
+            self.assertEqual(entry["bytes"], len(body), entry["name"])
+            self.assertEqual(entry["sha256"], sha(body), entry["name"])
+
     def test_a_trigger_id_never_reaches_the_disk(self) -> None:
         """A trigger id fires a turn into someone's conversation. It is closer
         to a credential than to metadata."""

@@ -6,7 +6,9 @@ module only turns tool calls into those functions and shapes the replies.
 
 from __future__ import annotations
 
+import base64
 import os
+from pathlib import Path
 from typing import Any
 
 from . import __version__
@@ -15,6 +17,8 @@ from .core import (
     ValidationError,
     list_review_bundles,
     read_review,
+    validate_bundle_id,
+    write_file,
     write_inbox_bundle,
 )
 
@@ -166,6 +170,133 @@ def get_review(id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"could not read the bundle: {exc}"}
     review["ok"] = True
     return review
+
+
+@server.tool(
+    name="get_ink_image",
+    description=(
+        "Fetch one page of Apple Pencil ink from a review as an image, so you "
+        "can see what was drawn. Position carries meaning — an arrow points at "
+        "the text beneath it, a circle selects a passage, a strikethrough "
+        "means delete — so an ink page is evidence, not decoration. Use this "
+        "when get_review lists more ink pages than it inlined, or to look "
+        "again at one page."
+    ),
+)
+def get_ink_image(id: str, page: int) -> Any:
+    """One ink page, as an image block.
+
+    - Parameter page: the one-based number in the file name, so `ink/page-03.png`
+      is page 3. That matches what `get_review` lists.
+    """
+    try:
+        bundle = _bundle_directory(id)
+    except ValidationError as exc:
+        return {"ok": False, "error": f"invalid id: {exc}"}
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": str(exc), "hint": "call list_reviews first"}
+
+    path = bundle / "ink" / f"page-{int(page):02d}.png"
+    if not path.is_file():
+        return {
+            "ok": False,
+            "error": f"no ink on page {page} of {id}",
+            "hint": "call get_review to see which pages have ink",
+        }
+    return _image_block(path)
+
+
+@server.tool(
+    name="reply_to_review",
+    description=(
+        "Reply to a review, in the reader. Writes reply.md into the review "
+        "bundle; the iPad notices it and offers to open it as a document "
+        "beside the original, so the user can read your answer where they "
+        "wrote the question. Use it to say what you changed, or to ask about "
+        "a comment you could not act on."
+    ),
+)
+def reply_to_review(id: str, markdown: str) -> dict[str, Any]:
+    """Write `reply.md` into a review bundle.
+
+    The only tool here that writes to the outbox. `docs/05-file-contracts.md`
+    has specified the reply channel from the start and the app has watched for
+    it from the start; nothing had ever written one.
+    """
+    if not isinstance(markdown, str) or not markdown.strip():
+        return {"ok": False, "error": "invalid input: the reply is empty"}
+    try:
+        bundle = _bundle_directory(id)
+    except ValidationError as exc:
+        return {"ok": False, "error": f"invalid id: {exc}"}
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": str(exc), "hint": "call list_reviews first"}
+
+    try:
+        write_file(bundle / "reply.md", markdown if markdown.endswith("\n") else markdown + "\n")
+    except OSError as exc:
+        return {"ok": False, "error": f"could not write the reply: {exc}"}
+    return {
+        "ok": True,
+        "id": bundle.name.removesuffix(".review"),
+        "message": "On the iPad: the review sheet now offers to open your reply as a document.",
+    }
+
+
+def _bundle_directory(raw_id: Any) -> Path:
+    """The review directory for an id, defended against traversal.
+
+    - Raises: `ValidationError` for an id that is not a bundle name,
+      `FileNotFoundError` when there is no such bundle.
+    """
+    name = validate_bundle_id(raw_id)
+    outbox = (Path(_sync_root()) / "outbox").resolve()
+    bundle = (outbox / f"{name}.review").resolve()
+    if outbox not in bundle.parents:
+        raise ValidationError("id must name a bundle inside the outbox")
+    if not bundle.is_dir():
+        raise FileNotFoundError(f"no review bundle with id {name}")
+    return bundle
+
+
+def _image_block(path: Path) -> Any:
+    """A PNG as an MCP image block, or a plain dict when the SDK has no type."""
+    data = base64.b64encode(path.read_bytes()).decode("ascii")
+    try:
+        from mcp.types import ImageContent
+
+        return ImageContent(type="image", data=data, mimeType="image/png")
+    except ImportError:  # pragma: no cover - depends on the SDK version
+        return {"type": "image", "data": data, "mimeType": "image/png"}
+
+
+def streamable_http_app(sync_root: Path | None = None) -> Any:
+    """The MCP server as an ASGI app, for mounting inside the relay.
+
+    The tools are unchanged and still read `PENCIL_SYNC_ROOT` through
+    `resolve_sync_root()`, so hosting changes where the folder is and nothing
+    else. There is deliberately no HTTP client inside this server: the relay's
+    API and these tools are two faces on one storage layer, which is less code
+    than a second implementation of every verb and cannot drift from it.
+
+    Stateless, so that a redeploy does not strand a session mid-conversation.
+    """
+    if sync_root is not None:
+        os.environ.setdefault("PENCIL_SYNC_ROOT", str(sync_root))
+
+    kwargs: dict[str, Any] = {"streamable_http_path": "/", "stateless_http": True}
+    try:
+        from mcp.server.transport_security import TransportSecuritySettings
+
+        # The relay is reached at whatever hostname the platform gives it, so
+        # the SDK's DNS-rebinding guard would refuse every request. Auth is the
+        # bearer token, and the transport is TLS the platform terminates.
+        kwargs["transport_security"] = TransportSecuritySettings(
+            allowed_hosts=["*"], allowed_origins=["*"]
+        )
+    except ImportError:  # pragma: no cover - depends on the SDK version
+        pass
+    return server.streamable_http_app(**kwargs)
 
 
 def main() -> None:

@@ -29,6 +29,18 @@
 //  Only after step 6 is the document allowed to become openable. A document
 //  that lives only in a provider is one iCloud purge away from being a spinner
 //  on a plane, which defeats the entire app.
+//
+//  ─── WHAT MOVED, AND WHY IT STILL READS THE SAME ─────────────────────────────
+//  Steps 4 to 6 — staging, sweeping, the sidecar written last, retire-and-swap
+//  with restore-on-failure, the backup exclusion, and the freshness comparison
+//  — are not about iCloud at all, and the relay transport needs every one of
+//  them. They live in `PinnedDocumentWriter` (Sync/Pin) and this type calls it.
+//  What is left here is the half that genuinely is about a file provider:
+//  asking for the download, waiting for the bytes, and the coordinated copy.
+//
+//  This type's public surface did not change by a character, which is the point
+//  — `InboxItemPinnerTests` never learned about the split and is the proof the
+//  extraction was behaviour-preserving.
 //  ─────────────────────────────────────────────────────────────────────────────
 //
 
@@ -50,45 +62,12 @@ public struct InboxItemPinner: Sendable {
 
     /// What one pinned directory records about itself.
     ///
-    /// Written last and read first: a pinned directory with no snapshot is a
-    /// copy that did not finish, and is re-pinned rather than trusted. It lives
-    /// in the app container, never in the sync folder — the sync folder is a
-    /// published contract and this is our bookkeeping.
-    public struct Snapshot: Codable, Sendable, Hashable {
-
-        /// `YYYY-MM-DD-<slug>`.
-        public var folderName: String
-
-        /// The source directory's newest modification date at the time of the
-        /// copy. What "has this folder been rewritten?" is decided against.
-        public var modifiedAt: Date
-
-        /// The **source** directory's total size at the time of the copy, not
-        /// the number of bytes copied. The two differ when a directory holds a
-        /// file this app does not copy, and comparing the copied total against
-        /// a scan would then say "changed" forever.
-        public var byteCount: Int64
-
-        /// When the copy completed.
-        public var pinnedAt: Date
-
-        /// The file names that were copied, in copy order.
-        public var fileNames: [String]
-
-        public init(
-            folderName: String,
-            modifiedAt: Date,
-            byteCount: Int64,
-            pinnedAt: Date,
-            fileNames: [String]
-        ) {
-            self.folderName = folderName
-            self.modifiedAt = modifiedAt
-            self.byteCount = byteCount
-            self.pinnedAt = pinnedAt
-            self.fileNames = fileNames
-        }
-    }
+    /// The same type both transports write, declared in `PinnedDocumentWriter`
+    /// and spelled `InboxItemPinner.Snapshot` here because that is what every
+    /// caller and every test already says. One sidecar format, one decoder: a
+    /// directory pinned over HTTP and a directory pinned from a folder are the
+    /// same directory afterwards, and neither can be told from the other.
+    public typealias Snapshot = PinnedDocumentWriter.Snapshot
 
     /// What the filesystem says about one file's availability.
     ///
@@ -155,7 +134,7 @@ public struct InboxItemPinner: Sendable {
 
     /// The sidecar's file name. Dot-prefixed so that if a pinned directory is
     /// ever copied back into a sync folder by hand, every watcher ignores it.
-    public static let snapshotFileName = ".pinned.json"
+    public static let snapshotFileName = PinnedDocumentWriter.snapshotFileName
 
     /// `DocumentContainer.documentsRoot()` — the one place a pinned document
     /// lives.
@@ -167,7 +146,16 @@ public struct InboxItemPinner: Sendable {
     /// stores relative, and therefore what makes a document still open after a
     /// reinstall (DocumentContainer.swift header).
     public static func defaultDestinationRoot() -> URL {
-        DocumentContainer.documentsRoot()
+        PinnedDocumentWriter.defaultDestinationRoot()
+    }
+
+    /// The container discipline, which is shared with the relay transport.
+    ///
+    /// Computed rather than stored because `destinationRoot` is a `var` a
+    /// caller may set after construction, and a writer captured at init would
+    /// then quietly keep pinning into the old root.
+    private var writer: PinnedDocumentWriter {
+        PinnedDocumentWriter(destinationRoot: destinationRoot)
     }
 
     // MARK: - Deciding whether there is work
@@ -178,40 +166,30 @@ public struct InboxItemPinner: Sendable {
     /// names, and the same one Ingest materialises into and Storage records
     /// paths relative to. There is one directory per document, not three.
     public func pinnedDirectory(forFolderNamed folderName: String) -> URL {
-        destinationRoot.appendingPathComponent(folderName, isDirectory: true)
+        writer.pinnedDirectory(forFolderNamed: folderName)
     }
 
     /// The snapshot of a completed pin, or nil when there is none — which
     /// includes the case of a directory left behind by a copy that did not
     /// finish.
     public func pinnedSnapshot(forFolderNamed folderName: String) -> Snapshot? {
-        let url = pinnedDirectory(forFolderNamed: folderName)
-            .appendingPathComponent(InboxItemPinner.snapshotFileName, isDirectory: false)
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? ContractCoding.decoder().decode(Snapshot.self, from: data)
+        writer.pinnedSnapshot(forFolderNamed: folderName)
     }
 
     /// Whether this item is already pinned, complete, and current.
     ///
     /// The one question the coordinator asks before doing any work on a folder
     /// the library already knows about. A folder rewritten in place — same
-    /// name, newer contents — answers false and is re-ingested.
+    /// name, newer contents — answers false and is re-ingested. The
+    /// whole-second comparison that makes this answer true for a folder nobody
+    /// touched is in `PinnedDocumentWriter`, with the story of what its absence
+    /// costs.
     public func isPinnedAndCurrent(_ item: InboxItem) -> Bool {
-        guard let snapshot = pinnedSnapshot(forFolderNamed: item.folderName) else { return false }
-
-        // Compare at whole seconds, because that is all the sidecar can hold.
-        // `ContractCoding` writes dates as `2026-08-18T18:22:04Z` with no
-        // fractional part, so a snapshot written from this very item reads back
-        // up to a second *earlier* than the modification date it was taken
-        // from — and a straight `<` then calls every pinned document stale, on
-        // every scan, for ever. The symptom is not a wrong answer anywhere
-        // visible: it is the whole library being re-downloaded, re-copied and
-        // re-ingested every fifteen seconds.
-        let recorded = snapshot.modifiedAt.timeIntervalSince1970.rounded(.down)
-        let scanned = item.modifiedAt.timeIntervalSince1970.rounded(.down)
-        if recorded < scanned { return false }
-        if item.byteCount > 0, snapshot.byteCount != item.byteCount { return false }
-        return true
+        writer.isPinnedAndCurrent(
+            folderName: item.folderName,
+            modifiedAt: item.modifiedAt,
+            byteCount: item.byteCount
+        )
     }
 
     // MARK: - Pinning
@@ -225,27 +203,8 @@ public struct InboxItemPinner: Sendable {
     /// - Returns: the same item with every URL pointing at the pinned copy.
     /// - Throws: `.materialisationFailed(folderName:reason:)`.
     public func pin(_ item: InboxItem) async throws -> InboxItem {
-        let manager = FileManager.default
-        let destination = pinnedDirectory(forFolderNamed: item.folderName)
-        let staging = destinationRoot.appendingPathComponent(
-            SyncFileNames.stagingName(for: item.folderName, token: UUID().uuidString),
-            isDirectory: true
-        )
-
-        do {
-            try manager.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
-            // A pin that was interrupted by a crash left its staging directory —
-            // a whole copy of a document — inside the documents root, where
-            // nothing looks for it and `DocumentStore.storageBytes()` counts it.
-            // Sweeping here is the only moment this module is certain to reach.
-            StagingSweeper.sweep(in: destinationRoot)
-            try manager.createDirectory(at: staging, withIntermediateDirectories: true)
-        } catch {
-            throw PencilLoopError.materialisationFailed(
-                folderName: item.folderName,
-                reason: "The app's document store could not be prepared. \(error.localizedDescription)"
-            )
-        }
+        let writer = self.writer
+        let staging = try writer.beginStaging(forFolderNamed: item.folderName)
 
         do {
             var copiedNames: [String] = []
@@ -267,18 +226,12 @@ public struct InboxItemPinner: Sendable {
                 pinnedAt: Date(),
                 fileNames: copiedNames
             )
-            // Written last, exactly like `manifest.json` on the way out: the
-            // sidecar's presence is what makes the directory trustworthy.
-            let snapshotURL = staging.appendingPathComponent(InboxItemPinner.snapshotFileName, isDirectory: false)
-            try ContractCoding.encoder().encode(snapshot).write(to: snapshotURL, options: [.atomic])
-
-            try swap(staging: staging, into: destination)
-            InboxItemPinner.includeInBackup(destination)
+            let destination = try writer.commit(staging: staging, snapshot: snapshot)
 
             SyncLog.pin.info("Pinned \(item.folderName) — \(copiedNames.count) file(s), \(copiedBytes) bytes.")
             return InboxItemPinner.rewrite(item, into: destination)
         } catch {
-            try? manager.removeItem(at: staging)
+            writer.discard(staging)
             if let known = error as? PencilLoopError {
                 throw known
             }
@@ -293,7 +246,7 @@ public struct InboxItemPinner: Sendable {
     /// business calling this — pinned bytes are the user's, and the system
     /// never decides to remove them (docs/02-spec.md § S6).
     public func removePinnedCopy(forFolderNamed folderName: String) {
-        try? FileManager.default.removeItem(at: pinnedDirectory(forFolderNamed: folderName))
+        writer.removePinnedCopy(forFolderNamed: folderName)
     }
 
     /// Drops a pinned directory's completion sidecar and nothing else.
@@ -309,9 +262,7 @@ public struct InboxItemPinner: Sendable {
     /// readable yesterday is still readable today (docs/02-spec.md
     /// § Cross-cutting), whatever went wrong with the newest revision.
     public func invalidateSnapshot(forFolderNamed folderName: String) {
-        let url = pinnedDirectory(forFolderNamed: folderName)
-            .appendingPathComponent(InboxItemPinner.snapshotFileName, isDirectory: false)
-        try? FileManager.default.removeItem(at: url)
+        writer.invalidateSnapshot(forFolderNamed: folderName)
     }
 
     // MARK: - Verification, as pure functions
@@ -441,48 +392,5 @@ public struct InboxItemPinner: Sendable {
             )
         }
         return copied
-    }
-
-    /// Puts the finished staging directory where the pinned copy belongs,
-    /// keeping the previous copy until the new one is in place.
-    ///
-    /// The replacement is wholesale, so anything Ingest derived into the
-    /// previous directory — a `document.pdf` rendered from markdown, a
-    /// `sourcemap.json` — goes with it. That is correct: a re-pin only happens
-    /// when the source directory changed, and the caller re-ingests
-    /// immediately afterwards, which regenerates exactly those files
-    /// (SyncCoordinator.ingest(_:)).
-    private func swap(staging: URL, into destination: URL) throws {
-        let manager = FileManager.default
-        if manager.fileExists(atPath: destination.path) {
-            let retired = destinationRoot.appendingPathComponent(
-                SyncFileNames.stagingName(for: destination.lastPathComponent, token: "retired-\(UUID().uuidString)"),
-                isDirectory: true
-            )
-            try manager.moveItem(at: destination, to: retired)
-            do {
-                try manager.moveItem(at: staging, to: destination)
-            } catch {
-                // Put the previous copy back rather than leaving the document
-                // with no bytes at all.
-                try? manager.moveItem(at: retired, to: destination)
-                throw error
-            }
-            try? manager.removeItem(at: retired)
-            return
-        }
-        try manager.moveItem(at: staging, to: destination)
-    }
-
-    /// `isExcludedFromBackup = false`, per docs/02-spec.md § Everything is
-    /// always local. Set through `NSURL` so no mutable resource-values struct
-    /// has to be built for one flag.
-    private static func includeInBackup(_ url: URL) {
-        let reference = url as NSURL
-        do {
-            try reference.setResourceValue(NSNumber(value: false), forKey: .isExcludedFromBackupKey)
-        } catch {
-            SyncLog.pin.notice("Could not clear the backup exclusion on \(url.lastPathComponent).")
-        }
     }
 }

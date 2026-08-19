@@ -7,8 +7,15 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = ["mcp>=1.2,<3"]
 
+# Starlette and uvicorn are needed only to *host* the relay. The stdio install
+# — what `claude mcp add` launches on a Mac — stays as light as it was, so
+# `uvx --from . pencil-in-the-loop-mcp` pulls nothing new.
+[project.optional-dependencies]
+relay = ["starlette>=0.37", "uvicorn>=0.30"]
+
 [project.scripts]
 pencil-in-the-loop-mcp = "pencil_in_the_loop_mcp.server:main"
+pencil-loop-relay = "pencil_in_the_loop_mcp.relay.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
