@@ -18,6 +18,15 @@ build/
 Packages/
 *.playground/build/
 
+# Python. The integrations/ units are stdlib-only packages; nothing generated
+# by running or installing them belongs in the repo. A lock file for the relay
+# is committed deliberately when it is deployed, not picked up by `git add -A`.
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
 # macOS
 .DS_Store
 

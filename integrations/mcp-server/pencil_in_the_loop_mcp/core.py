@@ -15,9 +15,11 @@ import re
 import shutil
 import unicodedata
 import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from .config import RETURN_PATH_TYPES, detect_origin_kind, detect_session
 
@@ -276,6 +278,17 @@ def _write_file(path: Path, text: str) -> None:
         os.fsync(handle.fileno())
 
 
+# Public aliases for callers outside this module (the relay writes bundles the
+# same way the folder transport does, and must not reimplement the discipline).
+#
+# The underscore names stay because the write path below calls them by module
+# global, and the atomicity tests rebind those globals to inject failures. Two
+# names for one function is worth a durable test that proves a half-written
+# bundle never appears.
+write_file = _write_file
+fsync_dir = _fsync_dir
+
+
 def _ensure_h1(content: str, title: str) -> str:
     """Give the renderer a title to work with, without rewriting the body."""
     for line in content.splitlines():
@@ -320,6 +333,115 @@ def build_meta(
     return meta
 
 
+@dataclass
+class BundleStaging:
+    """A bundle being built, and where it landed once it has.
+
+    `final` is None until the rename succeeds, which is the only moment the
+    bundle becomes visible to anything watching the directory.
+    """
+
+    directory: Path
+    final: Path | None = None
+
+
+def stage_bundle(parent: Path, base: str) -> Path:
+    """A hidden sibling directory to build a bundle in.
+
+    Dot-prefixed so every watcher in `integrations/` ignores it while it is
+    being filled, and uniquely suffixed so two writers cannot collide.
+    """
+    parent.mkdir(parents=True, exist_ok=True)
+    staging = parent / f".{base}.{uuid.uuid4().hex[:8]}.tmp"
+    staging.mkdir(parents=False, exist_ok=False)
+    return staging
+
+
+def commit_bundle(staging: Path, parent: Path, base: str) -> Path:
+    """Land a staged bundle with one rename, taking the first free name.
+
+    - Raises: OSError when every candidate name is taken.
+    """
+    _fsync_dir(staging)
+    for name in candidate_names(base):
+        target = parent / name
+        if target.exists():
+            continue
+        try:
+            os.rename(staging, target)
+        except OSError:
+            continue
+        _fsync_dir(parent)
+        return target
+    raise OSError(
+        f"could not place bundle: {MAX_COLLISION_SUFFIX} name collisions on {base}"
+    )
+
+
+def discard_bundle(staging: Path) -> None:
+    """Remove a staged bundle. Never raises — the caller is already failing."""
+    shutil.rmtree(staging, ignore_errors=True)
+
+
+@contextmanager
+def atomic_bundle_dir(parent: Path, base: str) -> Iterator[BundleStaging]:
+    """Build a bundle and land it, or leave nothing behind.
+
+    For a writer that has every file to hand in one go. A writer that receives
+    files across several requests — the relay taking a review bundle upload —
+    holds `stage_bundle` / `commit_bundle` / `discard_bundle` itself, because
+    the staging directory has to outlive the request that created it.
+    """
+    handle = BundleStaging(stage_bundle(parent, base))
+    try:
+        yield handle
+        handle.final = commit_bundle(handle.directory, parent, base)
+    except BaseException:
+        discard_bundle(handle.directory)
+        raise
+
+
+def prepare_inbox_bundle(
+    *,
+    content: Any,
+    title: Any = None,
+    tags: Any = None,
+    origin_kind: str | None = None,
+    session_id: str | None = None,
+    thread_title: str | None = None,
+    now: datetime | None = None,
+    document_id: str | None = None,
+) -> tuple[str, dict[str, Any], str]:
+    """Validate and shape a bundle, touching no filesystem at all.
+
+    Split out so the relay and the folder transport cannot drift on slug rules,
+    validation limits, title derivation or the shape of `meta.json`. Everything
+    that can be rejected is rejected here, before any caller has created a
+    directory — which is what makes "a failure leaves no trace" cheap to keep
+    true rather than something each writer has to remember.
+
+    - Returns: the base folder name, the `meta.json` payload, and `source.md`.
+    - Raises: `ValidationError`, and nothing else.
+    """
+    body = validate_content(content)
+    clean_title = validate_title(title, body)
+    clean_tags = validate_tags(tags)
+    kind = detect_origin_kind(origin_kind)
+    session = detect_session(session_id)
+
+    meta = build_meta(
+        title=clean_title,
+        kind=kind,
+        session=session,
+        tags=clean_tags,
+        thread_title=thread_title,
+        now=now,
+        document_id=document_id,
+    )
+    base = bundle_name(clean_title, now.date() if now else None)
+    return base, meta, _ensure_h1(body, clean_title)
+
+
 def write_inbox_bundle(
     sync_root: Path,
     *,
@@ -339,64 +461,36 @@ def write_inbox_bundle(
     inbox is left exactly as it was.
     """
     # 1 · validate before touching the filesystem at all
-    body = validate_content(content)
-    clean_title = validate_title(title, body)
-    clean_tags = validate_tags(tags)
-    kind = detect_origin_kind(origin_kind)
-    session = detect_session(session_id)
-
-    root = Path(sync_root).expanduser()
-    inbox = root / "inbox"
-    inbox.mkdir(parents=True, exist_ok=True)
-
-    meta = build_meta(
-        title=clean_title,
-        kind=kind,
-        session=session,
-        tags=clean_tags,
+    base, meta, source_md = prepare_inbox_bundle(
+        content=content,
+        title=title,
+        tags=tags,
+        origin_kind=origin_kind,
+        session_id=session_id,
         thread_title=thread_title,
         now=now,
     )
 
-    # 2 · build in a uniquely named hidden temp dir, fully, then fsync
-    base = bundle_name(clean_title, now.date() if now else None)
-    tmp = inbox / f".{base}.{uuid.uuid4().hex[:8]}.tmp"
-    try:
-        tmp.mkdir(parents=False, exist_ok=False)
-        _write_file(tmp / "source.md", _ensure_h1(body, clean_title))
+    inbox = Path(sync_root).expanduser() / "inbox"
+
+    # 2 · build in a uniquely named hidden temp dir, then land it with one
+    #     rename. `atomic_bundle_dir` removes the staging directory on any
+    #     failure, so a half-written bundle never reaches the inbox.
+    with atomic_bundle_dir(inbox, base) as staging:
+        _write_file(staging.directory / "source.md", source_md)
         _write_file(
-            tmp / "meta.json",
+            staging.directory / "meta.json",
             json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
         )
-        _fsync_dir(tmp)
 
-        # 3 · one rename per candidate name until one lands
-        final: Path | None = None
-        for name in candidate_names(base):
-            target = inbox / name
-            if target.exists():
-                continue
-            try:
-                os.rename(tmp, target)
-            except OSError:
-                continue
-            final = target
-            break
-        if final is None:
-            raise OSError(
-                f"could not place bundle: {MAX_COLLISION_SUFFIX} name "
-                f"collisions on {base}"
-            )
-    except BaseException:
-        shutil.rmtree(tmp, ignore_errors=True)
-        raise
-
-    _fsync_dir(inbox)
+    final = staging.final
+    if final is None:  # unreachable: the manager raises rather than returning
+        raise OSError(f"bundle did not land: {base}")
     return {
         "id": final.name,
         "path": str(final),
-        "title": clean_title,
-        "tags": clean_tags,
+        "title": meta["title"],
+        "tags": meta.get("tags", []),
         "origin": meta["origin"],
         "documentId": meta["id"],
         "createdAt": meta["createdAt"],
