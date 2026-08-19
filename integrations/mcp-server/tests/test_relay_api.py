@@ -217,6 +217,64 @@ class DeclaredUploadTests(RelayApiTestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class ReconciliationTests(RelayApiTestCase):
+    """A bundle written straight to the volume must reach the feed.
+
+    This is not a corner case: it is the primary path. The MCP tools write with
+    `core.write_inbox_bundle`, exactly as the folder transport does, and they do
+    not know the index exists. Without reconciliation a document sent from
+    Claude lands on disk and no device ever sees it.
+    """
+
+    def write_bundle_directly(self, name: str, title: str) -> None:
+        from pencil_in_the_loop_mcp import core
+
+        core.write_inbox_bundle(self.root, content=f"# {title}\n\nBody.\n")
+
+    def test_a_bundle_written_by_a_tool_reaches_the_feed(self) -> None:
+        self.write_bundle_directly("2026-08-19-written-directly", "Written directly")
+
+        feed = self.client.get("/v1/changes", headers=self.auth).json()
+        titles = [d["title"] for d in feed["documents"]]
+        self.assertIn("Written directly", titles)
+
+    def test_it_carries_a_size_and_hash_so_a_device_can_verify(self) -> None:
+        self.write_bundle_directly("2026-08-19-written-directly", "Written directly")
+        feed = self.client.get("/v1/changes", headers=self.auth).json()
+        directory = self.root / "inbox" / feed["documents"][0]["folderName"]
+
+        for entry in feed["documents"][0]["files"]:
+            body = (directory / entry["name"]).read_bytes()
+            self.assertEqual(entry["bytes"], len(body), entry["name"])
+            self.assertEqual(entry["sha256"], sha(body), entry["name"])
+
+    def test_reconciling_twice_does_not_duplicate_it(self) -> None:
+        self.write_bundle_directly("2026-08-19-written-directly", "Written directly")
+        first = self.client.get("/v1/changes", headers=self.auth).json()
+        second = self.client.get("/v1/changes", headers=self.auth).json()
+        self.assertEqual(len(first["documents"]), len(second["documents"]))
+
+    def test_it_is_downloadable_like_any_other(self) -> None:
+        self.write_bundle_directly("2026-08-19-written-directly", "Written directly")
+        feed = self.client.get("/v1/changes", headers=self.auth).json()
+        folder = feed["documents"][0]["folderName"]
+
+        got = self.client.get(
+            f"/v1/documents/{folder}/files/source.md", headers=self.auth
+        )
+        self.assertEqual(got.status_code, 200)
+        self.assertIn("Written directly", got.text)
+
+    def test_a_half_written_staging_directory_is_ignored(self) -> None:
+        """Dot-prefixed staging is what every watcher already skips."""
+        staging = self.root / "inbox" / ".2026-08-19-half.abc123.tmp"
+        staging.mkdir(parents=True)
+        (staging / "source.md").write_text("# Half\n")
+
+        feed = self.client.get("/v1/changes", headers=self.auth).json()
+        self.assertEqual(feed["documents"], [])
+
+
 class ChangesFeedTests(RelayApiTestCase):
     def test_the_cursor_only_returns_what_is_new(self) -> None:
         self.send(content="# One\n\nBody.")

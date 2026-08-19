@@ -322,6 +322,11 @@ def create_app(
         except ValueError as error:
             raise ApiError(400, "bad_cursor", "since must be an integer.") from error
 
+        # Take in anything written straight to the volume since the last poll —
+        # the MCP tools write bundles the same way the folder transport does,
+        # and without this they would be invisible to every device.
+        index.reconcile(root)
+
         rows = index.changes_since(since, CHANGES_PAGE_LIMIT)
         replies = index.replies_since(since)
         cursor = max(

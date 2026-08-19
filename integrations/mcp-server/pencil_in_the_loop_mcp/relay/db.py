@@ -18,6 +18,7 @@ be lost this way, because nothing a user wrote lives here.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
 import uuid
@@ -499,6 +500,80 @@ class Index:
             return None
         return Path(str(row["staging_path"]))
 
+    def reconcile(self, sync_root: Path) -> list[str]:
+        """Index any bundle that is on the volume but not in the index.
+
+        **The folder is still the API, and this is what keeps that true.** The
+        MCP tools write a bundle with `core.write_inbox_bundle`, exactly as the
+        folder transport does, because that is the whole point of the storage
+        layer being a sync root. They do not know the index exists — and until
+        this ran, a document sent from Claude landed on disk and was invisible
+        to every device, because the feed is answered from the index.
+
+        Reconciling on read rather than making every writer index-aware is the
+        design that matches the promise: drop a directory on the volume by any
+        means — a tool, a restored tarball, `scp` — and it is served.
+
+        - Returns: the folder names it took in.
+        """
+        inbox = Path(sync_root) / "inbox"
+        known = {
+            str(row["folder_name"])
+            for row in self.connection.execute(
+                "SELECT folder_name FROM documents"
+            ).fetchall()
+        }
+
+        taken: list[str] = []
+        for directory in sorted(_visible_directories(inbox)):
+            if directory.name in known:
+                continue
+            meta = core.read_json_file(directory / "meta.json")
+            meta = meta if isinstance(meta, dict) else {}
+            origin = meta.get("origin")
+            files = [
+                entry
+                for entry in sorted(directory.iterdir())
+                if entry.is_file() and not entry.name.startswith(".")
+            ]
+            if not files:
+                continue
+            try:
+                with self.transaction():
+                    seq = self.next_seq()
+                    self.connection.execute(
+                        "INSERT INTO documents (folder_name, document_id, title, "
+                        "created_at, origin_kind, complete, seq, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                        (
+                            directory.name,
+                            str(meta.get("id") or f"adopted-{directory.name}"),
+                            meta.get("title"),
+                            meta.get("createdAt"),
+                            (origin or {}).get("kind") if isinstance(origin, dict) else None,
+                            seq,
+                            core.utc_now_iso(),
+                        ),
+                    )
+                    for entry in files:
+                        self.connection.execute(
+                            "INSERT OR REPLACE INTO document_files "
+                            "(folder_name, name, bytes, sha256, present) "
+                            "VALUES (?, ?, ?, ?, 1)",
+                            (
+                                directory.name,
+                                entry.name,
+                                entry.stat().st_size,
+                                _sha256_of(entry),
+                            ),
+                        )
+                taken.append(directory.name)
+            except sqlite3.IntegrityError:
+                # Another bundle already claims this documentId. Leave the
+                # bytes alone rather than drop something we did not write.
+                continue
+        return taken
+
     # --------------------------------------------------------------- rebuild
 
     def reindex(self, sync_root: Path) -> int:
@@ -618,6 +693,14 @@ class _Transaction:
             self.connection.execute("COMMIT")
         else:
             self.connection.execute("ROLLBACK")
+
+
+def _sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _visible_directories(parent: Path) -> Iterator[Path]:
