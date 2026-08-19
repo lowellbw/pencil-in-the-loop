@@ -505,15 +505,22 @@ is a provisioning mismatch between the two ids — not a missing upload.
 `ITSAppUsesNonExemptEncryption = false` in `Apps/PencilLoop/Info.plist`, which is the
 honest answer and means App Store Connect never asks the question again per build.
 
-This app does no cryptography of its own. The only encryption anywhere near it is HTTPS,
-used by the operating system when the Speech framework downloads a language model on first
-run — and that is exactly the "limited to standard encryption within the OS" exemption the
-question is about. Reading, annotating, ink, transcription and every review bundle are
-local file work. `CryptoKit` appears in one place, `ManifestWriter`, hashing bundle files
-with SHA-256 for `manifest.json`; a hash is not encryption and does not change the answer.
+This app does no cryptography of its own. It does now make HTTPS calls of its own, to the
+relay, when a user opts into that transport — but it makes them through `URLSession`, so
+the TLS is the operating system's, exactly as it is when the Speech framework downloads a
+language model on first run. Both are the "limited to standard encryption within the OS"
+exemption the question is about, and neither changes the answer. Reading, annotating, ink,
+transcription and every review bundle are still local file work. `CryptoKit` appears in
+one place, `ManifestWriter`, hashing bundle files with SHA-256 for `manifest.json`; a hash
+is not encryption, and checking a downloaded file against one is not either.
 
-If you later add anything that encrypts data yourself, flip that key to `true` and expect
-to answer the compliance questions per build, or file a year-long exemption.
+That reasoning is worth reading carefully rather than trusting, because it used to say the
+only encryption anywhere near the app was the Speech framework's download, and the relay
+made that sentence false while leaving the conclusion standing. The conclusion survives
+only because the relay borrows the system's TLS instead of bringing its own. If anything
+ever encrypts data itself — a bundle encrypted before upload, say — flip that key to
+`true` and expect to answer the compliance questions per build, or file a year-long
+exemption.
 
 ### Internal testing
 
@@ -546,5 +553,12 @@ Plainly, so nothing here is a surprise:
   rejects a second upload with a build number it has already seen; bump
   `CURRENT_PROJECT_VERSION` every time.
 - There is no privacy policy URL and no App Privacy answers filled in. Internal TestFlight
-  does not ask; anything beyond it does. The true answer is unusually short — the app
-  collects nothing and talks to no server of ours.
+  does not ask; anything beyond it does, and the answer is no longer a single sentence.
+  The app still collects nothing about the user — no analytics, no telemetry, no
+  identifiers, and nothing at all leaves the device on the folder transport. But a user
+  who turns the relay on is uploading their documents and reviews to a server run for this
+  app, and under Apple's definitions that is user content being collected. Expect to
+  declare it, to say that it is stored only to carry files between that person's own
+  devices, that it is not linked to an identity beyond a shared token, and that it is
+  never used for tracking or advertising. A privacy policy URL becomes genuinely required
+  rather than a formality.

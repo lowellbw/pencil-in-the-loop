@@ -54,7 +54,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PencilLoop records your voice while you hold to speak, so you can leave spoken comments on what you are reading.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>PencilLoop turns your spoken comments into text on this iPad, so they can be written into the review. Nothing is sent to a server.</string>
+	<string>PencilLoop turns your spoken comments into text so they can be written into the review. Your voice is transcribed on this iPad and never sent anywhere.</string>
 
 	<key>UIApplicationSceneManifest</key>
 	<dict>

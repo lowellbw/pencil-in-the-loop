@@ -39,7 +39,8 @@ voice comments, and a one-tap return path to the originating conversation.
 | Handwriting → text | `PKStrokeRecognizer` (iPadOS 27) | The Notes/Freeform engine, now public. Works on stroke vectors not pixels, so it beats OCR. On-device, offline, 29 languages. Public in iPadOS 27, but the build floor stays at 26.0 and the recogniser sits behind an availability guard: ink is captured and exported either way, recognition only makes it searchable. |
 | Voice → text | `SpeechAnalyzer` + `SpeechTranscriber` | Fully on-device once language assets download. No network on the critical path. |
 | Comment anchors | Quoted excerpt with context, never line numbers | Claude regenerates documents. Quoted strings still resolve; line numbers don't. Same principle as a diff-based edit tool. |
-| Transport | A user-chosen folder, watched | Works with iCloud Drive, Dropbox, or a git repo synced by Working Copy. No server, no account, no per-tool integration. |
+| Transport | A user-chosen folder, watched | Works with iCloud Drive, Dropbox, or a git repo synced by Working Copy. No account, no per-tool integration. |
+| Second transport | A hosted relay, opt-in | Added because the folder needs a file provider configured at both ends, and that stopped the loop running at all. Same files, moved over HTTPS instead. The folder stays the reference path; see `12-relay.md`. |
 | Primary source | **Cowork, and it must be invisible** | Cowork already writes to connected folders on the desktop, so outbound needs no plumbing at all. A shipped skill sends anything substantial automatically — the user never asks. See `06-integrations.md`. |
 | Return path | Poke the originating session | See `06-integrations.md`. Genuinely lands in the same thread for both Cowork and Claude Code. |
 
@@ -77,10 +78,22 @@ squeeze system-wide. Long-press is always the primary gesture.
 
 - Editing document text. This is a review tool, not an editor.
 - Real-time collaboration or multi-user anything.
-- A server, an account, or a sync service of our own.
+- An account. There are no users to have one; the relay is reached with a shared token.
 - Windows/Android/web. iPad only.
 - Handwriting *as* the instruction channel — recognised text is a convenience and a
   search index, not the primary payload. Voice is.
+
+**A server of our own was on this list and is no longer.** The folder transport depends
+on a file provider being configured on the Mac *and* the iPad, and when that turned out
+not to be true on the first machine it was tried on, the loop could not run end to end at
+all. So a small hosted relay was built as a second, opt-in transport, and this list is
+amended rather than quietly contradicted. It stores and serves the exact `inbox/` and
+`outbox/` layout of `05-file-contracts.md` — it is a place to put the same files, not a
+service with a data model of its own. The folder transport is unchanged and remains the
+reference path, reading and annotating still never touch the network, and documents are
+still downloaded in full and pinned on arrival: a relay makes fetch-on-open tempting and
+that is precisely the thing that would gut the app. `11-backlog.md` records the
+reconsideration; `12-relay.md` specifies the thing.
 
 ## The risk to watch
 

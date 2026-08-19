@@ -123,7 +123,7 @@ A typed or scribbled note with no voice, for when neither talking nor a full
 comment is right. Partly covered by the Scribble path already.
 
 ### B8 · Reading position sync across devices
-Only meaningful once there is more than one device. The folder is the API, so
+Only meaningful once there is more than one device. The files are the API, so
 this is a small JSON file, not a service.
 
 ### B9 · Bulk actions in the library
@@ -143,9 +143,52 @@ Kept so the same ideas don't get re-litigated.
 - **Editing document text.** `docs/00` scopes this out explicitly. It is a
   review tool, not an editor. Editing would also break the frozen-layout premise
   that makes ink stable.
-- **Real-time collaboration.** Out of scope in `docs/00`. It needs a server,
-  which the whole architecture exists to avoid.
-- **An account, or a sync service of our own.** Same reason. The folder is the
-  API.
+- **Real-time collaboration.** Out of scope in `docs/00`. It needs shared
+  editing state and per-user identity, which is a far larger thing than moving
+  finished files between two ends of a loop.
+- **An account.** There is nobody to have one. The relay is reached with a
+  shared token, and that is as far as identity goes until there is a second
+  user.
 - **iPhone, Mac, web.** `docs/00`: iPad only. The premise is a screen you hold
   with a pen.
+
+---
+
+## Reconsidered
+
+One entry has left the list above by being re-litigated and winning. It stays on
+the record, because "we decided this once" is only useful alongside what changed
+the answer.
+
+### B12 · A sync service of our own — rejected, then built
+
+**What it said:** *"An account, or a sync service of our own. Same reason. The
+folder is the API."*
+
+**Reopened and accepted, August 2026.** The folder transport assumes a file
+provider configured on the Mac *and* on the iPad. On the first Mac it was tried
+on, iCloud Drive was simply switched off, so the shared folder did not exist and
+the loop — send a document, annotate it, get the review back — had never once
+run end to end. That is not a disagreement about architecture; it is the app not
+working.
+
+What made the answer different this time is that the objection turned out to be
+narrower than the sentence carrying it. The thing worth protecting was never the
+folder; it was that the files are the entire contract, that nothing needs an
+account, and that the app keeps working when the network does not. A relay that
+stores and serves the exact `inbox/` and `outbox/` layout of `docs/05` keeps all
+three, and costs nothing to keep: `meta.json`, `review.json` and `manifest.json`
+are the wire format, `GET /v1/export.tar` hands back a directory you can drop in
+Dropbox to go the other way, and the folder transport is untouched and still the
+reference path. The relay is opt-in and new, and nothing in the app assumes it.
+
+What was *not* conceded, and is worth restating because a server makes both
+tempting: documents are still downloaded in full and pinned on arrival rather
+than fetched when opened, and reading and annotating still never touch the
+network. `docs/00`'s out-of-scope list and non-negotiable 3 in `CLAUDE.md` were
+amended in the same change; `docs/12-relay.md` specifies it.
+
+**B8 above is affected.** Reading-position sync is still a small JSON file
+rather than a service, but it is deliberately *not* on the relay in v1: syncing
+read state puts a network write on the reading path for a failure mode nobody
+notices.

@@ -2,13 +2,20 @@
 
 Three small units, none of them Swift, none of them talking to each other.
 
-**All three are readers and writers of the same folder. The folder is the API — there is
+**All three are readers and writers of the same layout. The files are the API — there is
 no protocol between them.** A unit that can write `inbox/<slug>/` can send a document; a
 unit that can read `outbox/<slug>.review/` can receive a review. Nothing else is shared:
-no server, no account, no daemon in the middle, no message format beyond the files in
+no account, no daemon in the middle, no message format beyond the files in
 `docs/05-file-contracts.md`.
 
 That is the whole design. Everything below is a consequence of it.
+
+The layout usually lives in a shared folder, which is the reference transport and what
+every unit here assumes. It can also live on the relay (`docs/12-relay.md`), an opt-in
+hosted second transport holding the identical `inbox/` and `outbox/` directories and
+serving them over HTTPS, for when no shared folder exists on the Mac. That changes where
+the bytes sit, not what they are, and `GET /v1/export.tar` hands the whole thing back as
+a directory if you want to go the other way.
 
 ## The units
 
@@ -28,10 +35,13 @@ default, needs nothing installed), or a poke-only scheduled task for the watcher
 
 ### `mcp-server/` — Claude Code
 
-A local MCP server exposing `send_to_ipad`, `list_reviews` and `get_review`. Same folder,
-same bundle formats, `origin.kind = "claude-code"` and the session id from the hook
-payload. It is convenience, not transport — nothing breaks when it isn't running, because
-the files are still just files.
+An MCP server exposing `send_to_ipad`, `list_reviews` and `get_review`. Same layout, same
+bundle formats, `origin.kind = "claude-code"` and the session id from the hook payload.
+Run locally over stdio against a folder it is convenience, not transport — nothing breaks
+when it isn't running, because the files are still just files. The relay hosts the same
+tools over HTTP for the case where there is no folder and no Mac awake; every function in
+`pencil_in_the_loop_mcp/core.py` already takes a sync root as its first argument, which
+is why one implementation covers both.
 
 ### `mac-watcher/` — the return path
 
@@ -45,14 +55,20 @@ or to the user saying "read my review", both of which work with nothing installe
 ## How they relate
 
 ```
-cowork-skill  ─┐                          ┌─▶  mac-watcher  ──▶  the originating session
-mcp-server    ─┼─▶  inbox/ ──▶ iPad ──▶ outbox/ ─┤
-share sheet   ─┘                          └─▶  the user, manually
+cowork-skill  ─┐    ┌─▶  a shared folder  ─┐             ┌─▶  mac-watcher  ──▶  the session
+mcp-server    ─┼──▶ ┤      (reference)     ├─▶  iPad  ──▶ ┤
+share sheet   ─┘    └─▶  the relay, HTTPS ─┘             └─▶  the user, manually
+                          (opt-in)
+
+Either one holds the same  inbox/  and  outbox/  directories.
 ```
 
-Left of the folder is ingest, right of it is return. Neither side knows the other exists.
-Adding a fourth writer — Codex, a shell script, a cron job that drops a paper in — needs
-no change to any unit here.
+Left of the middle is ingest, right of it is return. Neither side knows the other exists,
+and neither side knows which of the two transports is underneath it. Adding a fourth
+writer — Codex, a shell script, a cron job that drops a paper in — needs no change to any
+unit here. The relay is the one thing that spans the picture, because it can hold the
+layout and host `mcp-server/`'s tools at once; `mac-watcher/` stays folder-only on
+purpose, and its own README says why.
 
 ## Conventions shared across the units
 

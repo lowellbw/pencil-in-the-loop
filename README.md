@@ -20,6 +20,7 @@ place, and sending the whole review back to the conversation the document came f
 | 9 | `docs/09-prior-art.md` | What already exists, and the exact gap this fills |
 | 10 | `docs/10-try-this-first.md` | The no-code version to run for two weeks before M0 |
 | 11 | `docs/11-backlog.md` | Ideas not in v1, and what would decide them |
+| 12 | `docs/12-relay.md` | The hosted relay: the opt-in second transport, envelopes and status codes |
 | — | `ui/mockups.html` | Visual reference for every screen |
 
 ## The one-paragraph version
@@ -29,14 +30,21 @@ library and is readable offline. You annotate with the Pencil and press-and-hold
 speak comments anchored to specific passages. When you're done, the app writes a
 review bundle to `outbox/` and pokes the originating session so the review arrives in
 the same thread. Every integration — Cowork, Claude Code, Codex — reads and writes that
-same folder. There is no server and no account.
+same folder. There is no account, and no format beyond the files themselves.
+
+A shared folder needs a file provider configured at both ends, which turns out to be a
+real barrier, so there is now a second way to move the same files: an opt-in hosted
+relay the iPad talks to over HTTPS. It stores and serves the identical `inbox/` and
+`outbox/` layout, it is new and unproven, and nothing depends on it — the folder
+transport is the reference path and keeps working untouched.
 
 ## Non-negotiables
 
 1. **Offline first.** Every feature except the initial sync and the send-back works on a
    plane. No network call is ever on the critical path of reading or annotating.
-2. **The folder is the API.** No proprietary protocol. If a tool can write a file, it can
-   send you a document.
+2. **The files are the API.** No proprietary format. If a tool can write a file, it can
+   send you a document. The folder is the reference transport and works with no network
+   at all; the relay is an opt-in second transport carrying exactly the same bytes.
 3. **One mode.** Finger scrolls, Pencil draws. The user never switches tools to annotate.
 4. **Anchors survive regeneration.** Comments attach to quoted text, never to line numbers.
 5. **Native, not branded.** See `docs/01-design-principles.md`. If a screen looks like it

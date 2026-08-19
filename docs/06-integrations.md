@@ -1,9 +1,19 @@
 # 06 · Integrations
 
-**The folder is the API.** There is no protocol, no server and no account. Anything that
-can write a file can send a document; anything that can read one can receive a review.
-That single decision is why one app serves Cowork, Claude Code and Codex without three
-integrations.
+**The files are the API.** There is no account and no format beyond the files in
+`05-file-contracts.md`. Anything that can write one can send a document; anything that
+can read one can receive a review. That single decision is why one app serves Cowork,
+Claude Code and Codex without three integrations.
+
+Those files move two ways. **The folder is the reference transport** — a directory shared
+by whatever the user already uses, needing nothing installed and no network once a
+document has landed. Everything in this document is written against it, and it is
+unchanged. **The relay is an opt-in second transport**, added because a shared folder
+needs a file provider configured on the Mac *and* the iPad, and where that is not true
+none of this runs at all. Its storage is the same `inbox/` and `outbox/` layout, served
+over HTTPS behind a shared token; it moves the same bytes and invents nothing. It is new
+and unproven, so treat what follows as the path that is known to work. `12-relay.md`
+specifies it.
 
 ---
 
@@ -94,9 +104,17 @@ review sheet's Sent screen offers "Copy review" for exactly this.
 
 ## Claude Code
 
-A local MCP server, roughly 100 lines, exposing `send_to_ipad(content, title, tags)`,
-`list_reviews()` and `get_review(id)`. It writes and reads the same folder — it is
-convenience, not transport, so nothing breaks when the Mac is asleep.
+An MCP server exposing `send_to_ipad(content, title, tags)`, `list_reviews()` and
+`get_review(id)`. Run locally it writes and reads the same folder, and there it is
+convenience, not transport: nothing breaks when it is not running, because the files are
+still just files.
+
+The relay hosts that same server, so the tools can also be reached over HTTP with no Mac
+awake at all. That does make it transport rather than convenience for anyone using it
+that way, which is the honest cost of the second path and the reason the folder stays the
+reference one. The tools, their arguments and the bundles they read and write are
+identical either way — the storage layer underneath takes a sync root, and the relay's
+`/data` is one.
 
 Session id comes from the hook payload's `session_id` field. Record it in `meta.json`.
 

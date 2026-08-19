@@ -10,6 +10,24 @@ account-level access that the iPad does not have.
 
 Python 3.9+, standard library only. No pip install, no dependencies.
 
+## Folder transport only, and deliberately not ported
+
+This daemon serves the shared-folder transport. It is **not** ported to the relay
+(`docs/12-relay.md`), and that is a decision rather than an omission.
+
+Nearly everything it does around the delivery routes — the polling, the settle delay, the
+directory fingerprint, the manifest gating, the whole completeness apparatus described
+below — exists to compensate for one thing: a file provider materialises a directory entry
+before the bytes behind it exist. A server does not do that. On the relay a review bundle
+is committed by a single rename once every file the manifest declares has been received and
+verified, so it is whole or it is absent, and there is nothing to wait to settle. Building
+this machinery a second time over HTTP would be building an answer to a problem that is
+not there.
+
+The return path differs too. Over the relay the review comes back through the MCP
+connection — the model calls `list_reviews()` on its next turn — rather than through a
+shell command fired at a session, which is what the six unverified routes below are for.
+
 ---
 
 ## ⚠️ Nothing here has been verified against a real Mac
