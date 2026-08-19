@@ -214,10 +214,15 @@ public struct LibraryView<Detail: View>: View {
                     Text("No documents")
                         .font(.body)
                         .foregroundStyle(.secondary)
-                    Button("Choose Folder…") {
-                        isChoosingFolder = true
+                    // Only on the folder transport. Offering a folder picker to
+                    // someone whose documents come from a relay sends them to
+                    // fix something that is not broken.
+                    if model.transport == .folder {
+                        Button("Choose Folder…") {
+                            isChoosingFolder = true
+                        }
+                        .font(.body)
                     }
-                    .font(.body)
                 } else {
                     Text("No Results")
                         .font(.body)

@@ -39,6 +39,11 @@ public struct FirstRunView: View {
     private let environment: any AppEnvironment
     private let onFinish: (SyncFolder) -> Void
 
+    /// Called when the user connected a relay instead of picking a folder.
+    /// Takes no folder, because there is not one — `adoptServer` has already
+    /// attached the coordinator by the time this fires.
+    private let onAdoptedServer: () -> Void
+
     @State private var isChoosingFolder = false
     @State private var isPreparing = false
     @State private var problem: String?
@@ -47,6 +52,9 @@ public struct FirstRunView: View {
     /// status line alone: offering a picker for half a second and then taking
     /// it away as iCloud answers would be worse than showing nothing.
     @State private var hasTriedDefault = false
+    @State private var isChoosingServer = false
+    @State private var serverURLText = ""
+    @State private var serverToken = ""
 
     /// - Parameters:
     ///   - environment: settings are written through it, the folder is prepared
@@ -56,10 +64,12 @@ public struct FirstRunView: View {
     ///     syncing it without re-reading settings.
     public init(
         environment: any AppEnvironment,
-        onFinish: @escaping (SyncFolder) -> Void = { _ in }
+        onFinish: @escaping (SyncFolder) -> Void = { _ in },
+        onAdoptedServer: @escaping () -> Void = {}
     ) {
         self.environment = environment
         self.onFinish = onFinish
+        self.onAdoptedServer = onAdoptedServer
     }
 
     public var body: some View {
@@ -77,6 +87,15 @@ public struct FirstRunView: View {
                     isChoosingFolder = true
                 }
                 .font(.body)
+                .disabled(isPreparing)
+
+                // The second way out, and deliberately the quieter one. A
+                // folder needs no network, no account and nobody's uptime, and
+                // stays the path this app was designed around.
+                Button("Use a relay instead…") {
+                    isChoosingServer = true
+                }
+                .font(.footnote)
                 .disabled(isPreparing)
             }
 
@@ -96,6 +115,50 @@ public struct FirstRunView: View {
         .task {
             await self.adoptDefaultFolder()
         }
+        .sheet(isPresented: $isChoosingServer) {
+            NavigationStack {
+                Form {
+                    SyncServerForm(
+                        urlText: $serverURLText,
+                        token: $serverToken,
+                        isBusy: isPreparing,
+                        problem: problem,
+                        onConnect: { Task { await self.adoptServer() } }
+                    )
+                }
+                .navigationTitle("Relay")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { isChoosingServer = false }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Connect a relay from first run.
+    ///
+    /// The token is cleared as soon as the call returns, whichever way it went:
+    /// a credential should not sit in view state waiting to be screenshotted.
+    private func adoptServer() async {
+        isPreparing = true
+        problem = nil
+        do {
+            let url = try SyncServerChoice.validate(urlText: serverURLText, token: serverToken)
+            try await environment.adoptServer(
+                baseURL: url,
+                token: SyncServerChoice.cleaned(token: serverToken)
+            )
+            serverToken = ""
+            isChoosingServer = false
+            await environment.transcriber.prepareAssets()
+            onAdoptedServer()
+        } catch {
+            serverToken = ""
+            problem = SyncServerChoice.describe(error)
+        }
+        isPreparing = false
     }
 
     /// What the screen says, which depends only on whether the default is still

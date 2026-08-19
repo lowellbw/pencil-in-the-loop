@@ -46,6 +46,10 @@ public final class SettingsModel {
     /// One line under whichever row last failed, or the result of a purge.
     public private(set) var statusMessage: String?
 
+    /// True while a relay is being adopted and proved, so the form can say so
+    /// rather than looking as though the button did nothing.
+    public private(set) var isConnectingToServer = false
+
     private let environment: any AppEnvironment
 
     public init(environment: any AppEnvironment) {
@@ -141,6 +145,57 @@ public final class SettingsModel {
             // relaunch is a folder the user will assume did not work.
             await environment.adoptFolder(folder)
             settings = await environment.settings.settings
+            statusMessage = nil
+        } catch {
+            statusMessage = SyncFolderChoice.describe(error)
+        }
+    }
+
+    /// Points the app at a relay, and proves it before saying it worked.
+    ///
+    /// The proof is a `refresh()`, not a dedicated ping endpoint. It is the same
+    /// call the library's pull-to-refresh makes, so a "Connect" that succeeds
+    /// has demonstrated the exact thing the user cares about — that documents
+    /// can arrive — rather than that a health check answered.
+    ///
+    /// **On failure:** the reason goes in `statusMessage` and the transport is
+    /// left as it was. `adoptServer` writes nothing when it throws, so a
+    /// mistyped address cannot strand the app between two transports.
+    public func adoptServer(urlText: String, token: String) async {
+        isConnectingToServer = true
+        defer { isConnectingToServer = false }
+        do {
+            let url = try SyncServerChoice.validate(urlText: urlText, token: token)
+            try await environment.adoptServer(
+                baseURL: url,
+                token: SyncServerChoice.cleaned(token: token)
+            )
+            settings = await environment.settings.settings
+            _ = try await environment.sync.refresh()
+            statusMessage = nil
+        } catch {
+            statusMessage = SyncServerChoice.describe(error)
+        }
+    }
+
+    /// Goes back to the folder the user picked, which was never forgotten.
+    ///
+    /// **On failure:** the reason goes in `statusMessage`. A folder whose
+    /// bookmark has gone stale leaves the app on the relay rather than on
+    /// nothing.
+    public func useFolderTransport() async {
+        do {
+            var updated = await environment.settings.settings
+            guard let bookmark = updated.syncFolderBookmark else {
+                statusMessage = "No folder has been chosen on this iPad yet."
+                return
+            }
+            updated.syncTransport = .folder
+            try await environment.settings.update(updated)
+            settings = updated
+
+            let folder = try environment.folderAccess.resolveFolder(bookmark: bookmark)
+            await environment.adoptFolder(folder)
             statusMessage = nil
         } catch {
             statusMessage = SyncFolderChoice.describe(error)

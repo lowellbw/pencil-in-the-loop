@@ -52,4 +52,9 @@ struct AppUITestEnvironment: AppEnvironment {
 
     /// Nothing to attach: these tests never resolve a folder.
     func adoptFolder(_ folder: SyncFolder) async {}
+
+    /// Inert, like `adoptFolder`. Nothing in AppUITests exercises adoption —
+    /// the address and token are checked by `SyncServerChoiceTests` before this
+    /// is ever reached, and the Keychain cannot honestly be tested here at all.
+    func adoptServer(baseURL: URL, token: String) async throws {}
 }

@@ -116,6 +116,22 @@ public protocol AppEnvironment: Sendable {
     /// Idempotent: adopting the same folder twice replaces the first
     /// coordinator rather than running two.
     func adoptFolder(_ folder: SyncFolder) async
+
+    /// Point the app's sync loop at a hosted relay, and start it.
+    ///
+    /// The token goes to the Keychain, the address and the transport to
+    /// settings, and the coordinator behind `SyncGateway` is replaced. One call
+    /// rather than the folder path's prepare-then-adopt pair, because there is
+    /// no preparation step to separate and because a credential should cross as
+    /// few hands as possible: no view and no preview stub ever holds it.
+    ///
+    /// The folder's bookmark is deliberately left alone. Switching to a relay
+    /// and back must not cost the user the folder they picked.
+    ///
+    /// - Throws: `.storeWriteFailed` when settings or the Keychain refuse the
+    ///   write. Nothing is attached in that case, so the app stays on whatever
+    ///   transport it was already using.
+    func adoptServer(baseURL: URL, token: String) async throws
 }
 
 /// An `AppEnvironment` whose every dependency does nothing.
@@ -163,6 +179,7 @@ public struct PreviewEnvironment: AppEnvironment {
     /// Nothing to attach: a preview's folder is imaginary and its sync
     /// coordinator never finds anything.
     public func adoptFolder(_ folder: SyncFolder) async {}
+    public func adoptServer(baseURL: URL, token: String) async throws {}
 }
 
 // MARK: - Inert stubs

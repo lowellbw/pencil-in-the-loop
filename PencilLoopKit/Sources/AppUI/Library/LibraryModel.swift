@@ -44,6 +44,11 @@ public final class LibraryModel {
     /// not run. Nil most of the time.
     public private(set) var statusMessage: String?
 
+    /// Which transport is in force, so the empty state can offer the right
+    /// thing. Read once per load rather than observed: it changes only in
+    /// Settings, and Settings closing reloads the library anyway.
+    public private(set) var transport: SyncTransport = .folder
+
     private var grouped: [DocState: [DocumentSummary]] = [:]
     private let environment: any AppEnvironment
 
@@ -85,6 +90,7 @@ public final class LibraryModel {
     /// screen: a library that empties itself because one read threw is worse
     /// than a stale one.
     public func load() async {
+        transport = await environment.settings.settings.transport
         do {
             let fetched = try await environment.store.summaries(query)
             apply(fetched)

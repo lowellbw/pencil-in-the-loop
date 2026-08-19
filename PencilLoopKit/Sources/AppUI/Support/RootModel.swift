@@ -99,6 +99,22 @@ public final class RootModel {
         environment = built
 
         let settings = await built.settings.settings
+
+        if settings.hasCompletedFirstRun, settings.transport == .server {
+            // The library first, the relay second — and emphatically in that
+            // order. An HTTP request must never be made before the first frame:
+            // the launch budget is one second to a readable page, and a server
+            // that is slow to answer would spend all of it
+            // (docs/03-architecture.md § Performance targets).
+            phase = .library
+            if await built.adoptPersistedServer() == false {
+                await built.gateway.reportFolderUnavailable(
+                    "This iPad is set to use a relay, but its address or access token is missing. Add them again in Settings."
+                )
+            }
+            return
+        }
+
         guard settings.hasCompletedFirstRun, let bookmark = settings.syncFolderBookmark else {
             phase = .firstRun
             return
@@ -133,6 +149,15 @@ public final class RootModel {
     public func adopt(_ folder: SyncFolder) async {
         guard let live else { return }
         await live.adoptFolder(folder)
+        phase = .library
+    }
+
+    /// First run finished by adopting a relay rather than a folder.
+    ///
+    /// `adoptServer` has already attached the coordinator and started it, so
+    /// there is nothing left to do but show the library — which is why this
+    /// takes no argument and does not go through `adopt(_:)`.
+    public func showLibrary() {
         phase = .library
     }
 

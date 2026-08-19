@@ -27,6 +27,8 @@ public struct SettingsView: View {
 
     @State private var model: SettingsModel
     @State private var isChoosingFolder = false
+    @State private var serverURLText = ""
+    @State private var serverToken = ""
     @State private var isConfirmingPurge = false
 
     @Environment(\.dismiss) private var dismiss
@@ -68,13 +70,68 @@ public struct SettingsView: View {
 
     // MARK: - Sections
 
+    /// Where documents come from. One section for both transports, because
+    /// they are alternatives rather than features, and a person should be able
+    /// to see which one is in force without hunting.
+    @ViewBuilder
     private var folderSection: some View {
-        Section("Sync Folder") {
-            ValueRow(title: "Folder", value: model.settings.syncFolderDisplayName ?? "Not chosen")
-            Button("Change Folder…") {
-                isChoosingFolder = true
+        Section("Sync") {
+            Picker("Documents arrive from", selection: transportBinding) {
+                ForEach(SyncTransport.allCases, id: \.self) { transport in
+                    Text(transport.displayName).tag(transport)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if model.settings.transport == .folder {
+                ValueRow(
+                    title: "Folder",
+                    value: model.settings.syncFolderDisplayName ?? "Not chosen"
+                )
+                Button("Change Folder…") {
+                    isChoosingFolder = true
+                }
+            } else {
+                ValueRow(
+                    title: "Relay",
+                    value: model.settings.serverDisplayName ?? "Not connected"
+                )
             }
         }
+
+        if model.settings.transport == .server {
+            SyncServerForm(
+                urlText: $serverURLText,
+                token: $serverToken,
+                isBusy: model.isConnectingToServer,
+                problem: model.statusMessage,
+                onConnect: {
+                    Task {
+                        await model.adoptServer(urlText: serverURLText, token: serverToken)
+                        // Never keep a credential in view state a moment longer
+                        // than the request needs it.
+                        serverToken = ""
+                    }
+                }
+            )
+        }
+    }
+
+    /// Switching to the folder re-attaches it immediately; switching to the
+    /// relay only reveals the form, because there is nothing to attach until an
+    /// address and token have been typed.
+    private var transportBinding: Binding<SyncTransport> {
+        Binding(
+            get: { model.settings.transport },
+            set: { chosen in
+                guard chosen != model.settings.transport else { return }
+                if chosen == .folder {
+                    Task { await model.useFolderTransport() }
+                } else {
+                    serverURLText = model.settings.serverBaseURLString ?? ""
+                }
+            }
+        )
     }
 
     private var readingSection: some View {

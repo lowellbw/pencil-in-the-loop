@@ -151,4 +151,57 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
         await gateway.attach(coordinator)
         await gateway.start()
     }
+
+    /// Adopt a relay: remember it, keep its token in the Keychain, attach.
+    ///
+    /// - Throws: `.storeWriteFailed` from the settings or Keychain write. The
+    ///   gateway is untouched when that happens, so a failed attempt leaves the
+    ///   app on the transport it was already using rather than on neither.
+    public func adoptServer(baseURL: URL, token: String) async throws {
+        try await settingsStore.setSyncServer(
+            baseURLString: baseURL.absoluteString,
+            displayName: baseURL.host() ?? baseURL.absoluteString,
+            token: token
+        )
+        var updated = await settingsStore.settings
+        updated.syncTransport = .server
+        updated.serverBaseURLString = baseURL.absoluteString
+        updated.hasCompletedFirstRun = true
+        try await settingsStore.update(updated)
+
+        await attachServerCoordinator(baseURL: baseURL, token: token)
+    }
+
+    /// Rebuild the relay coordinator at launch from what was persisted.
+    ///
+    /// - Returns: false when there is no relay configured, or no token in the
+    ///   Keychain for it — which `RootModel` reports as one sentence in the
+    ///   status line rather than as a dead end. The library is already on
+    ///   screen by then and every pinned document opens regardless.
+    @discardableResult
+    public func adoptPersistedServer() async -> Bool {
+        let settings = await settingsStore.settings
+        guard let baseURL = settings.serverBaseURL,
+              let host = baseURL.host(),
+              let token = await settingsStore.syncServerToken(forHost: host) else {
+            return false
+        }
+        await attachServerCoordinator(baseURL: baseURL, token: token)
+        return true
+    }
+
+    /// The nine lines that make a relay the app's sync loop.
+    ///
+    /// Kept beside `adoptFolder` on purpose: this file is the one place in the
+    /// app where a concrete type from another module is named, and having both
+    /// coordinators constructed here is what keeps that true.
+    private func attachServerCoordinator(baseURL: URL, token: String) async {
+        let coordinator = HTTPSyncCoordinator(
+            client: SyncServerClient(baseURL: baseURL, token: token),
+            store: store,
+            ingester: DocumentIngestor()
+        )
+        await gateway.attach(coordinator)
+        await gateway.start()
+    }
 }
