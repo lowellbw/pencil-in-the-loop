@@ -25,7 +25,12 @@ UNIVERSAL = {"Foundation", "os", "os.log", "Observation", "Combine"}
 
 POLICY = {
     "Core": UNIVERSAL | set(),
-    "Storage": UNIVERSAL | {"SwiftData", "Core"},
+    # `Security` is the Keychain, and it is here rather than in Sync on purpose:
+    # the relay's bearer token is written and read by Storage/Settings, and Sync
+    # is handed the token rather than the means of fetching it. Adding "Storage"
+    # to Sync below to reach it would pull SwiftData into PencilLoopKitCore and
+    # get the share extension killed under its memory cap.
+    "Storage": UNIVERSAL | {"SwiftData", "Core", "Security"},
     # Deliberately no Storage: see the module comment in Package.swift.
     "Sync": UNIVERSAL | {"Core", "UniformTypeIdentifiers", "CryptoKit"},
     "Ingest": UNIVERSAL | {
@@ -54,10 +59,13 @@ MARKDOWN_ONLY_FILE = os.path.join(
     "Ingest", "Adapters", "SwiftMarkdownAdapter.swift"
 )
 
+# `Security` is here for one reason: `SyncTokenKeychain`'s seam answers in
+# `OSStatus`, and a test that asserts on a failed write has to be able to name
+# `errSecSuccess` and `errSecDuplicateItem` rather than write -25299 down.
 TEST_ALLOWED = UNIVERSAL | {
     "XCTest", "Testing", "Core", "Storage", "Sync", "Ingest", "Annotate",
     "Export", "AppUI", "SwiftData", "PDFKit", "PencilKit", "UIKit", "SwiftUI",
-    "CoreGraphics",
+    "CoreGraphics", "Security",
 }
 
 IMPORT_RE = re.compile(

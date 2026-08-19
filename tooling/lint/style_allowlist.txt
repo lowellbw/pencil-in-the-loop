@@ -13,7 +13,7 @@ MarkdownIR           # MarkdownDocument, MarkdownBlock, ListItem, TableRow, Tabl
 Origin               # Origin + ReturnPath
 ReviewBundle         # review.json: ReviewBundle, ReviewComment, ReviewInkPage, ReviewIncludeOptions
 BundleManifest       # manifest.json: BundleManifest, ManifestFile, GeneratorInfo
-AppSettings          # AppSettings, PageTint, InkDefaults, InkToolKind
+AppSettings          # AppSettings, PageTint, InkDefaults, InkToolKind, SyncTransport
 
 # AppUI/Support — the protocol plus its inert preview stubs, which have to live
 # next to it to be any use.

@@ -75,6 +75,13 @@ UserDefaults
 # though `URLSession` and `URLRequest` above did not.
 HTTPURLResponse URLError URLSessionConfiguration
 
+# ── Security (the Keychain) ──────────────────────────────────────────────────
+# Sources/Storage/Settings/SyncTokenKeychain.swift, and nowhere else — the relay
+# token is the only credential this app holds. `Sec` is not one of the prefixes
+# above, so these three functions need naming; the `kSec…` constants and the
+# `errSec…` statuses start lower-case and are never read as type references.
+SecItemAdd SecItemCopyMatching SecItemDelete
+
 # ── SwiftData ────────────────────────────────────────────────────────────────
 # The store is an `@ModelActor` over a versioned schema, and `#Predicate` is how
 # every fetch is filtered (Sources/Storage). `Schema.Version`,

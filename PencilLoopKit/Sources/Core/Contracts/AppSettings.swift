@@ -3,7 +3,7 @@
 //  Core · Contracts
 //
 //  Everything Settings can change (docs/02-spec.md § S6 — "deliberately
-//  short"). Four types in one file; listed in tooling/lint/style_allowlist.txt.
+//  short"). Five types in one file; listed in tooling/lint/style_allowlist.txt.
 //
 //  A value type, not a store: `SettingsStoring` owns persistence. Passing the
 //  whole struct around means a view that reads two settings makes one call, and
@@ -37,6 +37,33 @@ public struct AppSettings: Codable, Sendable, Hashable {
     /// Set once S0 completes. Guards the whole first-run path.
     public var hasCompletedFirstRun: Bool
 
+    // MARK: - The server transport
+    //
+    // Three Optionals, and they are Optional for a reason that is written out
+    // in full above `init(from:)`. Read `transport`, never `syncTransport`.
+
+    /// Which transport carries documents, or nil in a settings blob written
+    /// before the relay existed — which is every blob on every device that
+    /// installed the app before this build.
+    ///
+    /// **When it is nil:** `transport` answers `.folder`, so an existing
+    /// install keeps syncing exactly as it did yesterday.
+    public var syncTransport: SyncTransport?
+
+    /// The relay's base URL as the user typed it, e.g.
+    /// `https://relay.example.com`. Nil until a server is adopted.
+    ///
+    /// A string rather than a `URL` because it is persisted and has to
+    /// round-trip byte for byte; `serverBaseURL` is the parsed view.
+    public var serverBaseURLString: String?
+
+    /// Last known display name for the server, so Settings can name it without
+    /// showing a URL.
+    ///
+    /// **When it is nil:** there is nothing friendlier to show and the caller
+    /// falls back to the host from `serverBaseURL`.
+    public var serverDisplayName: String?
+
     public init(
         syncFolderBookmark: Data? = nil,
         syncFolderDisplayName: String? = nil,
@@ -44,7 +71,10 @@ public struct AppSettings: Codable, Sendable, Hashable {
         ink: InkDefaults = .standard,
         transcriptionLocaleIdentifier: String = AppSettings.defaultTranscriptionLocaleIdentifier,
         sendInkedPagesAsImages: Bool = true,
-        hasCompletedFirstRun: Bool = false
+        hasCompletedFirstRun: Bool = false,
+        syncTransport: SyncTransport? = nil,
+        serverBaseURLString: String? = nil,
+        serverDisplayName: String? = nil
     ) {
         self.syncFolderBookmark = syncFolderBookmark
         self.syncFolderDisplayName = syncFolderDisplayName
@@ -53,6 +83,9 @@ public struct AppSettings: Codable, Sendable, Hashable {
         self.transcriptionLocaleIdentifier = transcriptionLocaleIdentifier
         self.sendInkedPagesAsImages = sendInkedPagesAsImages
         self.hasCompletedFirstRun = hasCompletedFirstRun
+        self.syncTransport = syncTransport
+        self.serverBaseURLString = serverBaseURLString
+        self.serverDisplayName = serverDisplayName
     }
 
     /// A fresh install.
@@ -66,6 +99,112 @@ public struct AppSettings: Codable, Sendable, Hashable {
     /// `transcriptionLocaleIdentifier` as a `Locale`, for the transcriber.
     public var transcriptionLocale: Locale {
         Locale(identifier: transcriptionLocaleIdentifier)
+    }
+
+    /// The transport in force.
+    ///
+    /// **When `syncTransport` is absent or unreadable:** `.folder`. Every
+    /// install that predates the relay lands here, and so does any settings
+    /// blob a future build writes a transport this build has never heard of.
+    public var transport: SyncTransport {
+        syncTransport ?? .folder
+    }
+
+    /// `serverBaseURLString`, parsed.
+    ///
+    /// **When it fails:** nil — the string is absent, empty, or not a URL. Nil
+    /// means the server transport has nowhere to talk to, and the recovery is
+    /// to put the user back in front of the server form. It does not check the
+    /// scheme: rejecting `http://` happens in one function on the way in, not
+    /// on every read of this property.
+    public var serverBaseURL: URL? {
+        guard let serverBaseURLString, serverBaseURLString.isEmpty == false else { return nil }
+        return URL(string: serverBaseURLString)
+    }
+
+    // MARK: - Codable
+
+    /// The keys this struct is persisted under. Named explicitly so that
+    /// `init(from:)` below cannot drift away from a synthesised set.
+    private enum CodingKeys: String, CodingKey {
+        case syncFolderBookmark
+        case syncFolderDisplayName
+        case pageTint
+        case ink
+        case transcriptionLocaleIdentifier
+        case sendInkedPagesAsImages
+        case hasCompletedFirstRun
+        case syncTransport
+        case serverBaseURLString
+        case serverDisplayName
+    }
+
+    /// Decodes settings written by *any* build of this app, including one that
+    /// had never heard of the field you are about to add.
+    ///
+    /// ─── READ THIS BEFORE ADDING A FIELD ─────────────────────────────────────
+    /// `AppSettingsStore.load` catches every decode failure and falls back to
+    /// `AppSettings.initial` — `hasCompletedFirstRun == false`, no bookmark —
+    /// which throws the user back to the first-run picker and loses the folder
+    /// they chose. Swift's synthesised `Codable` does **not** apply a property
+    /// default when a key is absent from the blob, so a single new
+    /// non-Optional field would do exactly that to every existing install, on
+    /// upgrade, silently.
+    ///
+    /// So: every new field is Optional, and every field — old ones included —
+    /// is read with `decodeIfPresent` and a fallback. Nothing in here can throw
+    /// on an absent key, which is the whole point.
+    /// ─────────────────────────────────────────────────────────────────────────
+    ///
+    /// **When it fails:** only if the blob is not a JSON object at all, which
+    /// `AppSettingsStore` reports and recovers from by starting fresh.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            syncFolderBookmark: try container.decodeIfPresent(Data.self, forKey: .syncFolderBookmark),
+            syncFolderDisplayName: try container.decodeIfPresent(String.self, forKey: .syncFolderDisplayName),
+            pageTint: try container.decodeIfPresent(PageTint.self, forKey: .pageTint) ?? .none,
+            ink: try container.decodeIfPresent(InkDefaults.self, forKey: .ink) ?? .standard,
+            transcriptionLocaleIdentifier: try container.decodeIfPresent(
+                String.self,
+                forKey: .transcriptionLocaleIdentifier
+            ) ?? AppSettings.defaultTranscriptionLocaleIdentifier,
+            sendInkedPagesAsImages: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .sendInkedPagesAsImages
+            ) ?? true,
+            hasCompletedFirstRun: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .hasCompletedFirstRun
+            ) ?? false,
+            syncTransport: try container.decodeIfPresent(SyncTransport.self, forKey: .syncTransport),
+            serverBaseURLString: try container.decodeIfPresent(String.self, forKey: .serverBaseURLString),
+            serverDisplayName: try container.decodeIfPresent(String.self, forKey: .serverDisplayName)
+        )
+    }
+}
+
+/// Which transport carries documents to and from this iPad.
+///
+/// Two transports, one library. The folder is the reference transport and the
+/// only one that works with no network at all; the relay is opt-in and carries
+/// the same bytes (docs/12-relay.md). Switching between them never touches
+/// `syncFolderBookmark`, so coming back to the folder costs nothing.
+public enum SyncTransport: String, Codable, Sendable, CaseIterable, Hashable {
+
+    /// A folder the user picked, shared by whatever file provider they like.
+    case folder
+
+    /// The hosted relay, reached over HTTPS with a bearer token.
+    case server
+
+    /// The name the Settings picker shows, alongside every other vocabulary in
+    /// this file.
+    public var displayName: String {
+        switch self {
+        case .folder: return "Folder"
+        case .server: return "Server"
+        }
     }
 }
 

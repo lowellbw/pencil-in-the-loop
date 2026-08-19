@@ -15,6 +15,11 @@
 //  So the split is: Sync mints, Storage keeps, Sync resolves on next launch.
 //  ─────────────────────────────────────────────────────────────────────────────
 //
+//  The relay's bearer token is kept the same way and in the same spirit — Sync
+//  is handed the token, never the Keychain — except that it is not kept *here*.
+//  `SyncTokenKeychain` has it, because this store's own storage is a plaintext
+//  `UserDefaults` blob and a credential cannot go in one. See that file.
+//
 //  Not SwiftData. Settings are one small value read on almost every view update
 //  and written a handful of times a year; `UserDefaults` is the right size of
 //  tool, it survives a store migration going wrong, and it means the folder
@@ -46,11 +51,28 @@ public actor AppSettingsStore: SettingsStoring {
 
     private var stored: AppSettings
 
+    /// Where the relay's bearer token lives. Never in `stored`.
+    private let tokenKeychain: SyncTokenKeychain
+
     /// - Parameter suiteName: a `UserDefaults` suite, or nil for the standard
     ///   one. Nothing is read from disk after this initialiser returns; the
     ///   value is cached and updated in step with `update(_:)`.
     public init(suiteName: String? = nil) {
         self.suiteName = suiteName
+        self.tokenKeychain = SyncTokenKeychain()
+        self.stored = AppSettingsStore.load(suiteName: suiteName)
+    }
+
+    /// The same store with the Keychain swapped for a double.
+    ///
+    /// Internal, and it exists because the public initialiser above cannot name
+    /// `SyncTokenKeychain` in its signature without making the Keychain part of
+    /// this module's public surface — which is the one thing the token layer is
+    /// trying not to be. The two initialisers are spelled out rather than
+    /// delegating because an actor has no convenience initialisers.
+    init(suiteName: String?, tokenKeychain: SyncTokenKeychain) {
+        self.suiteName = suiteName
+        self.tokenKeychain = tokenKeychain
         self.stored = AppSettingsStore.load(suiteName: suiteName)
     }
 
@@ -99,6 +121,62 @@ public actor AppSettingsStore: SettingsStoring {
     /// `setSyncFolder(bookmark:displayName:)` again.
     public var syncFolderBookmark: Data? {
         stored.syncFolderBookmark
+    }
+
+    // MARK: - Server storage
+    //
+    // Deliberately not on `SettingsStoring`. That protocol lives in Core and is
+    // what Sync talks to, and Sync must never see a Keychain — `LiveEnvironment`
+    // reads the token here and hands it to the client. Same arrangement as
+    // `setSyncFolder(bookmark:displayName:)` above, for the same reason.
+
+    /// Adopts a relay: records the URL and its display name, and files the
+    /// bearer token in the Keychain under that URL's host.
+    ///
+    /// Switching to the server does **not** clear `syncFolderBookmark` or
+    /// `syncFolderDisplayName`. Switching back to the folder therefore costs
+    /// nothing and needs no second trip through the picker, which is the whole
+    /// reason the relay can be opt-in at all.
+    ///
+    /// The token is written before the settings, on purpose: if the Keychain
+    /// refuses, this throws with `syncTransport` untouched, so the app is never
+    /// left pointed at a server it has no credential for. The reverse order
+    /// would leave exactly that state behind.
+    ///
+    /// - Parameters:
+    ///   - baseURLString: the relay's base URL, e.g. `https://relay.example.com`.
+    ///   - displayName: what Settings should call it, or nil to show the host.
+    ///   - token: the bearer token, or nil to adopt the server and leave
+    ///     whatever token is already filed under that host in place.
+    /// - Throws: `PencilLoopError.storeWriteFailed` when `baseURLString` has no
+    ///   host to file the token under, when the Keychain refuses the write, or
+    ///   when the settings will not encode. Nothing is changed in any of those
+    ///   cases.
+    public func setSyncServer(baseURLString: String, displayName: String?, token: String?) throws {
+        guard let account = SyncTokenKeychain.account(forBaseURLString: baseURLString) else {
+            throw PencilLoopError.storeWriteFailed(
+                reason: "That server address has no host, so there is nowhere to file its token."
+            )
+        }
+        if let token {
+            try tokenKeychain.setToken(token, forAccount: account)
+        }
+        var next = stored
+        next.syncTransport = .server
+        next.serverBaseURLString = baseURLString
+        next.serverDisplayName = displayName
+        try update(next)
+    }
+
+    /// The bearer token filed under a server's host.
+    ///
+    /// - Returns: nil when no token has been stored for that host, and nil is
+    ///   also the answer when the Keychain cannot be read at all — the two are
+    ///   not distinguished because the recovery is the same one, which is to
+    ///   ask the user for the token again. Never throws: this is read on the
+    ///   sync path.
+    public func syncServerToken(forHost host: String) -> String? {
+        tokenKeychain.token(forAccount: SyncTokenKeychain.account(forHost: host))
     }
 
     /// Marks first run complete (docs/02-spec.md § S0).
