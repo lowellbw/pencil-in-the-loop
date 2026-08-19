@@ -70,6 +70,11 @@ Thread TimeInterval TimeZone Timer
 URL URLComponents URLQueryItem URLRequest URLResponse URLSession UUID
 UserDefaults
 
+# The HTTP transport (Sources/Sync/HTTP). `HTTPURLResponse`, `URLError` and
+# `URLSessionConfiguration` match no SDK prefix, so they need naming here even
+# though `URLSession` and `URLRequest` above did not.
+HTTPURLResponse URLError URLSessionConfiguration
+
 # ── SwiftData ────────────────────────────────────────────────────────────────
 # The store is an `@ModelActor` over a versioned schema, and `#Predicate` is how
 # every fetch is filtered (Sources/Storage). `Schema.Version`,
