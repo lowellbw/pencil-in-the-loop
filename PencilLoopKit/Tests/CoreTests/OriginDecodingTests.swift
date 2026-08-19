@@ -52,10 +52,21 @@ final class OriginDecodingTests: XCTestCase {
         XCTAssertEqual(OriginKind.claudeCode.rawValue, "claude-code")
     }
 
+    /// Appending a case is cheap and this list is expected to grow; renaming
+    /// one breaks every tool that ever wrote our folder format, which is what
+    /// this is here to stop. So a failure that *reorders* or *renames* is a
+    /// bug, and a failure that only adds to the end is this test asking to be
+    /// told about it.
     func testEveryOriginKindRawValueIsStable() {
         XCTAssertEqual(
             OriginKind.allCases.map(\.rawValue),
-            ["cowork", "claude-code", "codex", "share", "manual"]
+            ["cowork", "claude-code", "codex", "share", "manual", "note"]
+        )
+        // Persisted in note.json, so a rename silently unrules every notebook
+        // somebody already has.
+        XCTAssertEqual(
+            PaperStyle.allCases.map(\.rawValue),
+            ["plain", "lined", "grid"]
         )
         XCTAssertEqual(
             ReturnPathType.allCases.map(\.rawValue),

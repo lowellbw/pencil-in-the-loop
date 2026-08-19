@@ -52,6 +52,11 @@ public struct LibraryView<Detail: View>: View {
     @State private var isChoosingFolder = false
     @State private var isShowingSettings = false
 
+    /// Which kind of document the New menu is making, and therefore whether
+    /// the sheet is up at all. One piece of state rather than a bool and a
+    /// kind, which cannot then disagree.
+    @State private var creating: NoteCreationView.Kind?
+
     /// - Parameters:
     ///   - environment: the one route to every dependency, the folder picker's
     ///     `folderAccess` included.
@@ -149,6 +154,9 @@ public struct LibraryView<Detail: View>: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                newMenu
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 sortMenu
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -196,6 +204,14 @@ public struct LibraryView<Detail: View>: View {
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(environment: environment)
         }
+        .sheet(item: $creating) { kind in
+            NoteCreationView(kind: kind, model: model) { created in
+                // The same two steps `selecting` takes, and for the same
+                // reason: the row was made a moment ago and the list has to
+                // know about it before it can be selected.
+                self.selection = created
+            }
+        }
     }
 
     @ViewBuilder private func sectionView(for state: DocState) -> some View {
@@ -218,6 +234,28 @@ public struct LibraryView<Detail: View>: View {
         }
     }
 
+    /// Making a document rather than waiting for one to arrive.
+    ///
+    /// A menu rather than two buttons because the toolbar already carries two
+    /// items and a fourth would crowd the title out on the narrow column.
+    private var newMenu: some View {
+        Menu {
+            Button {
+                creating = .notebook
+            } label: {
+                Label("Blank Notebook", systemImage: "square.grid.2x2")
+            }
+            Button {
+                creating = .written
+            } label: {
+                Label("Written Document", systemImage: "text.alignleft")
+            }
+        } label: {
+            Label("New", systemImage: "square.and.pencil")
+        }
+        .accessibilityLabel("New")
+    }
+
     private var sortMenu: some View {
         Menu {
             Picker("Sort By", selection: $model.sort) {
@@ -230,8 +268,9 @@ public struct LibraryView<Detail: View>: View {
         .accessibilityLabel("Sort")
     }
 
-    /// "No documents" in secondary label colour and the folder picker. Nothing
-    /// else — no illustration, no headline (docs/01-design-principles.md § 6).
+    /// "No documents" in secondary label colour, a way to start writing, and
+    /// the folder picker. Nothing else — no illustration, no headline
+    /// (docs/01-design-principles.md § 6).
     @ViewBuilder private var emptyState: some View {
         if model.isLoaded && model.rows.isEmpty {
             VStack(spacing: 16) {
@@ -242,6 +281,12 @@ public struct LibraryView<Detail: View>: View {
                     // Only on the folder transport. Offering a folder picker to
                     // someone whose documents come from a relay sends them to
                     // fix something that is not broken.
+                    // The only useful thing to do with an empty library and
+                    // no network. One button, per the note above.
+                    Button("New Notebook") {
+                        creating = .notebook
+                    }
+                    .font(.body)
                     if model.transport == .folder {
                         Button("Choose Folder…") {
                             isChoosingFolder = true

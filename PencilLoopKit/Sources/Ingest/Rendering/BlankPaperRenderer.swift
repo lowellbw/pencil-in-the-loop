@@ -31,7 +31,7 @@ import CoreGraphics
 import Core
 
 /// Draws plain, lined or grid paper as a PDF sized to a `PageGeometry`.
-public struct BlankPaperRenderer {
+public struct BlankPaperRenderer: Sendable {
 
     /// A notebook longer than this is a mistake rather than a request. Pages
     /// are appended as they are needed, so the ceiling costs nobody anything.

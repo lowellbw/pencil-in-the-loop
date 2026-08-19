@@ -25,7 +25,7 @@ import Foundation
 import Core
 
 /// Creates a blank notebook or a written document and ingests it.
-public struct NoteCreator {
+public struct NoteCreator: Sendable {
 
     private let paperRenderer: BlankPaperRenderer
     private let ingestor: any DocumentIngesting

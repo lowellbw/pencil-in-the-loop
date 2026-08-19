@@ -10,6 +10,7 @@
 import Foundation
 import Observation
 import Core
+import Ingest
 
 /// The library's state: the rows, the query that produced them, and the one
 /// line of status the sidebar is allowed to show.
@@ -129,6 +130,52 @@ public final class LibraryModel {
             apply(rows.filter { $0.id != summary.id })
         } catch {
             statusMessage = SyncFolderChoice.describe(error)
+        }
+    }
+
+    // MARK: - Making a document
+
+    /// Blank paper, ruled and added to the library (docs/11-backlog.md § B1).
+    ///
+    /// - Returns: the new document's id, so the caller can select it and drop
+    ///   the reader straight onto page one. Nil on failure, with the reason in
+    ///   `statusMessage` — the sheet stays open and nothing has been created.
+    public func createNotebook(title: String, paper: PaperStyle, pages: Int) async -> UUID? {
+        await create { creator, existing in
+            try await creator.createNotebook(
+                title: title, paper: paper, pages: pages, existingFolderNames: existing
+            )
+        }
+    }
+
+    /// A document typed rather than handwritten. Rendered by the same markdown
+    /// path as anything Claude sends, so it arrives with real quoted anchors.
+    public func createWrittenDocument(title: String, markdown: String) async -> UUID? {
+        await create { creator, existing in
+            try await creator.createWrittenDocument(
+                title: title, markdown: markdown, existingFolderNames: existing
+            )
+        }
+    }
+
+    /// The half both routes share: name it against what the library already
+    /// holds, ingest it, record it, and reload so the row exists before anyone
+    /// tries to select it.
+    private func create(
+        _ make: (NoteCreator, Set<String>) async throws -> IngestedDocument
+    ) async -> UUID? {
+        do {
+            // Read rather than guessed, so two notebooks made on one day with
+            // one title get `-2` instead of colliding on the store's unique
+            // constraint.
+            let existing = try await environment.store.knownFolderNames()
+            let created = try await make(NoteCreator(), existing)
+            let summary = try await environment.store.upsert(created)
+            await load()
+            return summary.id
+        } catch {
+            statusMessage = SyncFolderChoice.describe(error)
+            return nil
         }
     }
 
