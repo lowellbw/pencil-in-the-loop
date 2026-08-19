@@ -30,6 +30,10 @@ public struct ReviewSheet: View {
     @State private var model: ReviewSheetModel
 
     private let environment: any AppEnvironment
+
+    /// Holding is not a gesture VoiceOver passes through, so the dictation
+    /// control becomes a button when it is on (`CommentHintRow` does the same).
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     private let onOpenReply: (UUID) -> Void
 
     /// - Parameters:
@@ -117,10 +121,12 @@ public struct ReviewSheet: View {
                     .lineLimit(3...10)
                     .accessibilityLabel("Closing instruction")
                     .accessibilityHint("One free-text field. Turns a pile of notes into a request.")
+
+                instructionDictationRow
             } header: {
                 Text("Closing instruction")
             } footer: {
-                Text("Dictate it with the microphone on the keyboard if you would rather talk.")
+                Text("This is the one line that turns a pile of notes into a request.")
             }
         }
         .listStyle(.insetGrouped)
@@ -242,6 +248,50 @@ public struct ReviewSheet: View {
             .font(.footnote)
         } else if model.comments.isEmpty == false {
             Text("In document order. Swipe a comment to delete it, tap its text to edit.")
+        }
+    }
+
+    /// Hold to talk, the same gesture the comment popover uses.
+    ///
+    /// The review sheet is where somebody says what they actually want done,
+    /// and it used to be the one screen that asked them to put the Pencil down
+    /// and find the keyboard's microphone. Same gesture, same wording, so there
+    /// is one way to speak to this app rather than two.
+    ///
+    /// Under VoiceOver a hold is a tap, exactly as `CommentHintRow` does it:
+    /// holding is not a gesture VoiceOver passes through, and a control that
+    /// only responds to one is a control some people do not have.
+    @ViewBuilder
+    private var instructionDictationRow: some View {
+        if voiceOverEnabled {
+            Button(model.isDictatingInstruction ? "Stop dictating" : "Dictate") {
+                if model.isDictatingInstruction {
+                    model.endInstructionDictation(environment: environment)
+                } else {
+                    model.beginInstructionDictation(environment: environment)
+                }
+            }
+        } else {
+            Label {
+                Text(model.isDictatingInstruction ? "Listening\u{2026}" : "**Hold** to talk")
+                    .foregroundStyle(model.isDictatingInstruction ? .primary : .secondary)
+            } icon: {
+                Image(systemName: model.isDictatingInstruction ? "mic.fill" : "mic")
+                    .foregroundStyle(model.isDictatingInstruction ? Color.accentColor : .secondary)
+            }
+            .contentShape(.rect)
+            .onLongPressGesture(
+                minimumDuration: 0.05,
+                perform: {},
+                onPressingChanged: { isPressing in
+                    if isPressing {
+                        model.beginInstructionDictation(environment: environment)
+                    } else {
+                        model.endInstructionDictation(environment: environment)
+                    }
+                }
+            )
+            .accessibilityLabel("Hold to dictate the closing instruction")
         }
     }
 

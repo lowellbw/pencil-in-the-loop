@@ -50,6 +50,13 @@ final class ReviewSheetModel {
     /// The closing instruction field. Turns a pile of notes into a request.
     var closingInstruction: String
 
+    /// Whether the instruction is being dictated right now.
+    var isDictatingInstruction = false
+
+    /// What the instruction held before dictation started, so a stream of
+    /// partial results replaces itself rather than appending.
+    private var instructionBeforeDictation: String?
+
     /// Accumulated reading time for the subtitle. Zero when never tracked, in
     /// which case the subtitle is just the title.
     var readingSeconds: TimeInterval
@@ -87,6 +94,9 @@ final class ReviewSheetModel {
     /// Per-comment debounced saves, so typing does not hit the store on every
     /// keystroke. Cancelled and flushed before the bundle is built.
     private var pendingSaves: [UUID: Task<Void, Never>] = [:]
+
+    private var dictationTask: Task<Void, Never>?
+    private var stopDictationTask: Task<Void, Never>?
 
     /// A `reviewWritten` event that arrived before the outcome existed.
     private var confirmedWriteAt: Date?
@@ -389,6 +399,87 @@ final class ReviewSheetModel {
             return first.anchor.normalisedRect.y < second.anchor.normalisedRect.y
         }
         return first.createdAt < second.createdAt
+    }
+
+    // MARK: - Dictating the instruction
+
+    /// Starts dictating into the closing instruction.
+    ///
+    /// The review sheet is where somebody says what they actually want done,
+    /// and it was the one place in the app that asked them to put the Pencil
+    /// down and use a keyboard. Holding to talk here is the same gesture the
+    /// comments use, so there is one way to speak to this app rather than two.
+    ///
+    /// **On failure:** the field is left exactly as it was and the reason goes
+    /// in `failureMessage`. Dictation being unavailable is no more a dead end
+    /// here than in the comment popover — the keyboard has not gone anywhere
+    /// (docs/02-spec.md § S3).
+    func beginInstructionDictation(environment: any AppEnvironment) {
+        guard isDictatingInstruction == false else { return }
+        isDictatingInstruction = true
+        instructionBeforeDictation = closingInstruction
+        failureMessage = nil
+
+        let transcriber = environment.transcriber
+        dictationTask?.cancel()
+        dictationTask = Task { [weak self] in
+            do {
+                for try await value in transcriber.transcribe(contextualTerms: []) {
+                    guard let self, self.isDictatingInstruction else { return }
+                    self.applyDictated(value.displayText)
+                }
+            } catch let error as PencilLoopError {
+                self?.endDictation(with: error)
+            } catch {
+                self?.endDictation(with: .speechUnavailable(reason: error.localizedDescription))
+            }
+        }
+    }
+
+    /// Ends dictation and keeps whatever settled.
+    ///
+    /// The settled text is preferred over the last streamed update, because the
+    /// engine may finalise a trailing word after its last yield — the same rule
+    /// the comment path follows, and the reason a released hold does not lose
+    /// the end of a sentence.
+    func endInstructionDictation(environment: any AppEnvironment) {
+        guard isDictatingInstruction else { return }
+        let transcriber = environment.transcriber
+        dictationTask?.cancel()
+        dictationTask = nil
+        stopDictationTask?.cancel()
+        stopDictationTask = Task { [weak self] in
+            let settled = await transcriber.stop()
+            guard let self else { return }
+            if settled.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                self.applyDictated(settled)
+            }
+            self.isDictatingInstruction = false
+            self.instructionBeforeDictation = nil
+        }
+    }
+
+    /// Replaces this utterance, keeping anything typed before it.
+    ///
+    /// Each update from the engine is the whole utterance revised, not the next
+    /// word, so appending would spell everything several times over.
+    private func applyDictated(_ value: String) {
+        let existing = instructionBeforeDictation ?? ""
+        let spoken = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard spoken.isEmpty == false else {
+            closingInstruction = existing
+            return
+        }
+        closingInstruction = existing.isEmpty ? spoken : existing + " " + spoken
+    }
+
+    private func endDictation(with error: PencilLoopError) {
+        dictationTask?.cancel()
+        dictationTask = nil
+        isDictatingInstruction = false
+        closingInstruction = instructionBeforeDictation ?? closingInstruction
+        instructionBeforeDictation = nil
+        failureMessage = error.message
     }
 
     // MARK: - Sending (docs/04-flows.md § F5)
