@@ -95,6 +95,11 @@ public enum OriginKind: String, Codable, Sendable, CaseIterable, Hashable {
     case share
     case manual
 
+    /// Written in this app rather than sent to it (docs/11-backlog.md § B1).
+    /// A note has no conversation behind it, so `supportsReturnPath` is false
+    /// and a review of one goes to the relay's outbox for an agent to pull.
+    case note
+
     /// Human-facing name used in the Library subtitle ("Cowork · 8 min ago ·
     /// 4 pages") and in the review sheet's destination row.
     public var displayName: String {
@@ -104,6 +109,7 @@ public enum OriginKind: String, Codable, Sendable, CaseIterable, Hashable {
         case .codex: return "Codex"
         case .share: return "Shared"
         case .manual: return "Added manually"
+        case .note: return "Note"
         }
     }
 
@@ -112,7 +118,7 @@ public enum OriginKind: String, Codable, Sendable, CaseIterable, Hashable {
     public var supportsReturnPath: Bool {
         switch self {
         case .cowork, .claudeCode, .codex: return true
-        case .share, .manual: return false
+        case .share, .manual, .note: return false
         }
     }
 

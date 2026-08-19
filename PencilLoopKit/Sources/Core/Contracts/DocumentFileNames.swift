@@ -47,6 +47,15 @@ public enum DocumentFileNames {
     /// watcher on the other side gates on (docs/05-file-contracts.md).
     public static let reviewMarkdown = "review.md"
 
+    /// `note.json` — the paper a notebook was ruled with, so that pages
+    /// appended later match the ones already in it (docs/11-backlog.md § B1).
+    ///
+    /// Written only for documents this app authored, and deliberately **not**
+    /// part of the sync contract: the ruling is already baked into
+    /// `document.pdf`, so nothing on the other side of the folder or the relay
+    /// needs it. Absent for every document that arrived from somewhere else.
+    public static let note = "note.json"
+
     /// Every file name a document directory may hold, in the order a reader
     /// should prefer them.
     public static let documentFiles = [document, sourceMarkdown, sourceMap, metadata]

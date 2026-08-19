@@ -48,8 +48,8 @@
       "additionalProperties": true,
       "properties": {
         "kind": {
-          "enum": ["cowork", "claude-code", "codex", "share", "manual"],
-          "description": "Note the hyphen in claude-code. An unrecognised value is read as 'manual'."
+          "enum": ["cowork", "claude-code", "codex", "share", "manual", "note"],
+          "description": "Note the hyphen in claude-code. 'note' means the document was written in the app rather than sent to it. An unrecognised value is read as 'manual'."
         },
         "sessionId": {
           "type": "string",

@@ -42,7 +42,9 @@ Folder names are `YYYY-MM-DD-<slug>`. Slugs are lowercase, hyphenated, ASCII.
 }
 ```
 
-`origin.kind` ∈ `cowork` · `claude-code` · `codex` · `share` · `manual`.
+`origin.kind` ∈ `cowork` · `claude-code` · `codex` · `share` · `manual` · `note`.
+`note` means the app wrote the document itself — a blank notebook or one typed in the
+app — so there is no conversation behind it to return to.
 `origin.returnPath.type` ∈ `poke` · `checkin` · `resume` · `cloud` · `none`.
 
 **Writers and readers are held to different standards, deliberately.** A writer emits `id`,
