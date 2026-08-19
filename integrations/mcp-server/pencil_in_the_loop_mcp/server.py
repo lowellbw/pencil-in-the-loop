@@ -7,6 +7,7 @@ module only turns tool calls into those functions and shapes the replies.
 from __future__ import annotations
 
 import base64
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,9 @@ from . import __version__
 from .config import resolve_sync_root
 from .core import (
     ValidationError,
+    atomic_bundle_dir,
     list_review_bundles,
+    prepare_pdf_bundle,
     read_review,
     validate_bundle_id,
     write_file,
@@ -180,6 +183,85 @@ def get_review(id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"could not read the bundle: {exc}"}
     review["ok"] = True
     return review
+
+
+@server.tool(
+    name="send_pdf_to_ipad",
+    description=(
+        "Send a PDF to the user's iPad by giving its web address — a paper, a "
+        "spec, a report. The relay downloads it; you do not need the file, and "
+        "there is no size limit worth worrying about.\n\n"
+        "Use this whenever the user names a PDF you can reach: an arXiv link, "
+        "a docs URL, anything ending in .pdf. For a PDF attached to this "
+        "conversation you cannot use this tool — you do not have the file, "
+        "only what you read out of it — so send that as markdown with "
+        "send_to_ipad instead, and say that the layout will not be preserved.\n\n"
+        "Pass `thread_title`, and `session_id` if you know one, for the same "
+        "reason as send_to_ipad: they are what tells you later which "
+        "conversation the review belongs to."
+    ),
+)
+def send_pdf_to_ipad(
+    url: str,
+    title: str,
+    tags: list[str] | None = None,
+    origin_kind: str | None = None,
+    session_id: str | None = None,
+    thread_title: str | None = None,
+) -> dict[str, Any]:
+    """Fetch a PDF and write it into the inbox.
+
+    Args:
+        url: an ``https`` address. The relay downloads it.
+        title: required — a PDF carries no markdown to take a title from, and
+            an untitled document is one nobody finds again.
+        tags: optional short labels.
+        origin_kind: ``claude-code`` or ``codex``. Auto-detected if omitted.
+        session_id: this conversation's id, if you know one.
+        thread_title: what this conversation is about, in a few words.
+    """
+    from .relay import files as relay_files
+
+    try:
+        body = relay_files.fetch_pdf(url)
+    except relay_files.FileRejected as exc:
+        return {"ok": False, "error": f"could not fetch that PDF: {exc}"}
+
+    try:
+        base, meta = prepare_pdf_bundle(
+            title=title,
+            tags=tags,
+            origin_kind=origin_kind,
+            session_id=session_id,
+            thread_title=thread_title,
+            source_url=url,
+        )
+    except ValidationError as exc:
+        return {"ok": False, "error": f"invalid input: {exc}"}
+
+    inbox = Path(_sync_root()) / "inbox"
+    try:
+        with atomic_bundle_dir(inbox, base) as staging:
+            (staging.directory / "document.pdf").write_bytes(body)
+            write_file(
+                staging.directory / "meta.json",
+                json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
+            )
+    except OSError as exc:
+        return {"ok": False, "error": f"could not write the document: {exc}"}
+
+    landed = staging.final
+    if landed is None:
+        return {"ok": False, "error": "the document did not land"}
+    return {
+        "ok": True,
+        "id": landed.name,
+        "title": meta["title"],
+        "documentId": meta["id"],
+        "bytes": len(body),
+        "sourceURL": url,
+        "message": f"On the iPad: {meta['title']}. It appears within about fifteen seconds.",
+    }
 
 
 @server.tool(

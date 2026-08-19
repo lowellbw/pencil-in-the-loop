@@ -281,6 +281,62 @@ def _lower_hex(value: Any, path: str) -> str | None:
     return value.lower()
 
 
+PDF_MAGIC = b"%PDF-"
+
+
+def fetch_pdf(url: str, *, timeout: float = 30.0) -> bytes:
+    """Download a PDF, refusing anything that is not plainly one.
+
+    The relay fetches rather than the caller uploading, because a hosted MCP
+    server cannot read the caller's disk and a PDF does not survive a JSON-RPC
+    body — the transport caps at four megabytes and base64 adds a third on top.
+    A URL costs neither.
+
+    A server fetching a URL somebody else chose is a request-forgery risk, so
+    the guards are deliberate rather than incidental: `https` only, so this
+    cannot be pointed at a plaintext service on the local network; the size cap
+    applied while reading rather than after, so a hostile length header cannot
+    exhaust the container; and the PDF magic checked on the first bytes, so what
+    lands in the inbox is what the reader can open.
+
+    - Raises: `FileRejected` with a sentence for the caller.
+    """
+    import urllib.error
+    import urllib.request
+
+    if not isinstance(url, str) or not url.lower().startswith("https://"):
+        raise FileRejected("the address must start with https://")
+
+    request = urllib.request.Request(url, headers={"Accept": "application/pdf"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            declared = response.headers.get("content-type", "").split(";")[0].strip()
+            if declared and declared not in ("application/pdf", "application/octet-stream"):
+                raise FileRejected(
+                    f"that address returned {declared}, not a PDF"
+                )
+            chunks: list[bytes] = []
+            total = 0
+            while chunk := response.read(CHUNK_BYTES):
+                total += len(chunk)
+                if total > MAX_DOCUMENT_PDF_BYTES:
+                    raise FileRejected(
+                        f"that PDF is over the {MAX_DOCUMENT_PDF_BYTES} byte limit"
+                    )
+                chunks.append(chunk)
+    except FileRejected:
+        raise
+    except urllib.error.HTTPError as error:
+        raise FileRejected(f"that address returned {error.code}") from error
+    except Exception as error:  # URLError, timeouts, malformed URLs
+        raise FileRejected(f"that address could not be reached: {error}") from error
+
+    body = b"".join(chunks)
+    if not body.startswith(PDF_MAGIC):
+        raise FileRejected("what came back is not a PDF")
+    return body
+
+
 def commit_to(staging: Path, target: Path) -> Path:
     """Land a staged bundle at an exact name, rather than the first free one.
 

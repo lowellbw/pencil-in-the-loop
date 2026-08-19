@@ -232,6 +232,82 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("sha256", str(caught.exception))
 
 
+class FetchPdfTests(unittest.TestCase):
+    """A server fetching a URL somebody else chose is a request-forgery risk,
+    so the refusals matter more than the happy path."""
+
+    def test_only_https_is_fetched(self) -> None:
+        for url in (
+            "http://example.com/a.pdf",
+            "file:///etc/passwd",
+            "ftp://example.com/a.pdf",
+            "gopher://example.com",
+            "http://127.0.0.1:8080/admin",
+            "",
+            None,
+            123,
+        ):
+            with self.assertRaises(files.FileRejected, msg=repr(url)):
+                files.fetch_pdf(url)
+
+    def test_it_refuses_a_reply_that_is_not_a_pdf(self) -> None:
+        """The magic bytes are checked, not the file extension — an address
+        ending .pdf that serves an HTML error page is the common case."""
+        import io
+        import urllib.request
+        from unittest import mock
+
+        class FakeResponse(io.BytesIO):
+            headers = {"content-type": "application/pdf"}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        with mock.patch.object(
+            urllib.request, "urlopen", return_value=FakeResponse(b"<html>Not found</html>")
+        ):
+            with self.assertRaises(files.FileRejected) as caught:
+                files.fetch_pdf("https://example.com/paper.pdf")
+        self.assertIn("not a PDF", str(caught.exception))
+
+    def test_it_accepts_a_real_pdf(self) -> None:
+        import io
+        import urllib.request
+        from unittest import mock
+
+        body = b"%PDF-1.4\n%%EOF\n"
+
+        class FakeResponse(io.BytesIO):
+            headers = {"content-type": "application/pdf"}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        with mock.patch.object(
+            urllib.request, "urlopen", return_value=FakeResponse(body)
+        ):
+            self.assertEqual(files.fetch_pdf("https://example.com/paper.pdf"), body)
+
+    def test_it_stops_reading_at_the_size_cap(self) -> None:
+        """Capped while reading, not after: a hostile length header must not be
+        able to exhaust the container."""
+        import io
+        import urllib.request
+        from unittest import mock
+
+        oversized = b"%PDF-1.4" + b"x" * (files.MAX_DOCUMENT_PDF_BYTES + 1024)
+
+        class FakeResponse(io.BytesIO):
+            headers = {"content-type": "application/pdf"}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        with mock.patch.object(
+            urllib.request, "urlopen", return_value=FakeResponse(oversized)
+        ):
+            with self.assertRaises(files.FileRejected) as caught:
+                files.fetch_pdf("https://example.com/huge.pdf")
+        self.assertIn("limit", str(caught.exception))
+
+
 class ReturnPathSecretTests(unittest.TestCase):
     """A triggerId fires a turn into someone's conversation. It is closer to a
     credential than to metadata and must not sit on a server."""
