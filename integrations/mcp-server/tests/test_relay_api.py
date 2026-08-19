@@ -337,18 +337,66 @@ class ReviewTests(RelayApiTestCase):
         }
         return manifest, review_md
 
-    def test_a_review_with_no_ink_lands_immediately(self) -> None:
-        folder = self.send().json()["folderName"]
+    def deliver(self, folder: str):
+        """Declare and upload, which is what sending a review now means."""
         manifest, review_md = self.bundle(folder)
-        response = self.client.post(
+        declared = self.client.post(
             f"/v1/documents/{folder}/review",
-            json={"manifest": manifest, "reviewMarkdown": review_md},
+            json={"manifest": manifest},
             headers=self.auth,
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertTrue(response.json()["complete"])
+        self.client.put(
+            f"/v1/reviews/{folder}/files/review.md",
+            content=review_md.encode(),
+            headers=self.auth,
+        )
+        return declared
+
+    def test_a_review_lands_once_its_declared_files_are_uploaded(self) -> None:
+        """Declared, then uploaded — including review.md.
+
+        The server writes only manifest.json, because it is the one file the
+        manifest does not hash. Everything else must arrive as the exact bytes
+        the device hashed, or verification cannot pass.
+        """
+        folder = self.send().json()["folderName"]
+        manifest, review_md = self.bundle(folder)
+        declared = self.client.post(
+            f"/v1/documents/{folder}/review",
+            json={"manifest": manifest},
+            headers=self.auth,
+        )
+        self.assertEqual(declared.status_code, 201)
+        self.assertFalse(declared.json()["complete"])
+
+        uploaded = self.client.put(
+            f"/v1/reviews/{folder}/files/review.md",
+            content=review_md.encode(),
+            headers=self.auth,
+        )
+        self.assertEqual(uploaded.status_code, 200)
+        self.assertTrue(uploaded.json()["complete"])
         self.assertTrue(
             (self.root / "outbox" / f"{folder}.review" / "review.md").is_file()
+        )
+
+    def test_bytes_the_server_re_encoded_would_fail_verification(self) -> None:
+        """The 422 this shape exists to prevent.
+
+        A device hashes what it wrote. `json.dumps` of the same object — other
+        key order, other spacing — is different bytes, so a server that writes
+        review.json itself can never satisfy the manifest it was given.
+        """
+        import json as _json
+
+        folder = self.send().json()["folderName"]
+        review_json = {"documentId": "DOC1", "comments": [], "inkPages": []}
+        device_bytes = _json.dumps(review_json, sort_keys=True, indent=2).encode()
+        server_bytes = _json.dumps(review_json, indent=2, ensure_ascii=False).encode()
+        self.assertNotEqual(
+            sha(device_bytes),
+            sha(server_bytes),
+            "if these ever match, this whole upload shape is unnecessary",
         )
 
     def test_an_ink_page_is_uploaded_after_the_declaration(self) -> None:
@@ -358,13 +406,18 @@ class ReviewTests(RelayApiTestCase):
 
         declared = self.client.post(
             f"/v1/documents/{folder}/review",
-            json={"manifest": manifest, "reviewMarkdown": review_md},
+            json={"manifest": manifest},
             headers=self.auth,
         )
         self.assertEqual(declared.status_code, 201)
         self.assertFalse(declared.json()["complete"])
         self.assertFalse((self.root / "outbox" / f"{folder}.review").exists())
 
+        self.client.put(
+            f"/v1/reviews/{folder}/files/review.md",
+            content=review_md.encode(),
+            headers=self.auth,
+        )
         uploaded = self.client.put(
             f"/v1/reviews/{folder}/files/ink/page-01.png",
             content=ink,
@@ -378,13 +431,12 @@ class ReviewTests(RelayApiTestCase):
 
     def test_the_same_bundle_twice_is_one_review(self) -> None:
         folder = self.send().json()["folderName"]
-        manifest, review_md = self.bundle(folder)
-        payload = {"manifest": manifest, "reviewMarkdown": review_md}
-        first = self.client.post(
-            f"/v1/documents/{folder}/review", json=payload, headers=self.auth
-        )
+        first = self.deliver(folder)
+        manifest, _ = self.bundle(folder)
         second = self.client.post(
-            f"/v1/documents/{folder}/review", json=payload, headers=self.auth
+            f"/v1/documents/{folder}/review",
+            json={"manifest": manifest},
+            headers=self.auth,
         )
         self.assertEqual(first.status_code, 201)
         self.assertEqual(second.status_code, 200)
@@ -397,7 +449,12 @@ class ReviewTests(RelayApiTestCase):
         manifest, review_md = self.bundle(folder, ink=ink)
         self.client.post(
             f"/v1/documents/{folder}/review",
-            json={"manifest": manifest, "reviewMarkdown": review_md},
+            json={"manifest": manifest},
+            headers=self.auth,
+        )
+        self.client.put(
+            f"/v1/reviews/{folder}/files/review.md",
+            content=review_md.encode(),
             headers=self.auth,
         )
         response = self.client.put(
@@ -413,20 +470,14 @@ class ReviewTests(RelayApiTestCase):
         folder = self.send().json()["folderName"]
         response = self.client.post(
             f"/v1/documents/{folder}/review",
-            json={"manifest": {"files": [{"path": "review.json"}]},
-                  "reviewMarkdown": "x"},
+            json={"manifest": {"files": [{"path": "review.json"}]}},
             headers=self.auth,
         )
         self.assertEqual(response.status_code, 400)
 
     def test_reviews_can_be_listed_and_read_back(self) -> None:
         folder = self.send().json()["folderName"]
-        manifest, review_md = self.bundle(folder)
-        self.client.post(
-            f"/v1/documents/{folder}/review",
-            json={"manifest": manifest, "reviewMarkdown": review_md},
-            headers=self.auth,
-        )
+        self.deliver(folder)
         listed = self.client.get("/v1/reviews", headers=self.auth).json()
         self.assertEqual([r["id"] for r in listed["reviews"]], [folder])
 
@@ -435,12 +486,7 @@ class ReviewTests(RelayApiTestCase):
 
     def test_a_reply_is_written_and_appears_in_the_feed(self) -> None:
         folder = self.send().json()["folderName"]
-        manifest, review_md = self.bundle(folder)
-        self.client.post(
-            f"/v1/documents/{folder}/review",
-            json={"manifest": manifest, "reviewMarkdown": review_md},
-            headers=self.auth,
-        )
+        self.deliver(folder)
         before = self.client.get("/v1/changes", headers=self.auth).json()["cursor"]
 
         reply = self.client.put(

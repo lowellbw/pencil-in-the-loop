@@ -346,19 +346,19 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
             )
         }
 
-        var declaration: [String: Any] = [
-            "manifest": try JSONSerialization.jsonObject(with: manifest.data),
-            "reviewMarkdown": String(decoding: reviewMarkdown.data, as: UTF8.self),
+        // The declaration carries the manifest and nothing else. Every file it
+        // lists is uploaded as the exact bytes this device hashed — a server
+        // that re-encoded review.json from JSON produced different bytes for
+        // the same object, and verification could never pass.
+        let declaration: [String: Any] = [
+            "manifest": try JSONSerialization.jsonObject(with: manifest.data)
         ]
-        if let reviewJSON = payload.files.first(where: { $0.relativePath == "review.json" }) {
-            declaration["review"] = try JSONSerialization.jsonObject(with: reviewJSON.data)
-        }
         let body = try JSONSerialization.data(withJSONObject: declaration)
         _ = try await client.post(body, to: "/v1/documents/\(folderName)/review")
 
-        // Everything the declaration did not carry — the ink pages.
-        let declared = Set(["manifest.json", "review.md", "review.json"])
-        for file in payload.files where declared.contains(file.relativePath) == false {
+        _ = reviewMarkdown  // required by the bundle; uploaded below like the rest
+
+        for file in payload.files where file.relativePath != "manifest.json" {
             _ = try await client.put(
                 file.data,
                 to: "/v1/reviews/\(folderName)/files/\(file.relativePath)",

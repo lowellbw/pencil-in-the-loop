@@ -282,11 +282,7 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
 
         await transport.set(mode: .routed)
         await emptyFeed()
-        await transport.route("/v1/documents/2026-08-18-auth-refactor-plan/review", json: "{}")
-        await transport.route(
-            "/v1/reviews/2026-08-18-auth-refactor-plan/files/ink/page-01.png",
-            json: "{}"
-        )
+        await routeReviewUpload()
 
         _ = try await subject.refresh()
 
@@ -306,11 +302,7 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
 
     func testAReviewIsDeclaredBeforeItsInkIsUploaded() async throws {
         await emptyFeed()
-        await transport.route("/v1/documents/2026-08-18-auth-refactor-plan/review", json: "{}")
-        await transport.route(
-            "/v1/reviews/2026-08-18-auth-refactor-plan/files/ink/page-01.png",
-            json: "{}"
-        )
+        await routeReviewUpload()
 
         let written = try await coordinator().send(Self.reviewPayload())
         XCTAssertFalse(written.isQueued)
@@ -362,6 +354,19 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Every file in the bundle is uploaded, review.md included: the server
+    /// writes only manifest.json, because it is the one file the manifest does
+    /// not hash.
+    private func routeReviewUpload() async {
+        await transport.route("/v1/documents/2026-08-18-auth-refactor-plan/review", json: "{}")
+        for path in ["review.md", "ink/page-01.png"] {
+            await transport.route(
+                "/v1/reviews/2026-08-18-auth-refactor-plan/files/\(path)",
+                json: "{}"
+            )
+        }
+    }
 
     private static func reviewPayload() -> OutboxPayload {
         let review = Data("# Review — Auth refactor plan\n".utf8)

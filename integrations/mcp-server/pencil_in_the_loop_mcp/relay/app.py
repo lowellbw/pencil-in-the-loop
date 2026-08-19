@@ -401,10 +401,6 @@ def create_app(
         except relay_files.FileRejected as error:
             raise ApiError(400, "bad_manifest", str(error)) from error
 
-        review_markdown = body.get("reviewMarkdown")
-        if not isinstance(review_markdown, str) or not review_markdown.strip():
-            raise ApiError(400, "bad_request", "reviewMarkdown is required.")
-
         manifest_bytes = json.dumps(manifest, sort_keys=True).encode()
         import hashlib as _hashlib
 
@@ -437,17 +433,19 @@ def create_app(
 
         staging = core.stage_bundle(outbox, f"{folder_name}.review")
         try:
-            core.write_file(staging / "review.md", review_markdown)
+            # **Only manifest.json is written here, and only because it is the
+            # one file the manifest does not hash.**
+            #
+            # Every other file arrives as raw bytes through PUT. The server
+            # writing them from JSON was a 422 on every review that carried a
+            # review.json: the device hashes what *it* wrote — sorted keys,
+            # its own spacing — and `json.dumps` here produced different bytes
+            # for the same object, so verification could not pass. A parts list
+            # is only worth having if the parts are the ones that were counted.
             core.write_file(
                 staging / "manifest.json",
                 json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
             )
-            review_json = body.get("review")
-            if review_json is not None:
-                core.write_file(
-                    staging / "review.json",
-                    json.dumps(review_json, indent=2, ensure_ascii=False) + "\n",
-                )
         except Exception:
             core.discard_bundle(staging)
             raise
@@ -460,16 +458,6 @@ def create_app(
             staging_path=staging,
             expected_files=entries,
         )
-        for name in ("review.md", "review.json"):
-            path = staging / name
-            if path.is_file():
-                index.mark_review_file_present(
-                    folder_name,
-                    name,
-                    byte_count=path.stat().st_size,
-                    sha256=relay_files.sha256_of(path),
-                )
-
         missing = index.missing_review_files(folder_name)
         if not missing:
             _finish_review(folder_name, staging, entries)

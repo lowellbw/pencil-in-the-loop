@@ -60,7 +60,11 @@ def _sync_root():
     name="send_to_ipad",
     description=(
         "Send a markdown document to the user's iPad for reading and Apple "
-        "Pencil review. Writes inbox/YYYY-MM-DD-<slug>/ into the sync "
+        "Pencil review. Always pass `thread_title` — a few words describing "
+        "what this conversation is about — and `session_id` if you know one. "
+        "They are written into the review that comes back, and they are the "
+        "only way to tell later which conversation a review belongs to. "
+        "Writes inbox/YYYY-MM-DD-<slug>/ into the sync "
         "folder atomically; the iPad picks it up on its own schedule, so "
         "this succeeds even when the iPad is off or asleep.\n\n"
         "Use this when the user asks for something to read, review, look at "
@@ -86,10 +90,16 @@ def send_to_ipad(
         title: Human title. Defaults to the first H1 in ``content``.
         tags: Optional short labels, e.g. ``["spec", "auth"]``.
         origin_kind: ``claude-code`` or ``codex``. Auto-detected if omitted.
-        session_id: This session's id, so the review can return to this
-            conversation. Pass it if you know it; otherwise the server
-            falls back to the environment and the session file.
-        thread_title: Optional conversation title, shown in the review.
+        session_id: This conversation's id, if you know one. **Always pass it
+            when you have it.** A hosted server has no environment to sniff it
+            from, so unless you supply it the review comes back unable to say
+            which conversation it belongs to.
+        thread_title: What this conversation is about, in a few words — the
+            title if it has one, otherwise a short description you would
+            recognise later, like "Q3 platform planning" or "auth refactor".
+            **Always pass this.** It is written into the review the user sends
+            back, and it is the only thing that tells you, days later and in a
+            different conversation, which thread a review belongs to.
     """
     try:
         result = write_inbox_bundle(
