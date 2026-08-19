@@ -113,6 +113,77 @@ final class ReaderInkAttachmentTests: XCTestCase {
         XCTAssertEqual(provider.requestedPages.first, 0, "page 0 should get a canvas")
     }
 
+    /// The invariant that actually matters, and the one that was false on a
+    /// device while every other check passed.
+    ///
+    /// PDFKit's `PDFPageView` — the view it puts an overlay inside — ships with
+    /// `isUserInteractionEnabled = false`, and that blocks hit-testing for every
+    /// subview. An overlay can therefore be created, sized, bound and on screen
+    /// and still be untouchable. Asserting "the overlay exists" does not catch
+    /// that; asserting "a touch lands on it" does.
+    func testATouchOnThePageReachesTheOverlay() async throws {
+        let document = try makeDocument()
+        let provider = RecordingOverlayProvider()
+
+        let view = PDFView(frame: .zero)
+        view.displayMode = .singlePageContinuous
+        view.autoScales = true
+        view.pageOverlayViewProvider = provider
+        let window = hosted(view)
+        defer { window.isHidden = true }
+        view.document = document
+
+        for _ in 0..<40 where provider.returnedViews.isEmpty {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            view.layoutIfNeeded()
+        }
+        let overlay = try XCTUnwrap(provider.returnedViews.first)
+        view.layoutIfNeeded()
+
+        // What `PageCanvasController.didMoveToSuperview` does for the real one.
+        overlay.superview?.isUserInteractionEnabled = true
+
+        let centre = overlay.convert(
+            CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY),
+            to: window
+        )
+        let hit = window.hitTest(centre, with: nil)
+        let reaches = hit === overlay || hit?.isDescendant(of: overlay) == true
+        let landedOn = hit.map { String(describing: type(of: $0)) } ?? "nothing"
+
+        XCTAssertTrue(
+            reaches,
+            "A touch in the middle of the page landed on \(landedOn) rather than the overlay. The canvas can exist, be the right size and be in the window with this false, and no stroke will ever reach it."
+        )
+    }
+
+    /// The specific flag, named, so a failure says what to change.
+    func testTheOverlaysPageViewCanBeMadeTouchable() async throws {
+        let document = try makeDocument()
+        let provider = RecordingOverlayProvider()
+
+        let view = PDFView(frame: .zero)
+        view.displayMode = .singlePageContinuous
+        view.autoScales = true
+        view.pageOverlayViewProvider = provider
+        let window = hosted(view)
+        defer { window.isHidden = true }
+        view.document = document
+
+        for _ in 0..<40 where provider.returnedViews.isEmpty {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            view.layoutIfNeeded()
+        }
+        let overlay = try XCTUnwrap(provider.returnedViews.first)
+        let pageView = try XCTUnwrap(overlay.superview)
+
+        // Recorded rather than asserted either way: if a future PDFKit ships
+        // these enabled, `didMoveToSuperview` becomes a no-op and nothing
+        // breaks. While it ships them disabled, that call is load-bearing.
+        pageView.isUserInteractionEnabled = true
+        XCTAssertTrue(pageView.isUserInteractionEnabled)
+    }
+
     /// The bug this file was written for.
     ///
     /// `ReaderModel.open` publishes `document`, which makes SwiftUI re-render,

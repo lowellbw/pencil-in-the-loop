@@ -231,6 +231,29 @@ public final class PageCanvasController: UIView, PKCanvasViewDelegate {
 
     // MARK: - Layout
 
+    /// Switch touches back on for the page view PDFKit puts this inside.
+    ///
+    /// **Without this there is no ink at all, and everything else looks right.**
+    /// PDFKit's `PDFPageView` ships with `isUserInteractionEnabled = false`, and
+    /// a view with interaction off blocks hit-testing for itself *and every
+    /// subview*. So the canvas is created, sized, bound to its page, added to
+    /// the window and configured correctly — and no touch can ever reach it.
+    ///
+    /// It is a particularly quiet failure. The document renders, the tool picker
+    /// opens, brushes can be chosen and none of it does anything, because the
+    /// picker only needs the canvas to be first responder while drawing needs it
+    /// to be *touchable*.
+    ///
+    /// Enabling it on the superview rather than on `self` is deliberate: `self`
+    /// was never the problem, and the flag has to be cleared on the ancestor
+    /// that carries it. PDFKit's own text selection lives on `PDFDocumentView`
+    /// above this, so turning the page view back on does not take anything from
+    /// it.
+    public override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        self.superview?.isUserInteractionEnabled = true
+    }
+
     public override func layoutSubviews() {
         super.layoutSubviews()
         self.layoutCanvas()
