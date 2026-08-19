@@ -1,0 +1,4 @@
+# Bytecode from running the tests. Scoped to this unit so it does not tread on
+# the repo-root .gitignore, which another unit owns.
+__pycache__/
+*.pyc

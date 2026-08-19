@@ -1,0 +1,20 @@
+# Files permitted more than one top-level type, and therefore exempt from
+# filename == primary type. One entry per line, filename stem only.
+#
+# This list is closed. Adding to it is a change request to the lead — if you
+# think you need a new entry, what you actually need is a second file
+# (STYLE.md § 3).
+
+# Core/Contracts — each of these groups one vocabulary that is read as a set.
+Identifiers          # DocState, CommentSource, OriginKind, ReturnPathType, SourceFormat
+DTOs                 # the transfer objects
+Protocols            # every seam between two modules
+MarkdownIR           # MarkdownDocument, MarkdownBlock, ListItem, TableRow, TableCell, InlineRun, InlineAttributes
+Origin               # Origin + ReturnPath
+ReviewBundle         # review.json: ReviewBundle, ReviewComment, ReviewInkPage, ReviewIncludeOptions
+BundleManifest       # manifest.json: BundleManifest, ManifestFile, GeneratorInfo
+AppSettings          # AppSettings, PageTint, InkDefaults, InkToolKind
+
+# AppUI/Support — the protocol plus its inert preview stubs, which have to live
+# next to it to be any use.
+AppEnvironment

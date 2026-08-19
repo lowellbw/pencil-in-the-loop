@@ -1,0 +1,15 @@
+// Signing.xcconfig
+//
+// This is the one file you have to edit before the first build.
+//
+// Put your Apple Developer Team ID on the line below — ten characters, found in
+// Xcode ▸ Settings ▸ Accounts, or at developer.apple.com ▸ Membership. Leaving it
+// blank builds fine for the Simulator and for CI (which passes
+// CODE_SIGNING_ALLOWED=NO); it fails the moment you build to a device.
+//
+// It lives in its own file so that the day this repo gains a second developer,
+// this is the only file with a merge conflict.
+
+DEVELOPMENT_TEAM =
+
+CODE_SIGN_STYLE = Automatic

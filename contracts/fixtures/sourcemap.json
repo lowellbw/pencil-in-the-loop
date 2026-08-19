@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "documentId": "F7A1…",
+  "source": "source.md",
+  "offsetEncoding": "utf8",
+  "entries": [
+    { "pageIndex": 0, "rect": [0.09, 0.08, 0.66, 0.03], "range": [0, 21] },
+    { "pageIndex": 0, "rect": [0.09, 0.14, 0.76, 0.09], "range": [23, 402] },
+    { "pageIndex": 0, "rect": [0.12, 0.34, 0.76, 0.04], "range": [1204, 1268] },
+    { "pageIndex": 1, "rect": [0.09, 0.11, 0.76, 0.06], "range": [1269, 1690] }
+  ]
+}

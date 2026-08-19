@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pencil-in-the-loop — flows &amp; UI</title>
+<style>
+:root{
+  --bg:#f6f5f2; --surface:#fff; --ink:#15171c; --muted:#6d7280; --faint:#9aa0a8;
+  --line:#e4e2dd; --line2:#efede8;
+  --accent:#007AFF; --accent-soft:#eaf3ff;
+  --pencil:#c7362b; --pencil-soft:#fdecea;
+  --voice:#007AFF; --voice-soft:#eaf3ff;
+  --warn:#b4770d; --warn-soft:#fbf1de;
+  --hand:"Bradley Hand","Segoe Script","Brush Script MT",cursive;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.6 ui-sans-serif,-apple-system,"SF Pro Text",Inter,Segoe UI,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:56px 28px 90px}
+h1{font-size:30px;line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);
+  margin:64px 0 6px;font-weight:600}
+h3{font-size:19px;margin:0 0 18px;letter-spacing:-.01em}
+p{margin:0 0 14px;max-width:70ch}
+.lede{font-size:17px;color:#3d4149;max-width:74ch}
+.sub{color:var(--muted);font-size:14px;max-width:74ch;margin-top:-2px}
+code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.88em;
+  background:#eceae5;padding:1px 5px;border-radius:4px}
+hr{border:0;border-top:1px solid var(--line);margin:0}
+.badge{display:inline-block;white-space:nowrap;font-size:11px;font-weight:600;letter-spacing:.04em;
+  padding:3px 9px;border-radius:999px;vertical-align:middle}
+.b-ok{background:var(--voice-soft);color:var(--voice)}
+.b-warn{background:var(--warn-soft);color:var(--warn)}
+.b-acc{background:var(--accent-soft);color:var(--accent)}
+
+/* ---------- flow diagram ---------- */
+.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin:26px 0 8px}
+.node{flex:1 1 150px;min-width:148px;background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;padding:14px 15px;position:relative}
+.node .k{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+  font-weight:600;margin-bottom:6px}
+.node .t{font-weight:600;font-size:14px;margin-bottom:3px}
+.node .d{font-size:12.5px;color:var(--muted);line-height:1.45}
+.arrow{flex:0 0 34px;display:flex;align-items:center;justify-content:center;color:#c3c0b9;font-size:17px}
+.offline-band{margin:14px 0 0;border:1px dashed #c9c5bc;border-radius:12px;padding:11px 16px;
+  background:#fbfaf7;font-size:13px;color:var(--muted)}
+.offline-band b{color:var(--ink);font-weight:600}
+
+/* ---------- device mockups ---------- */
+.grid{display:grid;gap:26px;margin-top:24px}
+.g2{grid-template-columns:1fr 1fr}
+@media(max-width:900px){.g2{grid-template-columns:1fr}}
+.cap{font-size:12.5px;color:var(--muted);margin:10px 2px 0;line-height:1.5}
+.cap b{color:var(--ink);font-weight:600}
+
+.pad{background:#2a2c31;border-radius:22px;padding:10px;box-shadow:0 12px 34px rgba(20,22,28,.14)}
+.screen{background:#fdfdfc;border-radius:11px;overflow:hidden;position:relative;
+  display:flex;flex-direction:column}
+.screen.tall{min-height:430px}
+.screen.short{min-height:330px}
+
+.tbar{display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid var(--line2);
+  background:#fbfaf8;font-size:12.5px;flex:0 0 auto}
+.tbar .back{color:var(--accent);font-weight:500}
+.tbar .title{font-weight:600;flex:1;font-size:13px}
+.tbar .pill{font-size:11.5px;color:var(--muted);font-weight:400}
+.tbar .send{font-size:12.5px;font-weight:500;color:var(--accent)}
+
+.doc{padding:20px 22px;font-family:ui-serif,Georgia,"Iowan Old Style",serif;
+  font-size:13px;line-height:1.75;color:#23262c;position:relative;flex:1}
+.doc h4{font-family:ui-sans-serif,system-ui,sans-serif;font-size:15px;margin:0 0 10px;letter-spacing:-.01em}
+.doc h5{font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;margin:16px 0 7px;
+  letter-spacing:.02em;color:#4a4e56}
+.doc p{margin:0 0 11px;max-width:none}
+.doc .pre{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11px;background:#f3f2ef;
+  border:1px solid var(--line2);border-radius:7px;padding:9px 11px;color:#3a3d44;line-height:1.6}
+.doc .ln{color:#b9b6ae;user-select:none}
+
+/* ink marks */
+.ink-underline{position:relative}
+.ink-underline svg{position:absolute;left:-3px;bottom:-6px;width:calc(100% + 8px);height:9px;overflow:visible}
+.circle-wrap{position:relative;display:inline-block}
+.circle-wrap svg{position:absolute;left:-9px;top:-6px;width:calc(100% + 18px);height:calc(100% + 12px);overflow:visible}
+.hand{font-family:var(--hand);color:var(--pencil);font-size:15px;line-height:1.25}
+.margin-note{position:absolute;transform:rotate(-3deg)}
+
+/* comment pins */
+.pin{width:17px;height:17px;border-radius:50%;background:var(--accent);color:#fff;font-size:10px;
+  font-weight:600;display:inline-flex;align-items:center;justify-content:center;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.pin.ink{background:var(--pencil)}
+.pinpos{position:absolute}
+
+/* voice popover */
+.pop{position:absolute;background:#fff;border:1px solid var(--line);border-radius:13px;
+  box-shadow:0 12px 34px rgba(20,22,28,.18);padding:13px 14px;width:270px;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.pop .q{font-size:11px;color:var(--muted);border-left:2px solid var(--voice);padding-left:8px;
+  margin-bottom:10px;line-height:1.5}
+.wave{display:flex;align-items:center;gap:3px;height:26px;margin-bottom:9px}
+.wave i{display:block;width:3px;border-radius:2px;background:var(--voice);opacity:.85}
+.pop .tx{font-size:12.5px;line-height:1.5;color:#22252b}
+.pop .tx .cur{display:inline-block;width:1.5px;height:13px;background:var(--voice);
+  vertical-align:-2px;margin-left:1px}
+.pop .hint{margin-top:11px;padding-top:9px;border-top:1px solid var(--line2);display:flex;
+  justify-content:space-between;white-space:nowrap;font-size:10.5px;color:var(--faint)}
+.pop .hint b{color:var(--voice);font-weight:600}
+.pop:after{content:"";position:absolute;left:34px;bottom:-8px;width:14px;height:14px;background:#fff;
+  border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)}
+
+/* review sheet */
+.sheet{padding:15px 16px;font-family:ui-sans-serif,system-ui,sans-serif;overflow:hidden;flex:1}
+.sheet .hd{font-size:15px;font-weight:600;margin-bottom:3px}
+.sheet .hdsub{font-size:11.5px;color:var(--muted);margin-bottom:13px}
+.crow{display:flex;gap:9px;padding:9px 0;border-top:1px solid var(--line2)}
+.crow .body{flex:1;min-width:0}
+.crow .quote{font-size:10.5px;color:var(--faint);font-family:ui-serif,Georgia,serif;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}
+.crow .txt{font-size:12px;line-height:1.45;color:#23262c}
+.crow .src{font-size:9.5px;color:var(--faint);margin-top:3px;letter-spacing:.02em}
+.toggles{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 11px}
+.tg{font-size:10.5px;padding:4px 9px;border-radius:999px;border:1px solid var(--line);
+  background:#fafaf8;color:#4a4e56}
+.tg.on{background:var(--accent-soft);border-color:#cfe4ff;color:var(--accent);font-weight:500}
+.promptbox{border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:12px;
+  color:#23262c;background:#fff;margin-bottom:11px}
+.promptbox .ph{color:var(--faint)}
+.dest{display:flex;align-items:center;gap:8px;background:#fafaf8;border:1px solid var(--line);
+  border-radius:9px;padding:9px 11px;font-size:11.5px;margin-bottom:11px}
+.dest .dot{width:6px;height:6px;border-radius:50%;background:var(--voice);flex:0 0 auto}
+.dest .who{font-weight:600}
+.dest .sid{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--faint)}
+.dest .same{margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:.05em;
+  background:var(--voice-soft);color:var(--voice);padding:3px 7px;border-radius:999px}
+.cta{background:var(--accent);color:#fff;text-align:center;font-weight:600;font-size:13px;
+  padding:11px;border-radius:9px}
+
+/* sent state */
+.sent{padding:22px 20px;font-family:ui-sans-serif,system-ui,sans-serif;flex:1;display:flex;
+  flex-direction:column;justify-content:center}
+.check{width:34px;height:34px;border-radius:50%;background:var(--voice-soft);color:var(--voice);
+  display:flex;align-items:center;justify-content:center;font-size:17px;margin-bottom:13px}
+.timeline{margin:16px 0 0;border-left:2px solid var(--line);padding-left:14px}
+.timeline div{position:relative;font-size:11.5px;color:var(--muted);padding:5px 0}
+.timeline div:before{content:"";position:absolute;left:-19px;top:11px;width:7px;height:7px;
+  border-radius:50%;background:#cfccc5}
+.timeline div.now:before{background:var(--voice)}
+.timeline div.now{color:var(--ink);font-weight:600}
+.replycard{margin-top:16px;border:1px solid var(--line);border-radius:10px;padding:11px 12px;
+  background:#fbfaf8}
+.replycard .rh{font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px}
+.replycard .rb{font-size:11.5px;color:#3d4149;line-height:1.5}
+
+/* library */
+.libitem{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line2);
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.libitem .ic{width:26px;height:32px;border-radius:4px;background:#eceae5;border:1px solid var(--line);
+  flex:0 0 auto}
+.libitem .ic.pdf{background:var(--pencil-soft);border-color:#f2d9cd}
+.libitem .nm{flex:1;min-width:0}
+.libitem .nm b{display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.libitem .nm span{font-size:10.5px;color:var(--faint)}
+.libitem .st{font-size:9.5px;padding:3px 7px;border-radius:999px;font-weight:600}
+.st.dl{background:transparent;color:var(--faint);font-weight:400}
+.st.rev{background:transparent;color:var(--accent);font-weight:500}
+.st.pend{background:transparent;color:var(--faint);font-weight:400}
+
+/* return-path table */
+.paths{display:grid;grid-template-columns:1fr;gap:12px;margin-top:22px}
+.path{display:grid;grid-template-columns:170px 1fr 96px;gap:16px;align-items:start;
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:15px 17px}
+@media(max-width:760px){.path{grid-template-columns:1fr}}
+.path .h{font-weight:600;font-size:13.5px}
+.path .h small{display:block;font-weight:400;color:var(--faint);font-size:11.5px;margin-top:3px}
+.path .m{font-size:12.5px;color:var(--muted);line-height:1.55}
+.path .m code{font-size:11.5px}
+.path .v{text-align:right}
+@media(max-width:760px){.path .v{text-align:left}}
+
+.layers{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px}
+@media(max-width:760px){.layers{grid-template-columns:1fr}}
+.layer{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:15px 16px}
+.layer .n{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;margin-bottom:7px}
+.layer .t{font-weight:600;font-size:13.5px;margin-bottom:5px}
+.layer .d{font-size:12.5px;color:var(--muted);line-height:1.55}
+.foot{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Pencil-in-the-loop</h1>
+<p class="lede">A read-later inbox for long-form on iPad — papers, PDFs, agent output. Mark it up with the Pencil, talk your comments in, send the whole thing back to the conversation it came from.</p>
+
+<h2>Section 0 — Getting things in</h2>
+<h3>One folder, four ways to fill it</h3>
+<p class="sub">This is the easy half, and it's what makes the app worth opening even when no agent is involved. Everything below writes to the same <code>inbox/</code>, so there is one ingest path to build, not five.</p>
+
+<div class="flow" style="margin-bottom:0">
+  <div class="node"><div class="k">iOS share sheet</div><div class="t">Share → Review</div><div class="d">From Safari, Mail, arXiv, Files, anywhere. A share extension is about a day's work and covers most of what you'll actually send.</div></div>
+  <div class="node" style="margin-left:12px"><div class="k">Cowork</div><div class="t">Writes the file directly</div><div class="d">A Cowork session already reaches your connected folders — it can drop a PDF straight into <code>inbox/</code> with no new plumbing at all.</div></div>
+  <div class="node" style="margin-left:12px"><div class="k">Claude Code</div><div class="t"><code>send_to_ipad()</code></div><div class="d">Local MCP server, ~100 lines. Writes the same folder, records the session id.</div></div>
+  <div class="node" style="margin-left:12px"><div class="k">You</div><div class="t">Files / AirDrop</div><div class="d">Drag anything in. Markdown is rendered to PDF on arrival; PDFs pass straight through.</div></div>
+</div>
+<div class="offline-band" style="margin-top:12px">📄 <b>Research papers are the easy case</b> — they're already PDFs, so ingest is a copy. Worth handling on arrival: pull title and authors for the library, and expect two-column academic layouts to stay page-view rather than reflow. <b>This is the part that de-risks the whole idea</b> — if it's a good offline paper reader first, you'll open it whether or not an agent sent you anything.</div>
+
+<h2>Section 1 — The round trip</h2>
+<h3>Doc out, review back, same conversation</h3>
+
+<div class="flow">
+  <div class="node"><div class="k">Cowork / Claude Code</div><div class="t">Doc gets sent</div><div class="d">A skill fires on “…to read later” or “…for review”, and the origin session id is recorded alongside the file.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="k">Sync</div><div class="t">Lands in <code>inbox/</code></div><div class="d">md rendered to PDF on ingest. iCloud folder — no server, no auth.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="k">iPad</div><div class="t">Read &amp; annotate</div><div class="d">Pencil ink, press-and-hold voice comments, handwriting recognised on device.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="k">iPad</div><div class="t">Tap <i>Send back</i></div><div class="d">Bundle written to <code>outbox/</code>: comments + ink pages + closing prompt.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="k">Origin</div><div class="t">Same thread picks it up</div><div class="d">Resumed session or a poke into the Cowork thread — full prior context intact.</div></div>
+</div>
+
+<div class="offline-band">✈︎ <b>Everything between the two sync points works with no connection.</b> Docs cache locally, <code>PKStrokeRecognizer</code> and <code>SpeechAnalyzer</code> both run on-device. The bundle just sits in <code>outbox/</code> until you're back on a network — which is fine, because the send-back is inherently the online moment.</div>
+
+<h2>Section 2 — Can it go back to the same thread?</h2>
+<h3>Yes — and there is a real mechanism for both Cowork and Claude Code</h3>
+<p class="sub">Five return paths. The app picks whichever applies to the doc's origin and tells you which one it used <i>before</i> you hit send, so context is never silently lost. Note that every one of them reads the same <code>outbox/</code> folder — that's the whole reason one app serves Cowork, Claude Code and Codex without three integrations.</p>
+
+<div class="paths">
+  <div class="path">
+    <div class="h">Cloud session<small>Claude Code on the web</small></div>
+    <div class="m"><code>claude --cloud &lt;session-id&gt; -p "…"</code> queues your review straight into a live web session. Works while the session is still running and while you're nowhere near the Mac — the best fit for reviewing from the sofa.</div>
+    <div class="v"><span class="badge b-ok">same thread</span></div>
+  </div>
+  <div class="path">
+    <div class="h">Idle local session<small>the CLI on your Mac</small></div>
+    <div class="m"><code>claude -p "…" --resume &lt;session-id&gt;</code> restores the full conversation history, model and permissions. A file watcher fires it the moment your bundle lands, so the reply is waiting when you walk back to the desk.</div>
+    <div class="v"><span class="badge b-ok">same thread</span></div>
+  </div>
+  <div class="path">
+    <div class="h">Running local session<small>you're mid-turn at the keyboard</small></div>
+    <div class="m">No external injection into a live local session — it has to be idle. In practice this barely bites: the app holds the bundle and fires the moment the session frees up, or you just type <i>“read my review”</i> yourself.</div>
+    <div class="v"><span class="badge b-warn">queued</span></div>
+  </div>
+  <div class="path">
+    <div class="h">Cowork thread<small>where most of this will happen</small></div>
+    <div class="m">Better than I first assumed. A Cowork session can create a <b>poke-only scheduled task bound to itself</b>, and firing that task delivers text into the session as an ordinary user turn — so your review lands in the same conversation. Needs account-level access to fire it, so realistically a small Mac-side helper does the firing.</div>
+    <div class="v"><span class="badge b-ok">same thread</span></div>
+  </div>
+  <div class="path">
+    <div class="h">Cowork, no helper<small>zero new infrastructure</small></div>
+    <div class="m">The session schedules a check-in that reads <code>outbox/</code> when it next runs — or you open the thread and say <i>“read my review.”</i> Slightly manual, works today, nothing to build. Start here.</div>
+    <div class="v"><span class="badge b-acc">same thread</span></div>
+  </div>
+</div>
+
+<h2>Section 3 — The screens</h2>
+<p class="sub" style="margin-bottom:-8px">Design direction: <b>it should look like Apple made it.</b> System fonts, SF Symbols, system colours, standard containers. One accent colour, and the only other saturated colour in the app is the user's own ink. If a screen looks designed, it's wrong.</p>
+<h3>1 · Reading &amp; marking up</h3>
+
+<div class="pad">
+  <div class="screen tall">
+    <div class="tbar">
+      <span class="back">‹ Library</span>
+      <span class="title">auth-refactor-plan.md</span>
+      <span class="pill">3 comments</span>
+      <span class="send">Review</span>
+    </div>
+    <div class="doc">
+      <h4>Phase 2 — Session &amp; token handling</h4>
+      <p>We replace the existing cookie-based session with short-lived access tokens and a
+      rotating refresh token stored in the keychain. The
+      <span class="ink-underline">migration runs in a single deploy<svg viewBox="0 0 200 9" preserveAspectRatio="none"><path d="M2,5 C34,1.5 62,8 96,4 C126,0.8 158,7.5 198,3.5" fill="none" stroke="#c7362b" stroke-width="1.9" stroke-linecap="round"/></svg></span>,
+      with no dual-write window.</p>
+
+      <div style="position:relative">
+      <h5>Assumptions</h5>
+      <p>The auth service already exposes a <code>/rotate</code> endpoint, and every client is on
+      SDK v4 or later. Older clients
+      <span class="circle-wrap">fail closed<svg viewBox="0 0 100 30" preserveAspectRatio="none"><path d="M50,3 C78,3 96,9 96,15 C96,22 76,27 50,27 C24,27 4,22 4,15 C4,9 22,3 50,3 C62,3 72,4.5 80,7" fill="none" stroke="#c7362b" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+      and prompt a reinstall.</p>
+      <div class="margin-note hand" style="right:-2px;top:14px;width:118px;text-align:left">
+        do we? check<br>the mobile SDK →
+      </div>
+      </div>
+
+      <p style="position:relative">Rollout is gated behind <code>auth_v2</code> and defaults off for
+      internal tenants first.
+      <span class="pinpos pin" style="right:-4px;top:1px">1</span>
+      </p>
+
+      <div class="pre" style="position:relative">
+        <span class="ln">41</span>  if (!token.isValid()) {<br>
+        <span class="ln">42</span>    await refresh(session)   <span style="color:#a8a49b">// no backoff</span><br>
+        <span class="ln">43</span>  }
+        <span class="pinpos pin" style="right:-9px;top:14px">2</span>
+        <svg style="position:absolute;left:60px;top:16px;width:120px;height:22px;overflow:visible" viewBox="0 0 120 22"><path d="M4,11 L104,11" stroke="#c7362b" stroke-width="1.8" stroke-linecap="round"/><path d="M96,5 L106,11 L96,17" fill="none" stroke="#c7362b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="hand" style="margin-top:5px;transform:rotate(-1.5deg)">infinite retry loop?</div>
+
+      <p style="margin-top:12px;position:relative">Estimated at four days including the client migration.
+        <span class="pinpos pin ink" style="right:-4px;top:1px">3</span>
+      </p>
+      <h5>Open questions</h5>
+      <p>Whether the keychain item survives a restore-from-backup, and whether we need a
+      kill switch separate from the feature flag.</p>
+    </div>
+  </div>
+</div>
+<p class="cap"><b>One mode, no toolbar dance.</b> <code>drawingPolicy = .pencilOnly</code> means the finger always scrolls and the Pencil always draws — you never switch tools. Teal pins are anchored voice comments, the orange pin is a handwritten margin note the app recognised on device. Ink stays put because the doc was frozen to PDF on ingest.</p>
+
+<div class="grid g2">
+<div>
+  <h3 style="margin-top:34px">2 · Press and hold to talk</h3>
+  <div class="pad">
+    <div class="screen short" style="min-height:420px">
+      <div class="tbar"><span class="title">auth-refactor-plan.md</span><span class="pill" style="color:var(--accent)">Recording</span></div>
+      <div class="doc" style="padding-top:16px">
+        <p style="color:#9aa0a8">…rotating refresh token stored in the keychain.</p>
+        <p><span style="background:var(--voice-soft);box-shadow:0 0 0 2px var(--voice-soft)">The migration runs in a single deploy, with no dual-write window.</span></p>
+        <p style="color:#9aa0a8">Rollout is gated behind <code>auth_v2</code> and defaults off for internal
+        tenants first. The auth service already exposes a <code>/rotate</code> endpoint, and every
+        client is on SDK v4 or later.</p>
+        <div class="pop" style="left:22px;top:104px">
+          <div class="q">“The migration runs in a single deploy, with no dual-write window.”</div>
+          <div class="wave">
+            <i style="height:7px"></i><i style="height:15px"></i><i style="height:24px"></i><i style="height:12px"></i><i style="height:20px"></i><i style="height:26px"></i><i style="height:9px"></i><i style="height:17px"></i><i style="height:23px"></i><i style="height:11px"></i><i style="height:6px"></i><i style="height:14px"></i><i style="height:21px"></i><i style="height:8px"></i><i style="height:16px"></i><i style="height:12px"></i><i style="height:5px"></i>
+          </div>
+          <div class="tx">No dual-write window means we can't roll back after the cutover — I want a shadow read for at least a day<span class="cur"></span></div>
+          <div class="hint"><span><b>Hold</b> to talk</span><span>✎ scribble instead</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap"><b>Long-press is the primary trigger</b> — Pencil Pro squeeze is a bonus, since not every iPad has it and people remap it system-wide. The anchor is captured as a quoted excerpt, not a line number, so it still resolves after Claude regenerates the doc.</p>
+</div>
+
+<div>
+  <h3 style="margin-top:34px">3 · Send back</h3>
+  <div class="pad">
+    <div class="screen short">
+      <div class="tbar"><span class="back">Cancel</span><span class="title">Review</span></div>
+      <div class="sheet">
+        <div class="hd">3 comments, 2 inked pages</div>
+        <div class="hdsub">auth-refactor-plan.md · 12 min of review</div>
+
+        <div class="crow"><span class="pin">1</span><div class="body">
+          <div class="quote">“The migration runs in a single deploy…”</div>
+          <div class="txt">No dual-write window means we can't roll back after cutover — want a shadow read for a day.</div>
+          <div class="src">🎙 voice · on-device</div></div></div>
+
+        <div class="crow"><span class="pin">2</span><div class="body">
+          <div class="quote">“await refresh(session) // no backoff”</div>
+          <div class="txt">Infinite retry loop? Needs exponential backoff and a cap.</div>
+          <div class="src">✎ handwriting · recognised</div></div></div>
+
+        <div class="crow"><span class="pin ink">3</span><div class="body">
+          <div class="quote">“Estimated at four days…”</div>
+          <div class="txt">Doesn't include the mobile SDK check — closer to a week.</div>
+          <div class="src">✎ handwriting · recognised</div></div></div>
+
+        <div class="toggles">
+          <span class="tg on">✓ Comments (3)</span>
+          <span class="tg on">✓ Inked pages (2, cropped)</span>
+          <span class="tg on">✓ Recognised text</span>
+          <span class="tg">Full doc</span>
+        </div>
+
+        <div class="promptbox">Rework phase 2 with the shadow read, then <span class="ph">re-scope the estimate…</span></div>
+
+        <div class="dest"><span class="dot"></span><span class="who">Cowork</span>
+          <span class="sid">· “Q3 platform planning” · 8f3c1d</span>
+          <span class="same">SAME THREAD</span></div>
+
+        <div class="cta">Send back to thread</div>
+      </div>
+    </div>
+  </div>
+  <p class="cap"><b>The destination row is the important bit</b> — it tells you before you commit whether this lands in the original conversation or opens a new one, so there's never a surprise about lost context.</p>
+</div>
+</div>
+
+<div class="grid g2">
+<div>
+  <h3 style="margin-top:34px">4 · Sent</h3>
+  <div class="pad">
+    <div class="screen short">
+      <div class="tbar"><span class="title">Sent</span></div>
+      <div class="sent">
+        <div class="check">✓</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:3px">Review delivered</div>
+        <div style="font-size:11.5px;color:var(--muted)">Resumed session <code>8f3c1d</code> · context intact</div>
+        <div class="timeline">
+          <div>Bundle written to <code>outbox/</code></div>
+          <div>Watcher picked it up · 0.4s</div>
+          <div class="now">Claude is working — 3 comments applied</div>
+        </div>
+        <div class="replycard">
+          <div class="rh">CLAUDE REPLIED</div>
+          <div class="rb">Added a 24h shadow-read window to phase 2, capped refresh retries with exponential backoff, and re-scoped to 6 days. The mobile SDK question needs you — I couldn't verify the client version spread.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap"><b>The reply comes back to the iPad too</b>, so a review can turn into a conversation without getting up. Same folder, opposite direction.</p>
+</div>
+
+<div>
+  <h3 style="margin-top:34px">5 · Library (offline)</h3>
+  <div class="pad">
+    <div class="screen short">
+      <div class="tbar"><span class="title" style="flex:0 0 168px">Library</span><span class="pill" style="flex:1">Reviewing</span><span class="send">✳︎</span></div>
+      <div style="flex:1;display:flex"><div style="flex:0 0 168px;border-right:1px solid var(--line2);background:#fbfaf8;padding:8px 0;font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px"><div style="padding:6px 14px;background:var(--accent-soft);color:var(--accent);font-weight:600;margin:0 8px;border-radius:7px">Reviewing<span style="float:right;font-weight:400">1</span></div><div style="padding:6px 22px;color:#3d4149">Unread<span style="float:right;color:var(--faint)">4</span></div><div style="padding:6px 22px;color:#3d4149">Read<span style="float:right;color:var(--faint)">28</span></div><div style="padding:6px 22px;color:#3d4149">Archived</div><div style="margin-top:12px;padding:6px 22px;font-size:10.5px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase">Source</div><div style="padding:6px 22px;color:#3d4149">Cowork</div><div style="padding:6px 22px;color:#3d4149">Shared in</div></div><div style="flex:1">
+        <div class="libitem"><div class="ic"></div><div class="nm"><b>auth-refactor-plan.md</b><span>Cowork · 8 min ago · 4 pages</span></div><span class="st rev">REVIEWING</span></div>
+        <div class="libitem"><div class="ic"></div><div class="nm"><b>q3-platform-roadmap.md</b><span>Cowork · yesterday · 11 pages</span></div><span class="st dl">OFFLINE</span></div>
+        <div class="libitem"><div class="ic pdf"></div><div class="nm"><b>Scaling Laws for Retrieval.pdf</b><span>Shared from Safari · arXiv · 24 pages</span></div><span class="st dl">OFFLINE</span></div>
+        <div class="libitem"><div class="ic pdf"></div><div class="nm"><b>oecd-digital-gov-2026.pdf</b><span>Shared from Mail · 62 pages</span></div><span class="st dl">OFFLINE</span></div>
+        <div class="libitem"><div class="ic"></div><div class="nm"><b>migration-postmortem.md</b><span>Codex · Mon · 6 pages</span></div><span class="st dl">OFFLINE</span></div>
+        <div class="libitem"><div class="ic pdf"></div><div class="nm"><b>vendor-security-review.pdf</b><span>Added by you · 23 pages</span></div><span class="st pend">SYNCING</span></div>
+        <div class="libitem"><div class="ic"></div><div class="nm"><b>pricing-experiment-brief.md</b><span>Cowork · last week · 3 pages</span></div><span class="st dl">OFFLINE</span></div>
+      </div></div>
+    </div>
+  </div>
+  <p class="cap"><b>A library, not a viewer.</b> Everything cached on device with full-text search across both the document text and your recognised handwriting — which is what makes it a thing you open on a plane rather than a utility you open once.</p>
+</div>
+</div>
+
+<h2>Section 4 — What's actually in the bundle</h2>
+<h3>Three layers, sent together</h3>
+<div class="layers">
+  <div class="layer"><div class="n" style="color:var(--voice)">Layer 1</div><div class="t">Anchored comments</div><div class="d">Voice and recognised handwriting, each tied to a quoted excerpt. Unambiguous, cheap, and the part Claude acts on directly.</div></div>
+  <div class="layer"><div class="n" style="color:var(--pencil)">Layer 2</div><div class="t">Inked page images</div><div class="d">Only pages with ink, cropped to the ink's bounding box plus context. An arrow pointing at a paragraph means something no text string preserves.</div></div>
+  <div class="layer"><div class="n" style="color:var(--accent)">Layer 3</div><div class="t">Closing prompt</div><div class="d">The one free-text field: <i>“now do X with all of this.”</i> Turns a pile of notes into an instruction.</div></div>
+</div>
+
+<div class="foot">Mockups are illustrative, not pixel specs. Mechanisms shown are documented Claude Code behaviour (<code>--resume</code>, <code>--cloud</code>, <code>session_id</code> in hook payloads; poke-only scheduled tasks bound to a persistent Cowork session) and shipping Apple APIs (PencilKit, <code>PKStrokeRecognizer</code> in iPadOS 27, <code>SpeechAnalyzer</code>, PDFKit).</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pencil-in-the-loop.local/schema/review.schema.json",
+  "title": "review.json",
+  "description": "The structured half of a review bundle, written to outbox/<YYYY-MM-DD-slug>.review/. The prose half is review.md, which is what a model reads; the two carry the same comments in the same order with the same numbering.",
+  "type": "object",
+  "required": ["documentId", "reviewedAt", "closingInstruction", "comments", "inkPages", "included"],
+  "additionalProperties": true,
+  "properties": {
+    "documentId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The id from the document's meta.json, verbatim, so the sender can match on it."
+    },
+    "reviewedAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$",
+      "description": "ISO 8601, when Send was pressed."
+    },
+    "closingInstruction": {
+      "type": "string",
+      "description": "The 'Anything to add?' field. Always present; empty when the user left it blank."
+    },
+    "comments": {
+      "type": "array",
+      "description": "In document order, numbered from 1.",
+      "items": { "$ref": "#/$defs/comment" }
+    },
+    "inkPages": {
+      "type": "array",
+      "description": "Only pages carrying ink. A 50-page document with marks on two pages has two entries.",
+      "items": { "$ref": "#/$defs/inkPage" }
+    },
+    "included": { "$ref": "#/$defs/included" }
+  },
+  "$defs": {
+    "comment": {
+      "type": "object",
+      "required": ["id", "index", "text", "source", "anchor"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short and stable within one bundle: C1, C2, … A model quoting 'C2' back is more use than one quoting a UUID."
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based, matching the '### n — page m' heading in review.md."
+        },
+        "text": { "type": "string", "description": "The comment, post-corrected against the document term list." },
+        "source": {
+          "enum": ["voice", "handwriting", "typed"],
+          "description": "How the text was captured."
+        },
+        "anchor": { "$ref": "#/$defs/anchor" }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "description": "What the comment is attached to. Quoted text is the primary key; the rect is the fallback when text matching fails. Never a line number.",
+      "required": ["quoted", "prefix", "suffix", "pageIndex", "normalisedRect"],
+      "additionalProperties": true,
+      "properties": {
+        "quoted": { "type": "string", "description": "The selected text, exactly as it appeared." },
+        "prefix": { "type": "string", "description": "Up to 32 characters immediately before the quote." },
+        "suffix": { "type": "string", "description": "Up to 32 characters immediately after the quote." },
+        "pageIndex": { "type": "integer", "minimum": 0, "description": "Zero-based. review.md displays it one-based." },
+        "normalisedRect": { "$ref": "#/$defs/normalisedRect" },
+        "sourceRange": { "$ref": "#/$defs/sourceRange" }
+      }
+    },
+    "normalisedRect": {
+      "type": "array",
+      "description": "[x, y, width, height] as fractions of the page, origin top-left with y increasing downwards (UIKit view space, not PDF user space). Values outside 0..1 are legal: ink can be drawn off the margin.",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        { "type": "number" },
+        { "type": "number" },
+        { "type": "number" },
+        { "type": "number" }
+      ],
+      "items": { "type": "number" }
+    },
+    "sourceRange": {
+      "type": "array",
+      "description": "[start, end) half-open UTF-8 byte offsets into source.md. Present only when the document was rendered from markdown and a sourcemap.json was generated.",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "integer", "minimum": 0 }
+      ],
+      "items": { "type": "integer" }
+    },
+    "inkPage": {
+      "type": "object",
+      "required": ["pageIndex", "image"],
+      "additionalProperties": true,
+      "properties": {
+        "pageIndex": { "type": "integer", "minimum": 0, "description": "Zero-based; the filename is one-based, so pageIndex 0 is ink/page-01.png." },
+        "image": {
+          "type": "string",
+          "pattern": "^ink/page-[0-9]{2,}\\.png$",
+          "description": "Bundle-relative path to the cropped PNG."
+        },
+        "recognisedText": {
+          "type": "string",
+          "description": "PKStrokeRecognizer output for the page. Omitted when recognition found nothing or the user turned the toggle off."
+        }
+      }
+    },
+    "included": {
+      "type": "object",
+      "description": "The four Include toggles from the review sheet. The first three default on.",
+      "required": ["comments", "inkImages", "recognisedText", "fullDocument"],
+      "additionalProperties": true,
+      "properties": {
+        "comments": { "type": "boolean" },
+        "inkImages": { "type": "boolean" },
+        "recognisedText": { "type": "boolean" },
+        "fullDocument": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "documentId": "F7A1…",
+  "reviewedAt": "2026-08-18T21:14:00Z",
+  "closingInstruction": "Rework phase 2 with the shadow read…",
+  "comments": [
+    {
+      "id": "C1",
+      "index": 1,
+      "text": "No dual-write window means we can't roll back…",
+      "source": "voice",
+      "anchor": {
+        "quoted": "The migration runs in a single deploy, with no dual-write window.",
+        "prefix": "…refresh token stored in the keychain. ",
+        "suffix": " Rollout is gated behind auth_v2…",
+        "pageIndex": 0,
+        "normalisedRect": [0.12, 0.34, 0.76, 0.04],
+        "sourceRange": [1204, 1268]
+      }
+    }
+  ],
+  "inkPages": [
+    { "pageIndex": 0, "image": "ink/page-01.png", "recognisedText": "do we? check the mobile SDK" }
+  ],
+  "included": { "comments": true, "inkImages": true, "recognisedText": true, "fullDocument": false }
+}

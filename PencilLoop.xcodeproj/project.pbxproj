@@ -1,0 +1,394 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1A2B3C4D5E6F7A8B9C0D0011 /* ReviewShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7A8B9C0D0022 /* ReviewShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1A2B3C4D5E6F7A8B9C0D0033 /* PencilLoopKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F7A8B9C0D0044 /* PencilLoopKit */; };
+		1A2B3C4D5E6F7A8B9C0D0055 /* PencilLoopKitCore in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F7A8B9C0D0066 /* PencilLoopKitCore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1A2B3C4D5E6F7A8B9C0D0077 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1A2B3C4D5E6F7A8B9C0D0088 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1A2B3C4D5E6F7A8B9C0D0099;
+			remoteInfo = ReviewShareExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1A2B3C4D5E6F7A8B9C0D00AA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				1A2B3C4D5E6F7A8B9C0D0011 /* ReviewShareExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		1A2B3C4D5E6F7A8B9C0D00BB /* PencilLoop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PencilLoop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A2B3C4D5E6F7A8B9C0D0022 /* ReviewShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ReviewShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A2B3C4D5E6F7A8B9C0D00CC /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = App.xcconfig; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7A8B9C0D00DD /* ShareExtension.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension.xcconfig; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7A8B9C0D00EE /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7A8B9C0D00FF /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1A2B3C4D5E6F7A8B9C0D0110 /* Exceptions for "PencilLoop" folder in "PencilLoop" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				PencilLoop.entitlements,
+			);
+			target = 1A2B3C4D5E6F7A8B9C0D0121 /* PencilLoop */;
+		};
+		1A2B3C4D5E6F7A8B9C0D0132 /* Exceptions for "ReviewShareExtension" folder in "ReviewShareExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				ReviewShareExtension.entitlements,
+			);
+			target = 1A2B3C4D5E6F7A8B9C0D0099 /* ReviewShareExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		1A2B3C4D5E6F7A8B9C0D0143 /* PencilLoop */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1A2B3C4D5E6F7A8B9C0D0110 /* Exceptions for "PencilLoop" folder in "PencilLoop" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = PencilLoop;
+			sourceTree = "<group>";
+		};
+		1A2B3C4D5E6F7A8B9C0D0154 /* ReviewShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1A2B3C4D5E6F7A8B9C0D0132 /* Exceptions for "ReviewShareExtension" folder in "ReviewShareExtension" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ReviewShareExtension;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1A2B3C4D5E6F7A8B9C0D0165 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A2B3C4D5E6F7A8B9C0D0033 /* PencilLoopKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D5E6F7A8B9C0D0176 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A2B3C4D5E6F7A8B9C0D0055 /* PencilLoopKitCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1A2B3C4D5E6F7A8B9C0D0187 = {
+			isa = PBXGroup;
+			children = (
+				1A2B3C4D5E6F7A8B9C0D0198 /* Apps */,
+				1A2B3C4D5E6F7A8B9C0D01A9 /* Config */,
+				1A2B3C4D5E6F7A8B9C0D01BA /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1A2B3C4D5E6F7A8B9C0D0198 /* Apps */ = {
+			isa = PBXGroup;
+			children = (
+				1A2B3C4D5E6F7A8B9C0D0143 /* PencilLoop */,
+				1A2B3C4D5E6F7A8B9C0D0154 /* ReviewShareExtension */,
+			);
+			path = Apps;
+			sourceTree = "<group>";
+		};
+		1A2B3C4D5E6F7A8B9C0D01A9 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1A2B3C4D5E6F7A8B9C0D00EE /* Shared.xcconfig */,
+				1A2B3C4D5E6F7A8B9C0D00CC /* App.xcconfig */,
+				1A2B3C4D5E6F7A8B9C0D00DD /* ShareExtension.xcconfig */,
+				1A2B3C4D5E6F7A8B9C0D00FF /* Signing.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		1A2B3C4D5E6F7A8B9C0D01BA /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1A2B3C4D5E6F7A8B9C0D00BB /* PencilLoop.app */,
+				1A2B3C4D5E6F7A8B9C0D0022 /* ReviewShareExtension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1A2B3C4D5E6F7A8B9C0D0121 /* PencilLoop */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A2B3C4D5E6F7A8B9C0D01CB /* Build configuration list for PBXNativeTarget "PencilLoop" */;
+			buildPhases = (
+				1A2B3C4D5E6F7A8B9C0D01DC /* Sources */,
+				1A2B3C4D5E6F7A8B9C0D0165 /* Frameworks */,
+				1A2B3C4D5E6F7A8B9C0D01ED /* Resources */,
+				1A2B3C4D5E6F7A8B9C0D00AA /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1A2B3C4D5E6F7A8B9C0D01FE /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1A2B3C4D5E6F7A8B9C0D0143 /* PencilLoop */,
+			);
+			name = PencilLoop;
+			packageProductDependencies = (
+				1A2B3C4D5E6F7A8B9C0D0044 /* PencilLoopKit */,
+			);
+			productName = PencilLoop;
+			productReference = 1A2B3C4D5E6F7A8B9C0D00BB /* PencilLoop.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1A2B3C4D5E6F7A8B9C0D0099 /* ReviewShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1A2B3C4D5E6F7A8B9C0D020F /* Build configuration list for PBXNativeTarget "ReviewShareExtension" */;
+			buildPhases = (
+				1A2B3C4D5E6F7A8B9C0D0220 /* Sources */,
+				1A2B3C4D5E6F7A8B9C0D0176 /* Frameworks */,
+				1A2B3C4D5E6F7A8B9C0D0231 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1A2B3C4D5E6F7A8B9C0D0154 /* ReviewShareExtension */,
+			);
+			name = ReviewShareExtension;
+			packageProductDependencies = (
+				1A2B3C4D5E6F7A8B9C0D0066 /* PencilLoopKitCore */,
+			);
+			productName = ReviewShareExtension;
+			productReference = 1A2B3C4D5E6F7A8B9C0D0022 /* ReviewShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1A2B3C4D5E6F7A8B9C0D0088 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					1A2B3C4D5E6F7A8B9C0D0121 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					1A2B3C4D5E6F7A8B9C0D0099 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = 1A2B3C4D5E6F7A8B9C0D0242 /* Build configuration list for PBXProject "PencilLoop" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 1A2B3C4D5E6F7A8B9C0D0187;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1A2B3C4D5E6F7A8B9C0D0253 /* XCLocalSwiftPackageReference "PencilLoopKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1A2B3C4D5E6F7A8B9C0D01BA /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1A2B3C4D5E6F7A8B9C0D0121 /* PencilLoop */,
+				1A2B3C4D5E6F7A8B9C0D0099 /* ReviewShareExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1A2B3C4D5E6F7A8B9C0D01ED /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D5E6F7A8B9C0D0231 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1A2B3C4D5E6F7A8B9C0D01DC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1A2B3C4D5E6F7A8B9C0D0220 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1A2B3C4D5E6F7A8B9C0D01FE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1A2B3C4D5E6F7A8B9C0D0099 /* ReviewShareExtension */;
+			targetProxy = 1A2B3C4D5E6F7A8B9C0D0077 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1A2B3C4D5E6F7A8B9C0D0264 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F7A8B9C0D00EE /* Shared.xcconfig */;
+			buildSettings = {
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		1A2B3C4D5E6F7A8B9C0D0275 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F7A8B9C0D00EE /* Shared.xcconfig */;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		1A2B3C4D5E6F7A8B9C0D0286 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F7A8B9C0D00CC /* App.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		1A2B3C4D5E6F7A8B9C0D0297 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F7A8B9C0D00CC /* App.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		1A2B3C4D5E6F7A8B9C0D02A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F7A8B9C0D00DD /* ShareExtension.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		1A2B3C4D5E6F7A8B9C0D02B9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F7A8B9C0D00DD /* ShareExtension.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1A2B3C4D5E6F7A8B9C0D0242 /* Build configuration list for PBXProject "PencilLoop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A2B3C4D5E6F7A8B9C0D0264 /* Debug */,
+				1A2B3C4D5E6F7A8B9C0D0275 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1A2B3C4D5E6F7A8B9C0D01CB /* Build configuration list for PBXNativeTarget "PencilLoop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A2B3C4D5E6F7A8B9C0D0286 /* Debug */,
+				1A2B3C4D5E6F7A8B9C0D0297 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1A2B3C4D5E6F7A8B9C0D020F /* Build configuration list for PBXNativeTarget "ReviewShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A2B3C4D5E6F7A8B9C0D02A8 /* Debug */,
+				1A2B3C4D5E6F7A8B9C0D02B9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		1A2B3C4D5E6F7A8B9C0D0253 /* XCLocalSwiftPackageReference "PencilLoopKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = PencilLoopKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1A2B3C4D5E6F7A8B9C0D0044 /* PencilLoopKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PencilLoopKit;
+		};
+		1A2B3C4D5E6F7A8B9C0D0066 /* PencilLoopKitCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PencilLoopKitCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 1A2B3C4D5E6F7A8B9C0D0088 /* Project object */;
+}

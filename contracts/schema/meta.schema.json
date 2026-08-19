@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pencil-in-the-loop.local/schema/meta.schema.json",
+  "title": "meta.json",
+  "description": "Document metadata written next to document.pdf in inbox/<YYYY-MM-DD-slug>/. Writers must emit id, title and createdAt. Readers must tolerate their absence: the app falls back to the filename for the title and to origin.kind 'manual' for everything under origin (docs/04-flows.md, failure handling). Unknown keys are ignored, never rejected.",
+  "type": "object",
+  "required": ["id", "title", "createdAt"],
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The writing tool's identifier for this document, verbatim. A UUID string is preferred but not required; the app keeps whatever it is given and mints its own UUID alongside."
+    },
+    "title": {
+      "type": "string",
+      "description": "Display title. When absent the app uses the PDF metadata title, the markdown H1, then the filename, in that order."
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$",
+      "description": "ISO 8601. The app writes second precision with a Z suffix; it parses fractional seconds and numeric offsets too."
+    },
+    "sourceFormat": {
+      "enum": ["markdown", "pdf", "text", "html"],
+      "description": "What the document was before rendering. 'markdown' implies source.md, and usually sourcemap.json, sit alongside document.pdf."
+    },
+    "pageCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Written by the ingesting app, not by the sender: a markdown sender cannot know it, because pagination happens when the iPad renders the PDF. Optional and advisory when a sender does write it; the authoritative count comes from the rendered PDF."
+    },
+    "sourceURL": {
+      "type": "string",
+      "description": "Absolute URL this document came from on the web, when it came from the web. The share extension records it for a shared link — it does no network work of its own, so the app fetches and renders the page later. Optional; nothing in ingest branches on it."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-form labels from the writing tool — the MCP server's send_to_ipad passes these through. Carried with the document and shown in the library; nothing in the app branches on them."
+    },
+    "origin": { "$ref": "#/$defs/origin" }
+  },
+  "$defs": {
+    "origin": {
+      "type": "object",
+      "description": "Where the document came from. Every field is optional; a document with no origin at all is still perfectly readable.",
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "enum": ["cowork", "claude-code", "codex", "share", "manual"],
+          "description": "Note the hyphen in claude-code. An unrecognised value is read as 'manual'."
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Cowork session id, Claude Code hook session_id, or the Codex equivalent. Without it no return path can preserve thread context. This is the canonical location; a copy under returnPath is tolerated and ignored."
+        },
+        "threadTitle": {
+          "type": "string",
+          "description": "Human-facing conversation title, shown on the review sheet's destination row before the user commits."
+        },
+        "returnPath": { "$ref": "#/$defs/returnPath" }
+      }
+    },
+    "returnPath": {
+      "type": "object",
+      "description": "How a finished review gets back. Absent means no automated path, which is a supported outcome: the app falls back to copy, share sheet and save.",
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "enum": ["poke", "checkin", "resume", "cloud", "none"],
+          "description": "An unrecognised value is read as 'none'."
+        },
+        "triggerId": {
+          "type": "string",
+          "description": "The scheduled task bound to the originating session. Allowed on any type, not only 'poke': a 'checkin' task has an id too, and the Mac-side watcher uses it to deduplicate. The task must exist before meta.json is written — see docs/06-integrations.md."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Free text carried through untouched, e.g. a working directory for --resume."
+        }
+      }
+    }
+  }
+}

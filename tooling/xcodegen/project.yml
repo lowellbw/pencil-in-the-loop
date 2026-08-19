@@ -1,0 +1,92 @@
+# Disaster recovery only.
+#
+# `PencilLoop.xcodeproj` is committed and is the primary artefact. This file
+# exists so that if the project file is ever corrupted — a bad merge, a botched
+# hand-edit, an Xcode version that refuses to open it — you can regenerate an
+# equivalent one in a few seconds instead of reconstructing it by hand:
+#
+#     brew install xcodegen
+#     xcodegen generate --spec tooling/xcodegen/project.yml --project .
+#
+# It is generated *into the repository root*, because every path here — and every
+# path in Config/*.xcconfig — is relative to that root.
+#
+# The generated project is semantically the same as the committed one, but it is
+# not byte-identical: XcodeGen lists files individually where the committed
+# project uses file-system-synchronized groups. If you regenerate, do not commit
+# the result unless the committed one really is broken.
+
+name: PencilLoop
+
+options:
+  bundleIdPrefix: com.example
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "26.0"
+  groupSortPosition: top
+  minimumXcodeGenVersion: "2.42.0"
+  xcodeVersion: "2600"
+
+configs:
+  Debug: debug
+  Release: release
+
+# Project-level settings come from the same xcconfig the committed project uses.
+configFiles:
+  Debug: Config/Shared.xcconfig
+  Release: Config/Shared.xcconfig
+
+packages:
+  PencilLoopKit:
+    path: PencilLoopKit
+
+targets:
+
+  PencilLoop:
+    type: application
+    platform: iOS
+    sources:
+      - path: Apps/PencilLoop
+        # Read by the build system, not compiled or copied as a resource.
+        excludes:
+          - "Info.plist"
+          - "PencilLoop.entitlements"
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+    dependencies:
+      - package: PencilLoopKit
+        product: PencilLoopKit
+      # embed: true produces the "Embed Foundation Extensions" copy phase.
+      - target: ReviewShareExtension
+        embed: true
+
+  ReviewShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Apps/ReviewShareExtension
+        excludes:
+          - "Info.plist"
+          - "ReviewShareExtension.entitlements"
+    configFiles:
+      Debug: Config/ShareExtension.xcconfig
+      Release: Config/ShareExtension.xcconfig
+    dependencies:
+      # Core + Sync only. The extension must not link SwiftUI or SwiftData.
+      - package: PencilLoopKit
+        product: PencilLoopKitCore
+
+schemes:
+  PencilLoop:
+    build:
+      targets:
+        PencilLoop: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

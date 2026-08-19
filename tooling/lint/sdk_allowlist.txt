@@ -1,0 +1,174 @@
+# Names that are not ours: the Swift standard library, Foundation, and the Apple
+# frameworks this app uses. check_decls.py treats these as declared, and
+# check_style.py exempts them from the British-spelling glossary — Apple's
+# symbols keep Apple's spelling (STYLE.md § 2).
+#
+# Anything with one of these prefixes is allowed without an entry, so most SDK
+# types need none: NS UI PK PDF CG CA CF CI CL CT AV SF SK MK WK UT OS QL XC
+#
+# ── HOW TO ADD TO THIS FILE ──────────────────────────────────────────────────
+# Add an SDK name you used that is not here yet, in the section it belongs to.
+# Never add one of ours: a project type that is declared nowhere is the bug this
+# check exists to find.
+#
+# Three kinds of entry, and the narrowest one that works is the right one:
+#
+#   Widget                 a bare name, allowed anywhere in the repo
+#   Schema.Version         allowed only as a member of that qualifier
+#   #Preview               a macro, matched with its hash
+#
+# A bare entry is a hole in the undeclared-type check for that word everywhere,
+# so single common words — `Type`, `Version`, `Preview`, `Predicate` — are
+# qualified or hashed rather than listed bare. Those four were bare once, which
+# meant a typo landing on any of them was accepted silently.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Swift standard library ───────────────────────────────────────────────────
+Any AnyObject AnyHashable AnySequence AnyIterator AnyCollection
+Array ArraySlice AsyncStream AsyncThrowingStream AsyncSequence AsyncIteratorProtocol
+Bool BinaryInteger BinaryFloatingPoint Bundle
+Character CaseIterable Codable CodingKey CodingKeys Collection Comparable
+CustomStringConvertible CustomDebugStringConvertible
+Decodable Decoder DecodingError Dictionary Double
+Encodable Encoder EncodingError Equatable Error Element
+Float Float80
+Hashable Hasher
+Identifiable Int Int8 Int16 Int32 Int64 IteratorProtocol
+KeyedDecodingContainer KeyedEncodingContainer KeyPath
+LosslessStringConvertible
+MainActor Mirror
+Never Numeric
+Optional OptionSet
+Range RangeReplaceableCollection RawRepresentable Result
+Actor Self Sendable Sequence Set String StringProtocol Strideable Substring
+Task TaskGroup TaskPriority
+UInt UInt8 UInt16 UInt32 UInt64 UnkeyedDecodingContainer UnkeyedEncodingContainer
+Unmanaged UnsafePointer UnsafeMutablePointer UnsafeRawPointer
+Void
+
+# Associated and nested names from the standard library, as they appear in
+# source: `String.Index`, `AsyncStream.Continuation`, `Result.Failure`.
+Continuation Index Iterator SubSequence UnicodeScalar UnicodeScalarView
+UTF8View UTF16View
+
+# ── Foundation ───────────────────────────────────────────────────────────────
+AttributedString AttributedStringKey
+Calendar CharacterSet
+Data DataProtocol Date DateComponents DateFormatter DateInterval DispatchQueue
+FileHandle FileManager FileWrapper
+IndexSet ISO8601DateFormatter
+JSONDecoder JSONEncoder JSONSerialization
+Locale LocalizedError Logger
+Measurement
+Notification NotificationCenter NumberFormatter
+Operation OperationQueue
+Process ProcessInfo Progress PropertyListDecoder PropertyListEncoder
+RelativeDateTimeFormatter RunLoop
+Scanner
+Thread TimeInterval TimeZone Timer
+URL URLComponents URLQueryItem URLRequest URLResponse URLSession UUID
+UserDefaults
+
+# ── SwiftData ────────────────────────────────────────────────────────────────
+# The store is an `@ModelActor` over a versioned schema, and `#Predicate` is how
+# every fetch is filtered (Sources/Storage). `Schema.Version`,
+# `VersionedSchema.Type` and `PersistentModel.Type` are qualified on purpose:
+# `Version` and `Type` are words a typo lands on.
+Model ModelActor ModelContainer ModelContext ModelConfiguration
+FetchDescriptor SortDescriptor Schema Query Relationship Attribute Transient
+PersistentIdentifier PersistentModel
+SchemaMigrationPlan VersionedSchema MigrationStage
+Schema.Version VersionedSchema.Type PersistentModel.Type
+#Predicate
+
+# ── SwiftUI ──────────────────────────────────────────────────────────────────
+# `#Preview` is a macro rather than a type, and every view in the app is
+# required to have one. It is matched with its hash so that the bare word
+# `Preview` stays undeclared.
+Alignment Angle AnyView App Binding Button ButtonStyle
+Color ColorScheme Commands Content Context
+Divider
+Edge EdgeInsets Environment EnvironmentKey EnvironmentValues EnvironmentObject
+Font ForEach Form
+GeometryReader Gradient Grid Group
+HStack
+Image
+Label LabelStyle Layout LazyVStack LazyHStack List
+Material Menu
+Namespace NavigationLink NavigationSplitView NavigationStack
+Observable ObservableObject
+Path Picker PresentationDetent PreviewProvider ProgressView
+Rectangle RoundedRectangle
+Scene ScenePhase ScrollView Section SecureField Shape ShapeStyle
+Spacer State StateObject Stepper
+Text TextEditor TextField Toggle Toolbar ToolbarItem ToolbarItemGroup
+ToolbarContent ToolbarContentBuilder
+Transaction Transition
+VStack View ViewBuilder ViewModifier
+WindowGroup WritableKeyPath
+ZStack
+EmptyView
+#Preview
+
+# `Circle` is the comment marker: docs/01-design-principles.md asks for a small
+# filled circle and there is no other way to draw one.
+Circle
+
+# ── PDFKit, PencilKit, Speech, AVFoundation ──────────────────────────────────
+# American spellings that are Apple's own and cannot be written any other way.
+PDFDocument PDFPage PDFView PDFSelection PDFAnnotation PDFDestination
+PKCanvasView PKDrawing PKInkingTool PKStroke PKStrokeRecognizer PKToolPicker
+PKEraserTool PKLassoTool PKInk
+SpeechAnalyzer SpeechTranscriber SFSpeechRecognizer SFSpeechRecognitionRequest
+AnalyzerInput AssetInventory finalizeAndFinishThroughEndOfInput
+AVAudioEngine AVAudioSession AVAudioPCMBuffer
+
+# ── UIKit and the ObjC runtime ───────────────────────────────────────────────
+# The gesture spellings are parts of selectors — `gestureRecognizer` and
+# `shouldRecognizeSimultaneouslyWith` are the base name and the argument label
+# of a `UIGestureRecognizerDelegate` method — and `drawingGestureRecognizer` is
+# `PKCanvasView`'s own, which is what `PageCanvasController` toggles for one
+# runloop turn to take back the dot a stationary Pencil press has drawn
+# (docs/02-spec.md § S2). `Selector` is the type of a target/action pair.
+Selector
+UIGestureRecognizer UILongPressGestureRecognizer UITapGestureRecognizer
+UIHoverGestureRecognizer UIPanGestureRecognizer UIPencilInteraction
+UIGestureRecognizerDelegate UIGraphicsPDFRenderer
+UIViewRepresentable UIViewControllerRepresentable
+gestureRecognizer addGestureRecognizer removeGestureRecognizer
+drawingGestureRecognizer shouldRecognizeSimultaneouslyWith
+contentInsetAdjustmentBehavior keyboardDismissMode
+NSFileCoordinator NSFilePresenter NSAttributedString NSMutableAttributedString
+NSParagraphStyle NSMutableParagraphStyle NSRange NSKeyedArchiver NSKeyedUnarchiver
+UIPencilInteraction.Squeeze UITouch.TouchType NSAttributedString.Key
+
+# ── CryptoKit ────────────────────────────────────────────────────────────────
+CryptoKit SHA256 Insecure
+
+# ── XCTest ───────────────────────────────────────────────────────────────────
+XCTestCase XCTAssert XCTAssertEqual XCTAssertNil XCTAssertNotNil XCTAssertTrue
+XCTAssertFalse XCTAssertThrowsError XCTAssertNoThrow XCTUnwrap XCTFail
+XCTAssertGreaterThan XCTAssertLessThan XCTAssertEqualWithAccuracy
+
+# ── Module names, for qualified references like Core.Anchor ──────────────────
+Core Storage Sync Ingest Annotate Export AppUI PencilLoopKit Markdown
+Foundation XCTest SwiftData SwiftUI UIKit PencilKit PDFKit Speech
+
+# ── swift-markdown node types ────────────────────────────────────────────────
+# Apple's own, first-party (docs/03-architecture.md § Stack). Referenced only
+# inside Sources/Ingest/Adapters/SwiftMarkdownAdapter.swift, the one file
+# permitted to `import Markdown`; check_imports.py enforces that.
+Markup
+Heading Paragraph CodeBlock HTMLBlock BlockQuote ThematicBreak
+UnorderedList OrderedList Table
+Emphasis Strong InlineCode Strikethrough Link SoftBreak LineBreak
+
+# ── One build flag, here for the spelling check alone ────────────────────────
+# `#if PENCILLOOP_STROKE_RECOGNIZER` is a compilation condition, not a type, and
+# check_decls.py knows that — the name lives in that script's NON_TYPES. But
+# check_style.py reads this same file for its British-spelling exemptions, and
+# the flag is named after Apple's `PKStrokeRecognizer`, so it carries Apple's
+# spelling and trips the glossary on the three `#if` lines that are real code.
+# Renaming the flag is the tidier fix; it is spelled this way in docs/03 and
+# CLAUDE.md, so the rename belongs with whoever changes those.
+PENCILLOOP_STROKE_RECOGNIZER

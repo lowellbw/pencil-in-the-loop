@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "documentId": "F7A1…",
+  "reviewFolder": "2026-08-18-auth-refactor-plan.review",
+  "createdAt": "2026-08-18T21:14:00Z",
+  "generator": {
+    "name": "pencil-in-the-loop",
+    "version": "1.0",
+    "build": "1"
+  },
+  "files": [
+    {
+      "path": "ink/page-01.png",
+      "bytes": 184320,
+      "sha256": "9f2c4b7e1d0a6835c47f9b2e5d81a3c6047fe9b1d2358a7c4e6f0b93d5178a2c"
+    },
+    {
+      "path": "ink/page-03.png",
+      "bytes": 151223,
+      "sha256": "3a7d5e9c1b48f0263e5a9d17c4b60f8925ae31d76c0b4f829135e7a0d6c2b48f"
+    },
+    {
+      "path": "review.json",
+      "bytes": 864,
+      "sha256": "17543868a622557fefb8d06d41e7a709db20f01d39639cf5abaa3da78aec0cd8"
+    },
+    {
+      "path": "review.md",
+      "bytes": 1105,
+      "sha256": "84e1f770669beea59e26bf750437d01f0200ddc0657555c621feabb68a7f1282"
+    }
+  ],
+  "complete": true,
+  "origin": {
+    "kind": "cowork",
+    "sessionId": "8f3c1d…",
+    "threadTitle": "Q3 platform planning",
+    "returnPath": {
+      "type": "poke",
+      "triggerId": "trig_…"
+    }
+  }
+}

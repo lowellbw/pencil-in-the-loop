@@ -1,0 +1,283 @@
+//
+//  ReviewSheet.swift
+//  AppUI · Review
+//
+//  S4, the review sheet (docs/02-spec.md § S4, docs/04-flows.md § F5).
+//
+//  A `.large` sheet with a grabber, an inset-grouped list of comments in
+//  document order, the Include toggles as a section, the closing instruction as
+//  a vertical text field, and one prominent button — the shape
+//  docs/01-design-principles.md § Specific choices names, and nothing else.
+//
+//  Presented by the reader:
+//
+//      .sheet(isPresented: $isReviewing) {
+//          ReviewSheet(environment: environment, document: detail) { id in … }
+//      }
+//
+//  The trailing closure is handed the id of a document created from an agent's
+//  reply, so the host can open it (docs/04-flows.md § F6). It is optional.
+//
+
+import SwiftUI
+import Core
+
+/// The review sheet, and the Sent screen it becomes.
+public struct ReviewSheet: View {
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var model: ReviewSheetModel
+
+    private let environment: any AppEnvironment
+    private let onOpenReply: (UUID) -> Void
+
+    /// - Parameters:
+    ///   - environment: the one route to every dependency.
+    ///   - document: what the reader already holds. Nothing is re-fetched.
+    ///   - onOpenReply: called with a new document's id after the user opens an
+    ///     agent's reply as a document. The sheet dismisses itself first.
+    public init(
+        environment: any AppEnvironment,
+        document: DocumentDetail,
+        onOpenReply: @escaping (UUID) -> Void = { _ in }
+    ) {
+        self.environment = environment
+        self.onOpenReply = onOpenReply
+        _model = State(initialValue: ReviewSheetModel(document: document))
+    }
+
+    /// Previews and tests, which need to seed state the environment cannot
+    /// supply.
+    init(
+        environment: any AppEnvironment,
+        model: ReviewSheetModel,
+        onOpenReply: @escaping (UUID) -> Void = { _ in }
+    ) {
+        self.environment = environment
+        self.onOpenReply = onOpenReply
+        _model = State(initialValue: model)
+    }
+
+    public var body: some View {
+        NavigationStack {
+            content
+                .navigationTitle(model.phase == .sent ? "Sent" : "Review")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(model.phase == .sent ? "Done" : "Cancel") {
+                            self.dismiss()
+                        }
+                        .accessibilityHint(model.phase == .sent ? "Closes the review." : "Closes the review sheet without sending.")
+                    }
+                }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(model.phase == .sending)
+        .task { await model.load(environment: environment) }
+        .task { await model.observe(environment: environment) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if model.phase == .sent, model.outcome != nil {
+            ReviewSentView(environment: environment, model: model) { newDocumentId in
+                self.dismiss()
+                self.onOpenReply(newDocumentId)
+            }
+        } else {
+            composer
+        }
+    }
+
+    // MARK: - S4
+
+    private var composer: some View {
+        List {
+            Section {
+                header
+            }
+
+            previousReviewSection
+
+            commentsSection
+
+            ReviewIncludeSection(
+                include: model.include,
+                commentCount: model.comments.count,
+                inkedPageCount: model.inkedPageCount,
+                recognisedPageCount: model.recognisedPageCount,
+                onChange: { updated in self.model.include = updated }
+            )
+
+            Section {
+                TextField("Anything to add?", text: instructionBinding, axis: .vertical)
+                    .lineLimit(3...10)
+                    .accessibilityLabel("Closing instruction")
+                    .accessibilityHint("One free-text field. Turns a pile of notes into a request.")
+            } header: {
+                Text("Closing instruction")
+            } footer: {
+                Text("Dictate it with the microphone on the keyboard if you would rather talk.")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .safeAreaInset(edge: .bottom) {
+            ReviewSendBar(
+                path: model.returnPath,
+                title: model.sendButtonTitle,
+                isSending: model.phase == .sending,
+                isEnabled: model.canSend,
+                failureMessage: model.failureMessage,
+                onSend: { Task { await self.model.send(environment: self.environment) } }
+            )
+        }
+    }
+
+    /// A review sent before this sheet was opened, and the agent's reply to it
+    /// if one has arrived (docs/04-flows.md § F6).
+    ///
+    /// This is the case that used to be unreachable. A reply takes minutes, the
+    /// sheet is closed long before it lands, and the only route to it was a
+    /// `SyncEvent` that no screen was listening for. The store had the text all
+    /// along; nothing could ask.
+    @ViewBuilder
+    private var previousReviewSection: some View {
+        if model.phase == .composing, let status = model.priorReview, status.hasBeenSent {
+            Section {
+                if let text = status.replyText, text.isEmpty == false {
+                    Text(text)
+                        .font(.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 2)
+                    Button {
+                        Task {
+                            if let id = await self.model.openReply(environment: self.environment) {
+                                self.dismiss()
+                                self.onOpenReply(id)
+                            }
+                        }
+                    } label: {
+                        Label("Open reply as document", systemImage: "doc.badge.plus")
+                    }
+                    .disabled(model.isOpeningReply)
+                } else {
+                    Text("Nothing back yet. A reply appears here when the agent writes one.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text(ReviewSheet.previousReviewHeading(status))
+            } footer: {
+                Text("Sending again writes a second bundle to the same folder. The comments below are the ones you have now, not the ones you sent.")
+            }
+        }
+    }
+
+    private static func previousReviewHeading(_ status: ReviewStatus) -> String {
+        guard let sentAt = status.sentAt else { return "Previously sent" }
+        return "Sent " + sentAt.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// "3 comments, 2 inked pages", then the document and the time spent.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(model.headline)
+                .font(.headline)
+            Text(model.subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder
+    private var commentsSection: some View {
+        Section {
+            if model.comments.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No comments")
+                        .foregroundStyle(.secondary)
+                    Text("The inked pages and a closing instruction are still worth sending on their own.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 2)
+            } else {
+                ForEach(Array(model.comments.enumerated()), id: \.element.id) { pair in
+                    ReviewCommentRow(
+                        index: pair.offset + 1,
+                        comment: pair.element,
+                        text: model.textBinding(for: pair.element.id, environment: environment)
+                    )
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            Task { await self.model.delete(commentId: pair.element.id, environment: self.environment) }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Comments")
+        } footer: {
+            commentsFooter
+        }
+    }
+
+    @ViewBuilder
+    private var commentsFooter: some View {
+        if model.canUndoDelete {
+            Button("Undo delete") {
+                Task { await self.model.undoDelete(environment: self.environment) }
+            }
+            .font(.footnote)
+        } else if model.comments.isEmpty == false {
+            Text("In document order. Swipe a comment to delete it, tap its text to edit.")
+        }
+    }
+
+    private var instructionBinding: Binding<String> {
+        Binding(
+            get: { self.model.closingInstruction },
+            set: { value in self.model.closingInstruction = value }
+        )
+    }
+}
+
+#Preview("Review sheet · check-in, comments and ink") {
+    ReviewSheet(environment: PreviewEnvironment(), model: ReviewPreviewData.model(origin: ReviewPreviewData.origin(.checkin), readingSeconds: 740))
+}
+
+#Preview("Review sheet · check-in, no comments") {
+    ReviewSheet(environment: PreviewEnvironment(), model: ReviewPreviewData.model(origin: ReviewPreviewData.origin(.checkin), comments: []))
+}
+
+#Preview("Review sheet · poke") {
+    ReviewSheet(environment: PreviewEnvironment(), model: ReviewPreviewData.model(origin: ReviewPreviewData.origin(.poke)))
+}
+
+#Preview("Review sheet · resume") {
+    ReviewSheet(environment: PreviewEnvironment(), model: ReviewPreviewData.model(origin: ReviewPreviewData.origin(.resume)))
+}
+
+#Preview("Review sheet · cloud") {
+    ReviewSheet(environment: PreviewEnvironment(), model: ReviewPreviewData.model(origin: ReviewPreviewData.origin(.cloud)))
+}
+
+#Preview("Review sheet · no return path") {
+    ReviewSheet(environment: PreviewEnvironment(), model: ReviewPreviewData.model(origin: ReviewPreviewData.shareOrigin))
+}
+
+#Preview("Review sheet · accessibility sizes") {
+    ReviewSheet(environment: PreviewEnvironment(), model: ReviewPreviewData.model(origin: ReviewPreviewData.origin(.poke), readingSeconds: 740))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}

@@ -1,0 +1,17 @@
+// App.xcconfig — the PencilLoop application target.
+
+#include "Shared.xcconfig"
+
+PRODUCT_NAME = PencilLoop
+PRODUCT_BUNDLE_IDENTIFIER = com.example.pencilloop
+PRODUCT_BUNDLE_PACKAGE_TYPE = APPL
+
+INFOPLIST_FILE = Apps/PencilLoop/Info.plist
+CODE_SIGN_ENTITLEMENTS = Apps/PencilLoop/PencilLoop.entitlements
+
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor
+
+// The app bundle carries the extension, so it needs a runpath that reaches the
+// frameworks the extension also links.
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks

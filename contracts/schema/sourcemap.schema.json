@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pencil-in-the-loop.local/schema/sourcemap.schema.json",
+  "title": "sourcemap.json",
+  "description": "Rendered geometry paired with source offsets, written alongside document.pdf whenever the document was rendered from source.md. This is what lets a comment anchored on a rendered page resolve back to a character range in the markdown the model wrote. docs/05-file-contracts.md names the file but does not show its shape; this schema is a W0-B design decision.",
+  "type": "object",
+  "required": ["version", "source", "offsetEncoding", "entries"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Format version. Readers accept a version they do not recognise by ignoring unknown fields."
+    },
+    "documentId": {
+      "type": "string",
+      "description": "The id from meta.json, so a stray source map can be matched to its document."
+    },
+    "source": {
+      "type": "string",
+      "description": "Relative filename the offsets index into. Always source.md today."
+    },
+    "offsetEncoding": {
+      "enum": ["utf8"],
+      "description": "Unit of the range values. UTF-8 byte offsets are the only unit that means the same thing in Swift, Python, Go and Rust. A reader that finds a value it does not know must refuse the file rather than mis-slice it."
+    },
+    "entries": {
+      "type": "array",
+      "description": "One entry per laid-out text run. Finer is better: one entry per run beats one per paragraph. Order is not significant.",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["pageIndex", "rect", "range"],
+      "additionalProperties": true,
+      "properties": {
+        "pageIndex": { "type": "integer", "minimum": 0, "description": "Zero-based page in document.pdf." },
+        "rect": {
+          "type": "array",
+          "description": "[x, y, width, height] as fractions of the page, origin top-left, y increasing downwards.",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            { "type": "number" },
+            { "type": "number" },
+            { "type": "number" },
+            { "type": "number" }
+          ],
+          "items": { "type": "number" }
+        },
+        "range": {
+          "type": "array",
+          "description": "[start, end) half-open UTF-8 byte offsets into the source file.",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "integer", "minimum": 0 }
+          ],
+          "items": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

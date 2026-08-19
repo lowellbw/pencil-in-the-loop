@@ -1,0 +1,101 @@
+# The first real compiler this code ever meets.
+#
+# Nothing in this repository can be compiled on the machine it was written on, so
+# CI is not a safety net here — it is the build. Push, read the log, and you have
+# a complete error list before Xcode is opened. Everything is therefore hard-fail:
+# a green tick that hid a compile error would be worse than useless.
+
+name: iOS build
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  build:
+    name: Build (macOS)
+    runs-on: macos-15
+    continue-on-error: false
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      # Fastest possible signal: this fails in seconds on a manifest error or a
+      # dependency-resolution failure, before any target has been built.
+      - name: Resolve package dependencies
+        working-directory: PencilLoopKit
+        run: swift package resolve
+
+      # There is deliberately no host `swift build` step any more. It was the
+      # fastest signal while the package was pure Foundation, and it stopped
+      # being valid the moment AppUI and Annotate imported UIKit and PencilKit —
+      # those do not build for macOS, so the step failed on `no such module`
+      # rather than on anything real. The iOS build below covers the same
+      # ground.
+
+      # The package, built for iOS. Xcode synthesises a scheme for a package
+      # directory, so this needs no project file either.
+      - name: Build PencilLoopKit for iOS
+        working-directory: PencilLoopKit
+        run: |
+          xcodebuild build \
+            -scheme PencilLoopKit \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      # The app and the embedded share extension. Code signing is off: the point
+      # is compiler errors, and signing needs a team ID that is not in the repo.
+      - name: Build the app
+        run: |
+          xcodebuild build \
+            -project PencilLoop.xcodeproj \
+            -scheme PencilLoop \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Tests run on a simulator for the same reason: `swift test` builds for
+      # the host, and AnnotateTests and AppUITests link PencilKit and UIKit.
+      #
+      # The device name is the one thing here that goes stale — if the runner
+      # image has no iPad by that name the step fails with "Unable to find a
+      # destination". `xcrun simctl list devices available` prints what it does
+      # have; put one of those here.
+      - name: Run package tests (Simulator)
+        working-directory: PencilLoopKit
+        run: |
+          xcodebuild test \
+            -scheme PencilLoopKit \
+            -destination "platform=iOS Simulator,name=$SIMULATOR" \
+            CODE_SIGNING_ALLOWED=NO
+        env:
+          SIMULATOR: iPad Pro 13-inch (M4)
+
+  check:
+    name: Project checks (Linux)
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The lint suite is pure stdlib Python on purpose: it runs anywhere, and it
+      # catches the project-file and plist mistakes that a compiler never sees.
+      - name: Run project checks
+        run: make -C tooling check

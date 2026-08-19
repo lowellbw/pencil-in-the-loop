@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template. install.sh substitutes __PYTHON__, __WATCHER_DIR__ and __LOG_DIR__
+  and writes the result to ~/Library/LaunchAgents/co.pencil-loop.watcher.plist.
+  Installing it by hand works too — replace the three placeholders yourself.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>co.pencil-loop.watcher</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>-m</string>
+    <string>pencil_watcher</string>
+  </array>
+
+  <!-- The package is imported from here, so no install step is needed. -->
+  <key>WorkingDirectory</key>
+  <string>__WATCHER_DIR__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>__WATCHER_DIR__</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <!-- launchd agents get a minimal PATH. `claude` and `codex` are usually in
+         one of these; add yours if `which claude` shows something else. -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:__HOME__/.local/bin:__HOME__/.claude/local</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart if it dies, but not in a tight loop. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <!-- The daemon also writes its own rotating log; these catch anything that
+       escapes the logger, such as a Python traceback on startup. -->
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/launchd-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/launchd-stderr.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

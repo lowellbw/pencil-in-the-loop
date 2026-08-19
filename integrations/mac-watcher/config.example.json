@@ -1,0 +1,29 @@
+{
+  "syncRoot": "~/Library/Mobile Documents/com~apple~CloudDocs/Pencil Loop",
+
+  "watcher": {
+    "pollIntervalSeconds": 15,
+    "settleSeconds": 5,
+
+    "retryBaseSeconds": 30,
+    "retryFactor": 2,
+    "retryMaxSeconds": 1800,
+    "maxAttempts": 6,
+
+    "deferBaseSeconds": 30,
+    "deferMaxSeconds": 300,
+
+    "commandTimeoutSeconds": 120,
+    "maxInlineChars": 40000,
+
+    "busyCommand": ["pgrep", "-x", "claude"],
+
+    "routes": {
+      "poke":    { "enabled": true,  "command": ["claude", "trigger", "fire", "{triggerId}", "--text", "{text}"] },
+      "checkin": { "enabled": true },
+      "cloud":   { "enabled": true,  "command": ["claude", "--cloud", "{sessionId}", "-p", "{text}"] },
+      "resume":  { "enabled": true,  "command": ["claude", "-p", "{text}", "--resume", "{sessionId}"] },
+      "codex":   { "enabled": true,  "command": ["codex", "resume", "{sessionId}", "{text}"] }
+    }
+  }
+}

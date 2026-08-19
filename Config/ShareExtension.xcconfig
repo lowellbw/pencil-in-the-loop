@@ -1,0 +1,17 @@
+// ShareExtension.xcconfig — the "Review" share extension target.
+
+#include "Shared.xcconfig"
+
+PRODUCT_NAME = ReviewShareExtension
+PRODUCT_BUNDLE_IDENTIFIER = com.example.pencilloop.share
+PRODUCT_BUNDLE_PACKAGE_TYPE = XPC!
+
+INFOPLIST_FILE = Apps/ReviewShareExtension/Info.plist
+CODE_SIGN_ENTITLEMENTS = Apps/ReviewShareExtension/ReviewShareExtension.entitlements
+
+// An extension is loaded into a host process, so it resolves frameworks two
+// levels up out of the .appex and into the containing app bundle.
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks @executable_path/../../Frameworks
+
+// Nothing here links SwiftUI or SwiftData — extensions are killed hard when they
+// exceed their memory cap. See the PencilLoopKitCore product in Package.swift.

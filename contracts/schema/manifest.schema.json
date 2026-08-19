@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pencil-in-the-loop.local/schema/manifest.schema.json",
+  "title": "manifest.json",
+  "description": "An inventory of a review bundle, written last. docs/05-file-contracts.md lists the file but never shows its contents; this schema is a W0-B design decision. It answers the three questions a watcher on the other side has: is this bundle complete, has it changed since I last looked, and what wrote it. The bundle is assembled in a sibling .tmp directory and renamed into place, so a watcher should never see a partial bundle — the manifest covers the case a rename cannot, such as a bundle copied or synced file by file.",
+  "type": "object",
+  "required": ["version", "documentId", "reviewFolder", "createdAt", "generator", "files"],
+  "additionalProperties": true,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1, "description": "Format version." },
+    "documentId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The reviewed document's meta.json id, verbatim."
+    },
+    "reviewFolder": {
+      "type": "string",
+      "pattern": "\\.review$",
+      "description": "The bundle's own directory name, <slug>.review, so a manifest copied elsewhere still says where it belongs."
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$",
+      "description": "ISO 8601, when the bundle was written."
+    },
+    "generator": { "$ref": "#/$defs/generator" },
+    "files": {
+      "type": "array",
+      "description": "Every file in the bundle except manifest.json itself, which cannot list its own hash. Sorted by path.",
+      "items": { "$ref": "#/$defs/file" }
+    },
+    "complete": {
+      "type": "boolean",
+      "description": "Whether the bundle is finished. Always true in a manifest this app writes, since the manifest is written last. Optional: a watcher treats its absence as complete, and only an explicit false means wait."
+    },
+    "origin": {
+      "$ref": "#/$defs/origin"
+    }
+  },
+  "$defs": {
+    "origin": {
+      "type": "object",
+      "description": "The reviewed document's origin, copied verbatim from its meta.json so the bundle carries its own return path. A watcher reads this before falling back to inbox/<slug>/meta.json, which only resolves while that folder still has the name the bundle expects. Same shape as meta.json's origin block; every field is optional there and every field is optional here.",
+      "additionalProperties": true,
+      "properties": {
+        "kind": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "threadTitle": { "type": "string" },
+        "returnPath": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "type": { "type": "string" },
+            "triggerId": { "type": "string" },
+            "detail": { "type": "string" }
+          }
+        }
+      }
+    },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "pencil-in-the-loop for bundles this app writes. Another value means another tool wrote a compatible bundle, which is allowed and is rather the point."
+        },
+        "version": { "type": "string", "description": "Marketing version, e.g. 1.0." },
+        "build": { "type": "string", "description": "Build number, when known." }
+      }
+    },
+    "file": {
+      "type": "object",
+      "required": ["path", "bytes", "sha256"],
+      "additionalProperties": true,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Bundle-relative, forward slashes, no leading slash: review.md, ink/page-01.png."
+        },
+        "bytes": { "type": "integer", "minimum": 0, "description": "Exact byte count." },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hex SHA-256 of the file's contents. Lets a watcher tell a re-sent bundle from a re-synced one."
+        }
+      }
+    }
+  }
+}

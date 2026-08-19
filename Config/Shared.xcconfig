@@ -1,0 +1,67 @@
+// Shared.xcconfig
+//
+// Settings common to every target. Almost nothing lives in project.pbxproj —
+// build settings belong in text files that diff and merge like text files.
+
+#include "Signing.xcconfig"
+
+// MARK: - Platform
+
+// iPadOS only. TARGETED_DEVICE_FAMILY = 2 is iPad; there is no iPhone build and
+// there is not going to be one — the whole app assumes a Pencil and a big page.
+//
+// The docs call for iPadOS 27 because PKStrokeRecognizer ships there. The floor
+// is set to 26.0 anyway so the project compiles on a 26 SDK, with the
+// recogniser behind the PENCILLOOP_STROKE_RECOGNIZER flag in PencilLoopKit.
+// Raise this to 27.0 once you are building against the 27 SDK, and turn the
+// flag on in the same commit.
+IPHONEOS_DEPLOYMENT_TARGET = 26.0
+TARGETED_DEVICE_FAMILY = 2
+SDKROOT = iphoneos
+SUPPORTED_PLATFORMS = iphoneos iphonesimulator
+
+// MARK: - Swift
+
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+
+// Errors from this are mechanical — write `any Foo` instead of `Foo`. If it
+// buries you on the first build, set it to NO, get green, then turn it back on.
+SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY = YES
+
+// Deliberately off. Both are good hygiene and both produce a wall of errors in a
+// codebase that has not been written for them yet. Revisit after v1.
+// SWIFT_UPCOMING_FEATURE_INTERNAL_IMPORTS_BY_DEFAULT = YES
+// SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
+
+SWIFT_EMIT_LOC_STRINGS = YES
+
+// MARK: - Build hygiene
+
+// Every Info.plist in this project is a real file that is read as a contract by
+// the share extension and by Apple's activation rules. Generating them from
+// build settings would hide that.
+GENERATE_INFOPLIST_FILE = NO
+
+ENABLE_USER_SCRIPT_SANDBOXING = YES
+CLANG_ENABLE_MODULES = YES
+CLANG_ENABLE_OBJC_ARC = YES
+ENABLE_STRICT_OBJC_MSGSEND = YES
+GCC_NO_COMMON_BLOCKS = YES
+ALWAYS_SEARCH_USER_PATHS = NO
+ENABLE_MODULE_VERIFIER = NO
+
+// Warnings that have each caught a real bug in a real project.
+CLANG_WARN_DOCUMENTATION_COMMENTS = YES
+GCC_WARN_UNDECLARED_SELECTOR = YES
+GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE
+GCC_WARN_UNUSED_FUNCTION = YES
+GCC_WARN_UNUSED_VARIABLE = YES
+
+// MARK: - Versioning
+
+// GENERATE_INFOPLIST_FILE = NO means the plists reference these by name.
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+DEVELOPMENT_LANGUAGE = en

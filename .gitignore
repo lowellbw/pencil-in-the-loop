@@ -1,0 +1,37 @@
+# Xcode user state. The project file and the shared scheme are committed; nothing
+# else under .xcodeproj is.
+xcuserdata/
+*.xcuserdatad
+*.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.xcarchive
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager. Package.resolved is deliberately *not* ignored — a
+# pinned dependency graph is the whole point of committing it.
+.build/
+.swiftpm/xcode/xcuserdata/
+Packages/
+*.playground/build/
+
+# macOS
+.DS_Store
+
+# Editors
+*.swp
+*~
+.idea/
+.vscode/
+
+# The XcodeGen fallback writes here if someone regenerates in place.
+/PencilLoop.xcodeproj.bak/
+
+# Local, never committed: a real DEVELOPMENT_TEAM belongs in Config/Signing.xcconfig,
+# which *is* committed. This is for anything genuinely private alongside it.
+Config/Local.xcconfig
+.first-build.log
+first-build-errors.txt
