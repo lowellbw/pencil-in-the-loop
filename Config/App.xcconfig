@@ -2,6 +2,10 @@
 
 #include "Shared.xcconfig"
 
+// Optional, and absent from a fresh checkout: the relay this build ships
+// pointed at. Without it the app starts at the folder picker, as it always did.
+#include? "Local.xcconfig"
+
 PRODUCT_NAME = PencilLoop
 PRODUCT_BUNDLE_IDENTIFIER = com.lowellweisbord.pencilloop
 PRODUCT_BUNDLE_PACKAGE_TYPE = APPL

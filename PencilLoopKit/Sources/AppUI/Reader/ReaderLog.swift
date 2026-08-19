@@ -24,6 +24,9 @@ enum ReaderLog {
     /// Opening, closing, reading position, reading time.
     static let reader = Logger(subsystem: ReaderLog.subsystem, category: "reader")
 
+    /// The shell: which screen is up, and which transport it settled on.
+    static let shell = Logger(subsystem: ReaderLog.subsystem, category: "shell")
+
     /// The overlay provider and the canvas pool it drives.
     static let overlay = Logger(subsystem: ReaderLog.subsystem, category: "reader.overlay")
 

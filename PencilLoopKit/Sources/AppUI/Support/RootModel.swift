@@ -98,7 +98,32 @@ public final class RootModel {
         live = built
         environment = built
 
-        let settings = await built.settings.settings
+        var settings = await built.settings.settings
+
+        // An install that predates the relay this build ships pointed at. First
+        // run already happened, so the screen that would have adopted it never
+        // runs again — `hasCompletedFirstRun` gates behaviour, not just a
+        // screen, and every improvement to the default would otherwise reach
+        // only people who have never opened the app.
+        //
+        // Fires once: adopting sets `serverBaseURLString`, and this asks for
+        // nil. Somebody who afterwards chooses the folder in Settings keeps
+        // that choice, because the address stays recorded either way.
+        if settings.hasCompletedFirstRun,
+           settings.serverBaseURLString == nil,
+           RelayDefaults.isConfigured,
+           let baseURL = RelayDefaults.baseURL,
+           let token = RelayDefaults.token {
+            do {
+                try await built.adoptServer(baseURL: baseURL, token: token)
+                settings = await built.settings.settings
+                ReaderLog.shell.notice("Adopted the relay this build ships with.")
+            } catch {
+                // Keep whatever transport was already working. A relay that
+                // will not take us is not a reason to lose a folder.
+                ReaderLog.shell.error("Could not adopt the shipped relay: \(error.localizedDescription)")
+            }
+        }
 
         if settings.hasCompletedFirstRun, settings.transport == .server {
             // The library first, the relay second — and emphatically in that

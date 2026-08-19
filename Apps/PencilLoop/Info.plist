@@ -51,6 +51,13 @@
 		</dict>
 	</dict>
 
+	<!-- Where documents come from out of the box. Empty in a checkout with no
+	     Config/Local.xcconfig, which is what puts the folder picker back. -->
+	<key>PencilLoopRelayURL</key>
+	<string>$(PENCILLOOP_RELAY_URL)</string>
+	<key>PencilLoopRelayToken</key>
+	<string>$(PENCILLOOP_RELAY_TOKEN)</string>
+
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PencilLoop records your voice while you hold to speak, so you can leave spoken comments on what you are reading.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

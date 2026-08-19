@@ -167,6 +167,9 @@ public struct FirstRunView: View {
         if hasTriedDefault {
             return "Choose a folder this iPad shares with your computer. Documents put there appear in your library, and the reviews you send go back the same way."
         }
+        if RelayDefaults.isConfigured {
+            return "Connecting to your library."
+        }
         return "Setting up your folder in iCloud Drive. Documents put there appear in your library, and the reviews you send go back the same way."
     }
 
@@ -179,6 +182,26 @@ public struct FirstRunView: View {
     private func adoptDefaultFolder() async {
         guard hasTriedDefault == false, isPreparing == false else { return }
         isPreparing = true
+
+        // A build that ships pointed at a relay has nothing to ask. This is the
+        // whole of first run for anyone using one: no folder, no address, no
+        // token, no screen they have to understand before they can read
+        // anything.
+        if RelayDefaults.isConfigured,
+           let baseURL = RelayDefaults.baseURL,
+           let token = RelayDefaults.token {
+            do {
+                try await environment.adoptServer(baseURL: baseURL, token: token)
+                await environment.transcriber.prepareAssets()
+                isPreparing = false
+                onAdoptedServer()
+                return
+            } catch {
+                // Fall through to the folder. A relay that will not take us is
+                // a reason to offer the other transport, not to stop.
+                problem = SyncServerChoice.describe(error)
+            }
+        }
         do {
             let url = try await Task.detached(priority: .userInitiated) {
                 try DefaultSyncFolder.locate()

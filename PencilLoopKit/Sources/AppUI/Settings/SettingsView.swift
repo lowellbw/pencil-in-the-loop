@@ -29,6 +29,7 @@ public struct SettingsView: View {
     @State private var isChoosingFolder = false
     @State private var serverURLText = ""
     @State private var serverToken = ""
+    @State private var shownTransport: SyncTransport?
     @State private var isConfirmingPurge = false
 
     @Environment(\.dismiss) private var dismiss
@@ -83,7 +84,7 @@ public struct SettingsView: View {
             }
             .pickerStyle(.segmented)
 
-            if model.settings.transport == .folder {
+            if (shownTransport ?? model.settings.transport) == .folder {
                 ValueRow(
                     title: "Folder",
                     value: model.settings.syncFolderDisplayName ?? "Not chosen"
@@ -99,7 +100,7 @@ public struct SettingsView: View {
             }
         }
 
-        if model.settings.transport == .server {
+        if (shownTransport ?? model.settings.transport) == .server {
             SyncServerForm(
                 urlText: $serverURLText,
                 token: $serverToken,
@@ -120,15 +121,26 @@ public struct SettingsView: View {
     /// Switching to the folder re-attaches it immediately; switching to the
     /// relay only reveals the form, because there is nothing to attach until an
     /// address and token have been typed.
+    /// Which pane the section is showing.
+    ///
+    /// Held in view state rather than read straight from settings, because
+    /// choosing "Server" has to reveal the form *before* anything is persisted
+    /// — there is nothing to save until an address and a token have been typed.
+    /// Reading the persisted transport in the getter is the bug this replaces:
+    /// the setter changed no value the getter looked at, so the picker snapped
+    /// back and Server could not be selected at all.
     private var transportBinding: Binding<SyncTransport> {
         Binding(
-            get: { model.settings.transport },
+            get: { shownTransport ?? model.settings.transport },
             set: { chosen in
+                shownTransport = chosen
                 guard chosen != model.settings.transport else { return }
                 if chosen == .folder {
                     Task { await model.useFolderTransport() }
                 } else {
-                    serverURLText = model.settings.serverBaseURLString ?? ""
+                    serverURLText = model.settings.serverBaseURLString
+                        ?? RelayDefaults.baseURL?.absoluteString
+                        ?? ""
                 }
             }
         )

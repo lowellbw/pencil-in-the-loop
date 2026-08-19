@@ -1,0 +1,18 @@
+// Relay.xcconfig — where this build's documents come from, out of the box.
+//
+// The app is meant to work the moment it is installed: no folder to pick, no
+// address to type, no token to paste. These two values are what make that true,
+// and they are baked into the build rather than asked for at first run.
+//
+// PENCILLOOP_RELAY_URL has no scheme on purpose. An xcconfig treats `//` as the
+// start of a comment, so `https://host` would silently become `https:` — a
+// value that looks right in the file and is wrong in the build. The app puts
+// the scheme back; it refuses anything that is not https anyway.
+//
+// The token is a credential. It lives in Config/Local.xcconfig, which is not
+// committed, and this file is included from there rather than the other way
+// round so a checkout with no local config still builds — it just starts with
+// the folder picker, exactly as it did before.
+
+PENCILLOOP_RELAY_URL =
+PENCILLOOP_RELAY_TOKEN =
