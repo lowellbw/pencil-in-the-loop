@@ -68,7 +68,8 @@ final class DocumentStoreIngestFailureTests: XCTestCase {
             reason: "The download did not finish."
         )
 
-        let row = try XCTUnwrap(try await store.summary(id: ingested.id))
+        let fetched = try await store.summary(id: ingested.id)
+        let row = try XCTUnwrap(fetched)
         XCTAssertEqual(
             row.refreshFailureReason,
             "The download did not finish.",
@@ -88,7 +89,8 @@ final class DocumentStoreIngestFailureTests: XCTestCase {
 
         try await store.upsert(StorageTestFactory.ingested(folderName: Self.folderName))
 
-        let row = try XCTUnwrap(try await store.summary(id: ingested.id))
+        let fetched = try await store.summary(id: ingested.id)
+        let row = try XCTUnwrap(fetched)
         XCTAssertNil(row.refreshFailureReason, "the bytes arrived, so the row has nothing to add")
     }
 
@@ -105,7 +107,8 @@ final class DocumentStoreIngestFailureTests: XCTestCase {
             reason: "No document to read."
         )
 
-        let row = try XCTUnwrap(try await store.summary(id: ingested.id))
+        let fetched = try await store.summary(id: ingested.id)
+        let row = try XCTUnwrap(fetched)
         XCTAssertEqual(row.localState, .unavailable(reason: "No document to read."))
         XCTAssertNil(row.refreshFailureReason)
     }

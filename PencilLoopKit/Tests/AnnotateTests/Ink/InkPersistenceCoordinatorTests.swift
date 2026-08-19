@@ -139,7 +139,10 @@ final class InkPersistenceCoordinatorTests: XCTestCase {
         // Two more strokes, then the page scrolls away and is flushed.
         coordinator.record(InkChange(binding: binding(3), drawing: InkTestDrawings.drawing(strokeCount: 3)))
         await store.setWriteDuration(0.4)
-        let flush = Task { await coordinator.flush(binding(3)) }
+        // Bound outside the Task: calling `binding(3)` inside it would capture
+        // `self`, and a non-Sendable XCTestCase cannot cross into a new task.
+        let page = binding(3)
+        let flush = Task { await coordinator.flush(page) }
 
         // Long enough for the flush to have reached the store and be waiting
         // there; short enough that it is still waiting.
@@ -147,7 +150,8 @@ final class InkPersistenceCoordinatorTests: XCTestCase {
 
         // The page scrolls back: the pool's hint was consumed on first
         // appearance, so the canvas asks for the bytes.
-        let served = try XCTUnwrap(await coordinator.drawingData(for: binding(3)))
+        let drawing = await coordinator.drawingData(for: binding(3))
+        let served = try XCTUnwrap(drawing)
         await flush.value
 
         XCTAssertNotEqual(

@@ -77,7 +77,8 @@ final class DocumentStoreRoundTripTests: XCTestCase {
         let store = try StorageTestFactory.store()
         let missing = try await store.detail(id: UUID())
         XCTAssertNil(missing)
-        XCTAssertNil(try await store.summary(id: UUID()))
+        let unknownSummary = try await store.summary(id: UUID())
+        XCTAssertNil(unknownSummary)
     }
 
     func testWritingToAnUnknownDocumentThrows() async throws {
@@ -106,7 +107,8 @@ final class DocumentStoreRoundTripTests: XCTestCase {
 
         let id = try await store.documentId(forFolderName: "2026-08-19-latency-budget")
         XCTAssertEqual(id, second.id)
-        XCTAssertNil(try await store.documentId(forFolderName: "2026-01-01-nothing"))
+        let unknownFolder = try await store.documentId(forFolderName: "2026-01-01-nothing")
+        XCTAssertNil(unknownFolder)
     }
 
     func testReIngestUpdatesInPlaceAndKeepsMarks() async throws {

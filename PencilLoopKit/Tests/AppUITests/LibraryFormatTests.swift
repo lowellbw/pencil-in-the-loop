@@ -72,8 +72,8 @@ final class LibraryFormatTests: XCTestCase {
     func testTheAccessibilityLabelLeadsWithTheTitleAndCarriesTheState() {
         let summary = AppUITestSamples.summary(
             addedAt: now.addingTimeInterval(-3600),
-            commentCount: 3,
-            localState: .unavailable(reason: "Its folder could not be read.")
+            localState: .unavailable(reason: "Its folder could not be read."),
+            commentCount: 3
         )
         let label = LibraryFormat.accessibilityLabel(for: summary, now: now)
 

@@ -89,14 +89,16 @@ final class DeferredSpeechTranscriberTests: XCTestCase {
         let stream = transcriber.transcribe(contextualTerms: [])
         let consumer = Task { for try await _ in stream {} }
         await factory.waitForBuilds(1)
-        let recordingEngine = try XCTUnwrap(await factory.engine(1))
+        let firstEngine = await factory.engine(1)
+        let recordingEngine = try XCTUnwrap(firstEngine)
         await recordingEngine.waitUntilTranscribing()
 
         // Settings, mid-dictation.
         try await settings.update(AppSettings(transcriptionLocaleIdentifier: "fr-FR"))
         await transcriber.prewarm()
         await factory.waitForBuilds(2)
-        let replacement = try XCTUnwrap(await factory.engine(2))
+        let secondEngine = await factory.engine(2)
+        let replacement = try XCTUnwrap(secondEngine)
 
         let stoppedDuringRebuild = await recordingEngine.stopCount
         XCTAssertEqual(
@@ -131,7 +133,8 @@ final class DeferredSpeechTranscriberTests: XCTestCase {
         )
 
         await transcriber.prewarm()
-        let first = try XCTUnwrap(await factory.engine(1))
+        let firstEngine = await factory.engine(1)
+        let first = try XCTUnwrap(firstEngine)
 
         try await settings.update(AppSettings(transcriptionLocaleIdentifier: "fr-FR"))
         await transcriber.prewarm()
