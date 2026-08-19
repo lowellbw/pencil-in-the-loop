@@ -126,7 +126,7 @@ final class ShareViewController: UIViewController {
     private func cancel(because message: String) {
         guard hasFinished == false else { return }
         hasFinished = true
-        let domain = Bundle.main.bundleIdentifier ?? "com.example.pencilloop.share"
+        let domain = Bundle.main.bundleIdentifier ?? "com.lowellweisbord.pencilloop.share"
         extensionContext?.cancelRequest(
             withError: NSError(
                 domain: domain,

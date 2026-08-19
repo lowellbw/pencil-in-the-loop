@@ -10,6 +10,6 @@
 // It lives in its own file so that the day this repo gains a second developer,
 // this is the only file with a merge conflict.
 
-DEVELOPMENT_TEAM =
+DEVELOPMENT_TEAM = 5ZYBZWU235
 
 CODE_SIGN_STYLE = Automatic

@@ -3,7 +3,7 @@
 #include "Shared.xcconfig"
 
 PRODUCT_NAME = PencilLoop
-PRODUCT_BUNDLE_IDENTIFIER = com.example.pencilloop
+PRODUCT_BUNDLE_IDENTIFIER = com.lowellweisbord.pencilloop
 PRODUCT_BUNDLE_PACKAGE_TYPE = APPL
 
 INFOPLIST_FILE = Apps/PencilLoop/Info.plist

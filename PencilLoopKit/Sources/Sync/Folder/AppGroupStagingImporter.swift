@@ -43,7 +43,7 @@ public struct AppGroupStagingImporter: Sendable {
 
     /// The App Group in `PencilLoop.entitlements` and
     /// `ReviewShareExtension.entitlements`.
-    public static let defaultAppGroupIdentifier = "group.com.example.pencilloop"
+    public static let defaultAppGroupIdentifier = "group.com.lowellweisbord.pencilloop"
 
     /// The directory the extension writes into.
     public static let stagingDirectoryName = "staging"

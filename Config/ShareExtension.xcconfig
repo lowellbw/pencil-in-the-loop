@@ -3,7 +3,7 @@
 #include "Shared.xcconfig"
 
 PRODUCT_NAME = ReviewShareExtension
-PRODUCT_BUNDLE_IDENTIFIER = com.example.pencilloop.share
+PRODUCT_BUNDLE_IDENTIFIER = com.lowellweisbord.pencilloop.share
 PRODUCT_BUNDLE_PACKAGE_TYPE = XPC!
 
 INFOPLIST_FILE = Apps/ReviewShareExtension/Info.plist

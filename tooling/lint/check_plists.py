@@ -26,7 +26,7 @@ EXT_PLIST = REPO_ROOT / "Apps/ReviewShareExtension/Info.plist"
 APP_ENTITLEMENTS = REPO_ROOT / "Apps/PencilLoop/PencilLoop.entitlements"
 EXT_ENTITLEMENTS = REPO_ROOT / "Apps/ReviewShareExtension/ReviewShareExtension.entitlements"
 
-APP_GROUP = "group.com.example.pencilloop"
+APP_GROUP = "group.com.lowellweisbord.pencilloop"
 
 ORIENTATIONS = {
     "UIInterfaceOrientationPortrait",
