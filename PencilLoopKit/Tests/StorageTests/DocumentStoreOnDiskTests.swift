@@ -121,6 +121,37 @@ final class DocumentStoreOnDiskTests: XCTestCase {
         XCTAssertEqual(summaries.first?.localState, .unavailable(reason: "The download did not finish."))
     }
 
+    /// Growing a notebook, from the store's point of view: the same folder
+    /// re-ingested with more pages.
+    ///
+    /// The assertion that matters is the ink. `apply(_:to:)` says the source
+    /// was regenerated and the reader's marks were not, and adding paper to a
+    /// notebook is the first thing in the app that relies on it being true —
+    /// a stroke lost here is somebody's handwriting, which cannot be recovered
+    /// from anywhere.
+    func testAddingPagesLeavesEarlierInkByteIdentical() async throws {
+        let store = try onDiskStore()
+        let strokes = Data([0x50, 0x4B, 0x01, 0x02, 0xFF, 0x00, 0x7A])
+
+        let created = try await store.upsert(
+            StorageTestFactory.ingested(folderName: "2026-08-19-working-notes", pageCount: 2)
+        )
+        try await store.saveDrawing(strokes, pageIndex: 1, documentId: created.id)
+
+        _ = try await store.upsert(
+            StorageTestFactory.ingested(
+                id: created.id, folderName: "2026-08-19-working-notes", pageCount: 6
+            )
+        )
+
+        let after = try await store.drawingData(pageIndex: 1, documentId: created.id)
+        XCTAssertEqual(after, strokes, "growing the notebook rewrote somebody's handwriting")
+
+        let summaries = try await store.summaries(.all)
+        XCTAssertEqual(summaries.count, 1, "growing made a second row rather than growing the one")
+        XCTAssertEqual(summaries.first?.pageCount, 6)
+    }
+
     /// Reopening the same file is what a relaunch does, and the point of a
     /// store being on disk at all.
     func testWhatWasWrittenSurvivesReopeningTheStore() async throws {

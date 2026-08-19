@@ -18,6 +18,7 @@ import PDFKit
 import UIKit
 import Annotate
 import Core
+import Ingest
 
 /// The reader's state, one document at a time.
 ///
@@ -222,6 +223,49 @@ public final class ReaderModel {
     /// made in the last 500ms exists only in the coordinator until it does.
     public func close() async {
         await self.closeCurrent()
+    }
+
+    /// Adds sheets to the end of a notebook and reopens it on the same page.
+    ///
+    /// **The order here is the whole of it.** PDFKit holds `document.pdf` open,
+    /// so the reader closes first — which also flushes the debounced ink and
+    /// the reading position — then the file is rewritten, then it reopens.
+    /// Rewriting underneath a live `PDFDocument` is how you get a reader
+    /// showing pages that no longer exist.
+    ///
+    /// Reopening rather than growing in place is deliberate. `synchronise(_:)`
+    /// hands PDFKit a document exactly once and the overlay provider is asked
+    /// exactly once per page; that seam has already produced two silent
+    /// no-ink bugs, and a feature that adds paper is not worth risking the one
+    /// that lets you write on it. `restoreReadingPosition` puts the reader back
+    /// where it was.
+    ///
+    /// - Note: only a notebook can grow. There is no sensible meaning to
+    ///   appending blank paper to a paper somebody sent you.
+    public func addPages(_ count: Int, environment: any AppEnvironment) async {
+        guard let growing = self.documentId, let detail = self.detail,
+              detail.origin.kind == .note else { return }
+        let folderName = detail.folderName
+        let currentPageCount = detail.pageCount
+
+        await self.closeCurrent()
+        do {
+            let grown = try await NoteCreator().addPages(
+                count, toFolderNamed: folderName, currentPageCount: currentPageCount
+            )
+            _ = try await environment.store.upsert(grown)
+            self.onDocumentChanged?()
+        } catch {
+            // The notebook is exactly as it was, so reopening below puts the
+            // reader back on it rather than leaving an empty detail column.
+            self.unavailableMessage = SyncFolderChoice.describe(error)
+        }
+        await self.open(documentId: growing, environment: environment)
+    }
+
+    /// Whether this document is one the app wrote and can therefore extend.
+    public var canAddPages: Bool {
+        detail?.origin.kind == .note && isReady
     }
 
     private func closeCurrent() async {

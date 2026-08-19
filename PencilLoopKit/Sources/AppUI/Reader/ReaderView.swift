@@ -157,6 +157,12 @@ public struct ReaderView: View {
     /// Back, title, comment count, tool picker, Review (docs/02-spec.md § S2).
     /// A standard `.toolbar`, not a hand-rolled bar
     /// (docs/01-design-principles.md § 3).
+    /// How many sheets one press adds.
+    ///
+    /// The same number a new notebook starts with, so running out and pressing
+    /// this feels like turning to a fresh signature rather than rationing.
+    private static let pagesPerAddition = 8
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if let onBack = self.onBack {
@@ -176,6 +182,24 @@ public struct ReaderView: View {
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel(self.commentCountLabel)
+        }
+
+        // Only for a notebook. There is no sensible meaning to appending blank
+        // paper to a document somebody sent you, so the button is not there at
+        // all rather than there and refusing.
+        if self.model.canAddPages {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task {
+                        await self.model.addPages(
+                            ReaderView.pagesPerAddition, environment: self.environment
+                        )
+                    }
+                } label: {
+                    Label("Add Pages", systemImage: "plus.rectangle.on.rectangle")
+                }
+                .accessibilityLabel("Add \(ReaderView.pagesPerAddition) more pages")
+            }
         }
 
         ToolbarItem(placement: .topBarTrailing) {

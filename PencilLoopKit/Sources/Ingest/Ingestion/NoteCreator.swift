@@ -97,6 +97,64 @@ public struct NoteCreator: Sendable {
         }
     }
 
+    /// Adds sheets to the end of a notebook, ruled like the ones already in it.
+    ///
+    /// **Append only, and that is not a simplification.** Ink is stored per
+    /// page index, comments anchor to one, and the canvas pool is keyed by one.
+    /// Inserting a page anywhere but the end would renumber every stroke and
+    /// every anchor in the document after it, silently.
+    ///
+    /// Regenerating the whole PDF rather than splicing is safe for the same
+    /// reason it is cheap: blank pages have no reflow, so the existing pages
+    /// come out identical, and `DocumentStore.upsert` deliberately leaves ink,
+    /// comments and reading position alone when a source is regenerated.
+    ///
+    /// - Important: the reader must have closed the document first. This
+    ///   overwrites `document.pdf` in place, and PDFKit holds the file open.
+    /// - Throws: `PencilLoopError.renderFailed`, or whatever `DocumentIngestor`
+    ///   throws. The old PDF is left untouched on either.
+    public func addPages(
+        _ count: Int,
+        toFolderNamed folderName: String,
+        currentPageCount: Int
+    ) async throws -> IngestedDocument {
+        let paper = paper(forFolderNamed: folderName)
+        let total = currentPageCount + count
+        let pdf = try paperRenderer.render(pages: total, paper: paper, geometry: .notebook)
+
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("note-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
+
+        try pdf.write(to: staging.appendingPathComponent(DocumentFileNames.document))
+
+        // The existing meta.json is carried across rather than rewritten, so
+        // the document keeps its id, its title and the date it was started.
+        // Minting a new one here would look like a different document to
+        // everything downstream.
+        let directory = containerRoot.appendingPathComponent(folderName, isDirectory: true)
+        let metaURL = staging.appendingPathComponent(DocumentFileNames.metadata)
+        let existingMeta = directory.appendingPathComponent(DocumentFileNames.metadata)
+        if let data = try? Data(contentsOf: existingMeta) {
+            try data.write(to: metaURL)
+        }
+
+        let item = InboxItem(
+            folderName: folderName,
+            directoryURL: staging,
+            pdfURL: staging.appendingPathComponent(DocumentFileNames.document),
+            sourceMarkdownURL: nil,
+            sourceMapURL: nil,
+            metaURL: metaURL,
+            modifiedAt: clock(),
+            byteCount: Int64(pdf.count)
+        )
+        let grown = try await ingestor.ingest(item)
+        write(NoteSidecar(paper: paper, pageCount: grown.pageCount), forFolderNamed: folderName)
+        return grown
+    }
+
     /// The paper a notebook was ruled with, or `.plain` when there is no
     /// sidecar to say — see `NoteSidecar`.
     public func paper(forFolderNamed folderName: String) -> PaperStyle {
@@ -147,8 +205,8 @@ public struct NoteCreator: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(metadata)
-            .write(to: staging.appendingPathComponent(DocumentFileNames.metadata))
+        let metadataBytes = try encoder.encode(metadata)
+        try metadataBytes.write(to: staging.appendingPathComponent(DocumentFileNames.metadata))
 
         let file = staging.appendingPathComponent(fileName)
         let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -163,7 +221,15 @@ public struct NoteCreator: Sendable {
             modifiedAt: now,
             byteCount: Int64(size)
         )
-        return try await ingestor.ingest(item)
+        let created = try await ingestor.ingest(item)
+
+        // `DocumentIngestor` reads meta.json but does not copy it: for a
+        // document that arrived, `InboxItemPinner` has already put it in the
+        // container. A note has no pinner, so without this the directory has
+        // no meta.json at all — and re-ingesting it later, which is what
+        // adding pages does, would mint a fresh id and orphan every stroke.
+        write(metadataBytes, named: DocumentFileNames.metadata, forFolderNamed: created.folderName)
+        return created
     }
 
     /// Best effort, and deliberately silent. The notebook is already in the
@@ -173,9 +239,14 @@ public struct NoteCreator: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(sidecar) else { return }
+        write(data, named: DocumentFileNames.note, forFolderNamed: folderName)
+    }
+
+    /// Puts one file in the document's directory in the container, if it can.
+    private func write(_ data: Data, named name: String, forFolderNamed folderName: String) {
         let url = containerRoot
             .appendingPathComponent(folderName, isDirectory: true)
-            .appendingPathComponent(DocumentFileNames.note)
+            .appendingPathComponent(name)
         try? data.write(to: url)
     }
 

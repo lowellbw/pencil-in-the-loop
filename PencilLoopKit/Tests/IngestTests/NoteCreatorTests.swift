@@ -131,6 +131,48 @@ final class NoteCreatorTests: XCTestCase {
         XCTAssertTrue(created.extractedText.contains("minted once"))
     }
 
+    // MARK: - Growing
+
+    /// Adding paper must not make a different document. Everything downstream
+    /// — the ink, the comments, the reading position — is keyed on identity,
+    /// and a new id would orphan all of it.
+    func testAddingPagesKeepsTheDocumentsIdentity() async throws {
+        let created = try await creator.createNotebook(
+            title: "Working notes", paper: .grid, pages: 2, existingFolderNames: []
+        )
+        let grown = try await creator.addPages(
+            3, toFolderNamed: created.folderName, currentPageCount: created.pageCount
+        )
+
+        XCTAssertEqual(grown.pageCount, 5)
+        XCTAssertEqual(grown.folderName, created.folderName)
+        XCTAssertEqual(grown.id, created.id, "a new id would orphan every stroke in the notebook")
+        XCTAssertEqual(grown.title, created.title)
+    }
+
+    /// "You can add more pages later, and they will match" is a promise the
+    /// sheet makes in as many words.
+    func testAddedPagesAreRuledLikeTheOnesAlreadyThere() async throws {
+        let created = try await creator.createNotebook(
+            title: "Squared up", paper: .grid, pages: 1, existingFolderNames: []
+        )
+        _ = try await creator.addPages(
+            2, toFolderNamed: created.folderName, currentPageCount: created.pageCount
+        )
+        XCTAssertEqual(creator.paper(forFolderNamed: created.folderName), .grid)
+    }
+
+    func testGrowingRewritesThePDFInPlace() async throws {
+        let created = try await creator.createNotebook(
+            title: "Longhand", paper: .lined, pages: 2, existingFolderNames: []
+        )
+        _ = try await creator.addPages(
+            4, toFolderNamed: created.folderName, currentPageCount: created.pageCount
+        )
+        let document = try XCTUnwrap(PDFDocument(url: created.pdfURL))
+        XCTAssertEqual(document.pageCount, 6, "the reader opens this exact URL and nothing else")
+    }
+
     // MARK: - Refusals
 
     func testANotebookWithNoPagesIsRefusedBeforeAnythingIsWritten() async throws {
