@@ -73,6 +73,37 @@ public struct LibraryView<Detail: View>: View {
 
     // MARK: - Sidebar
 
+    /// The one line of status the sidebar is allowed to show — why documents
+    /// have stopped arriving, or what the last pull found.
+    ///
+    /// **Not a `ToolbarItem(placement: .bottomBar)`, which is where this lived
+    /// and where it did not work.** A toolbar item in the sidebar column of a
+    /// `NavigationSplitView` is laid out in whatever width the toolbar gives
+    /// it, which on an iPad sidebar is a couple of hundred points; the sentence
+    /// wrapped, then truncated, and read "The sync…". A status line that cannot
+    /// be read is the silence docs/02-spec.md § F7 exists to prevent, and it
+    /// fails exactly when it matters, because the longest messages are the ones
+    /// explaining a real problem.
+    ///
+    /// A bottom safe-area inset instead: full column width, as many lines as
+    /// the sentence needs, and `fixedSize` so it grows downward rather than
+    /// being compressed back into one truncated line.
+    @ViewBuilder
+    private var statusLine: some View {
+        if let status = model.statusMessage {
+            Text(status)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.bar)
+                .accessibilityLabel(status)
+        }
+    }
+
     private var sidebar: some View {
         List(selection: $selection) {
             ForEach(DocState.librarySections, id: \.self) { state in
@@ -88,6 +119,9 @@ public struct LibraryView<Detail: View>: View {
         .overlay {
             emptyState
         }
+        .safeAreaInset(edge: .bottom) {
+            statusLine
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 sortMenu
@@ -99,13 +133,6 @@ public struct LibraryView<Detail: View>: View {
                     Label("Settings", systemImage: "gearshape")
                 }
                 .accessibilityLabel("Settings")
-            }
-            if let status = model.statusMessage {
-                ToolbarItem(placement: .bottomBar) {
-                    Text(status)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
             }
         }
         .task(id: model.reloadKey) {
