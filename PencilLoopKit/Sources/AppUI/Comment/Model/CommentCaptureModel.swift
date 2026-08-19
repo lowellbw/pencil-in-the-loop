@@ -516,6 +516,13 @@ public final class CommentCaptureModel {
                     guard let self else { return }
                     self.send(.transcriptUpdated(value))
                 }
+                // Finished with no error and no stop: recognition gave up on
+                // its own. `ContinuousTranscriber` already restarts an engine
+                // that merely finalised an utterance, so this is the real
+                // thing. Reporting it keeps whatever was transcribed and tells
+                // the user, rather than leaving the popover listening to
+                // nothing (ContinuousTranscriber § the bug this exists for).
+                self?.send(.failed(.speechUnavailable(reason: "Dictation stopped.")))
             } catch let error as PencilLoopError {
                 self?.send(.failed(error))
             } catch {

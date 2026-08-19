@@ -109,8 +109,13 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
         self.sync = gateway
 
         // Built for the language in Settings, when it is first needed
-        // (DeferredSpeechTranscriber).
-        self.transcriber = DeferredSpeechTranscriber(settings: settingsStore)
+        // (DeferredSpeechTranscriber), and wrapped so that the engine deciding
+        // an utterance is over does not end the recording — which is what made
+        // a long voice note look like it had a length limit
+        // (ContinuousTranscriber).
+        self.transcriber = ContinuousTranscriber(
+            engine: DeferredSpeechTranscriber(settings: settingsStore)
+        )
 
         // Null unless this build has `PENCILLOOP_STROKE_RECOGNIZER` defined and
         // the device is on iPadOS 27. Ink is captured, persisted and exported

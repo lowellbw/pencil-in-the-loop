@@ -428,6 +428,14 @@ final class ReviewSheetModel {
                     guard let self, self.isDictatingInstruction else { return }
                     self.applyDictated(value.displayText)
                 }
+                // The stream finished without an error and without the user
+                // letting go. `ContinuousTranscriber` restarts an engine that
+                // merely lost interest, so reaching here means recognition
+                // really has stopped — and saying nothing would leave the row
+                // reading "Listening…" over a dead microphone, which is exactly
+                // the failure that looked like a length limit.
+                guard let self, self.isDictatingInstruction else { return }
+                self.endDictation(with: .speechUnavailable(reason: "Dictation stopped."))
             } catch let error as PencilLoopError {
                 self?.endDictation(with: error)
             } catch {
