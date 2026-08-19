@@ -14,7 +14,9 @@ the way past, and never exists as a `bytes` in memory.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -98,9 +100,7 @@ def check_declared_size(name: str, byte_count: Any) -> int:
 
 
 def free_bytes(path: Path) -> int:
-    import shutil as _shutil
-
-    return _shutil.disk_usage(path).free
+    return shutil.disk_usage(path).free
 
 
 def has_room_for(path: Path, byte_count: int) -> bool:
@@ -140,9 +140,28 @@ def write_stream(chunks: Iterable[bytes], destination: Path) -> tuple[int, str]:
             digest.update(chunk)
             written += len(chunk)
         handle.flush()
-        import os as _os
+        os.fsync(handle.fileno())
+    return written, digest.hexdigest()
 
-        _os.fsync(handle.fileno())
+
+async def write_stream_async(chunks: Any, destination: Path) -> tuple[int, str]:
+    """`write_stream` for an ASGI request body, which is an async generator.
+
+    Same contract, same guarantee: the file is never held in memory and the
+    digest is computed on the way past.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    written = 0
+    with destination.open("wb") as handle:
+        async for chunk in chunks:
+            if not chunk:
+                continue
+            handle.write(chunk)
+            digest.update(chunk)
+            written += len(chunk)
+        handle.flush()
+        os.fsync(handle.fileno())
     return written, digest.hexdigest()
 
 
@@ -260,6 +279,22 @@ def _lower_hex(value: Any, path: str) -> str | None:
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", value):
         raise FileRejected(f"{path}: sha256 must be 64 hex characters")
     return value.lower()
+
+
+def commit_to(staging: Path, target: Path) -> Path:
+    """Land a staged bundle at an exact name, rather than the first free one.
+
+    `core.commit_bundle` picks a name from the collision ladder, which is right
+    when the writer has everything to hand. The relay cannot: it allocated the
+    name when the upload was announced, so a second POST arriving mid-upload
+    could not be handed the same one, and it must land at that name and no
+    other.
+    """
+    core.fsync_dir(staging)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    os.rename(staging, target)
+    core.fsync_dir(target.parent)
+    return target
 
 
 def bundle_id(raw: Any) -> str:

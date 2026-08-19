@@ -376,17 +376,32 @@ class Index:
     ) -> tuple[int, bool]:
         """Declare a review bundle.
 
-        - Returns: `(revision, is_retry)`. An identical `manifest_sha` for an
-          existing review is a retry — the same revision, no new sequence
-          number, nothing rewritten. That is what makes the iPad's
-          `flushQueue()` safe to run on every poll: a review delivered twice
-          would be a duplicate message in someone's conversation.
+        Three cases, and the distinction between the first two matters:
+
+        - **A retry.** The same manifest for a review that already landed
+          complete. Same revision, no new sequence number, nothing rewritten.
+          That is what makes the iPad's `flushQueue()` safe to run on every
+          poll — a review delivered twice would be a duplicate message in
+          someone's conversation.
+        - **A resumed upload.** The same manifest for a bundle that never
+          finished, because the connection died between ink pages. Same
+          revision, but the staging directory is replaced so the upload can
+          start again cleanly.
+        - **A genuinely new bundle.** A different manifest. Revision *n+1*,
+          with the previous bundle retained, so two iPads both pressing Send
+          lose nothing.
+
+        - Returns: `(revision, is_retry)`.
         """
         existing = self.review(folder_name)
-        if existing and existing["manifest_sha"] == manifest_sha:
-            return int(existing["revision"]), True
-
-        revision = int(existing["revision"]) + 1 if existing else 1
+        if existing is None:
+            revision = 1
+        elif existing["manifest_sha"] == manifest_sha:
+            if existing["complete"]:
+                return int(existing["revision"]), True
+            revision = int(existing["revision"])
+        else:
+            revision = int(existing["revision"]) + 1
         with self.transaction():
             seq = self.next_seq()
             self.connection.execute(

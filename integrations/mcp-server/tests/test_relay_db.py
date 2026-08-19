@@ -154,20 +154,30 @@ class ReviewTests(IndexTestCase):
             expected_files=expected,
         )
 
-    def test_the_same_manifest_twice_is_one_review(self) -> None:
+    def test_re_delivering_a_finished_review_changes_nothing(self) -> None:
         """The iPad retries on every poll. A review delivered twice would be a
         duplicate message in someone's conversation."""
         first_revision, first_retry = self.declare("sha-a")
+        self.index.complete_review("2026-08-18-plan")
         before = self.index.cursor
-        second_revision, second_retry = self.declare("sha-a")
 
+        second_revision, second_retry = self.declare("sha-a")
         self.assertEqual((first_revision, first_retry), (1, False))
         self.assertEqual((second_revision, second_retry), (1, True))
         self.assertEqual(self.index.cursor, before, "a retry allocates no sequence")
 
+    def test_re_declaring_an_unfinished_review_resumes_it(self) -> None:
+        """The connection died between ink pages and the iPad started again.
+        That is the same bundle, not a second one, so the revision holds."""
+        self.declare("sha-a", expected=[{"path": "review.md", "bytes": 9}])
+        revision, retry = self.declare("sha-a", expected=[{"path": "review.md"}])
+        self.assertEqual((revision, retry), (1, False))
+        self.assertFalse(self.index.review("2026-08-18-plan")["complete"])
+
     def test_a_different_manifest_becomes_a_new_revision(self) -> None:
         """Two iPads both pressing Send. Nobody loses anything."""
         self.declare("sha-a")
+        self.index.complete_review("2026-08-18-plan")
         revision, retry = self.declare("sha-b")
         self.assertEqual((revision, retry), (2, False))
 
