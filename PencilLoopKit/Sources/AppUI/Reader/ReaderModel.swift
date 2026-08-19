@@ -166,8 +166,18 @@ public final class ReaderModel {
             self.unavailableMessage = "This document could not be opened. The file may be damaged."
             return
         }
-        self.document = document
 
+        // `document` is deliberately *not* published yet. Publishing it makes
+        // SwiftUI re-render, which hands the document to PDFKit, which asks for
+        // a page overlay straight away — and the ink pool below is opened with
+        // an `await`, so it would not exist yet. The overlay provider would
+        // return nil for every page, and **PDFKit never asks a second time**:
+        // the reader would show the document with no canvas over it and the
+        // Pencil would mark nothing, silently, for ever.
+        //
+        // So the pool is built first and everything is published together at
+        // the end. The cost is that the page appears a few milliseconds later;
+        // the alternative is an app whose entire purpose does not work.
         let coordinator = InkPersistenceCoordinator(
             store: newEnvironment.store,
             recogniser: newEnvironment.recogniser
@@ -198,6 +208,10 @@ public final class ReaderModel {
         self.capture = capture
         self.toolPicker = picker
         self.canvasPool = pool
+
+        // Last, and after the pool: this is what provokes the layout that asks
+        // for the overlays.
+        self.document = document
         self.sessionStartedAt = Date()
         self.isReady = true
     }
