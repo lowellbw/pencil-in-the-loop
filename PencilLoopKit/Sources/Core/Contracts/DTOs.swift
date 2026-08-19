@@ -608,6 +608,25 @@ public struct PageGeometry: Sendable, Hashable, Codable {
         maxCodeColumnCharacters: 76
     )
 
+    /// A4 portrait with even 56pt margins, for paper the reader writes on
+    /// rather than annotates (docs/11-backlog.md § B1).
+    ///
+    /// The difference from `annotationFriendly` is the right margin. That one
+    /// keeps 140pt clear because handwriting goes *beside* somebody else's
+    /// text; on a blank page the handwriting is the text, so the ruling runs
+    /// the full width and the gutter would only waste a third of the page.
+    public static let notebook = PageGeometry(
+        pageWidth: 595.276,
+        pageHeight: 841.89,
+        marginTop: 56,
+        marginLeft: 56,
+        marginBottom: 56,
+        marginRight: 56,
+        bodyPointSize: 11,
+        lineSpacingMultiple: 1.35,
+        maxCodeColumnCharacters: 76
+    )
+
     /// The laid-out text column, in points.
     public var textColumnWidth: Double { pageWidth - marginLeft - marginRight }
 

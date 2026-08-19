@@ -11,7 +11,7 @@
 //  degrades to the documented fallback. A malformed `meta.json` must not stop a
 //  document being readable (docs/04-flows.md § F1, failure handling).
 //
-//  Contains four enums rather than one type per file — they are one vocabulary
+//  Contains six enums rather than one type per file — they are one vocabulary
 //  and splitting them buys nothing. Listed in tooling/lint/style_allowlist.txt.
 //
 
@@ -187,5 +187,36 @@ public enum SourceFormat: String, Codable, Sendable, CaseIterable, Hashable {
     public init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         self = SourceFormat(rawValue: raw) ?? .unknown
+    }
+}
+
+/// The ruling printed on a page of blank paper.
+///
+/// `note.json` field `paper`, recorded so that pages appended to a notebook
+/// later match the ones already in it (docs/11-backlog.md § B1).
+///
+/// The ruling is drawn *into* the PDF rather than laid under the canvas as a
+/// view. A background view would be positioned in screen space and the ink in
+/// page space, so the two would drift apart the moment the reader was zoomed —
+/// the same reason document text is rendered rather than overlaid.
+public enum PaperStyle: String, Codable, Sendable, CaseIterable, Hashable {
+    case plain
+    case lined
+    case grid
+
+    /// Human-facing name, used in the paper picker when a note is created.
+    public var displayName: String {
+        switch self {
+        case .plain: return "Plain"
+        case .lined: return "Lined"
+        case .grid: return "Grid"
+        }
+    }
+
+    /// Unknown raw values decode as `.plain` — an unreadable ruling should cost
+    /// the lines, never the notebook.
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = PaperStyle(rawValue: raw) ?? .plain
     }
 }
