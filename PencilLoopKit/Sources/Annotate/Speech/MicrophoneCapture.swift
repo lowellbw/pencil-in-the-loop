@@ -130,6 +130,24 @@ actor MicrophoneCapture {
     /// Idempotent, and cheap on the second call.
     func prewarm() throws {
         guard isSessionActive == false else { return }
+
+        // **Everything below the permission check can kill the process.**
+        // `AVAudioEngine` resolves its input node by asking the audio session
+        // for a route, and when there is not one — no permission, or the
+        // instant after the permission sheet is dismissed, before the route
+        // exists — it raises an Objective-C exception. Swift cannot catch one
+        // of those, so the app does not get an error: it aborts, mid-press,
+        // with the popover open.
+        //
+        // The user reaching this without permission is the *normal* path, not
+        // a corner: the sheet appears on the first press, and the first press
+        // is also the first thing that wants a microphone.
+        guard SpeechAvailability.microphone() == .granted else {
+            throw PencilLoopError.speechUnavailable(
+                reason: "PencilLoop does not have permission to use the microphone yet."
+            )
+        }
+
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
@@ -140,9 +158,58 @@ actor MicrophoneCapture {
             )
         }
         isSessionActive = true
+
+        // Granted permission is not the same as an input that is ready. A route
+        // negotiated moments ago reports zero channels at zero hertz, and
+        // `prepare()` on that raises rather than returns.
+        guard session.isInputAvailable else {
+            throw PencilLoopError.speechUnavailable(
+                reason: "This iPad has no microphone available right now."
+            )
+        }
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw PencilLoopError.speechUnavailable(
+                reason: "The microphone is not ready yet. Try holding again in a moment."
+            )
+        }
+
         // Resolves the input node and allocates its render resources, so
         // `start()` does not have to.
         engine.prepare()
+    }
+
+    /// Starts capture, giving a freshly granted microphone a moment to arrive.
+    ///
+    /// Permission being granted is not the same as an input route existing.
+    /// In the instant after the permission sheet is dismissed — which is
+    /// exactly when the first press happens — the session reports no input,
+    /// and `AVAudioEngine` raises rather than returns. Waiting briefly turns
+    /// "the first hold after granting silently does nothing" into "the first
+    /// hold works", which is the difference between a feature that seems
+    /// broken and one that does not.
+    ///
+    /// - Throws: `.speechUnavailable` if the input never appears. The caller
+    ///   falls back to handwriting, which is what docs/02-spec.md § S3 asks
+    ///   for and is never a dead end.
+    func startWaitingForInput(
+        attempts: Int = 6,
+        gap: Duration = .milliseconds(120)
+    ) async throws -> AsyncStream<Chunk> {
+        var lastError: (any Error)?
+        for attempt in 0..<max(1, attempts) {
+            do {
+                return try start()
+            } catch {
+                lastError = error
+                if attempt < attempts - 1 {
+                    try? await Task.sleep(for: gap)
+                }
+            }
+        }
+        throw lastError ?? PencilLoopError.speechUnavailable(
+            reason: "The microphone did not become available."
+        )
     }
 
     /// Installs the tap and starts the engine, returning the buffer stream.

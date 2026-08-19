@@ -175,16 +175,32 @@ def create_app(
         if not isinstance(expected, list):
             raise ApiError(400, "bad_request", "expectedFiles must be an array.")
 
+        # Two shapes of document, and the difference is whether there is any
+        # markdown. A PDF arrives as `document.pdf` and a title, with no
+        # source.md — which docs/05 has always allowed and nothing could
+        # previously produce.
+        source_md: str | None = None
         try:
-            base, meta, source_md = core.prepare_inbox_bundle(
-                content=body.get("content"),
-                title=body.get("title"),
-                tags=body.get("tags"),
-                origin_kind=body.get("originKind"),
-                session_id=body.get("sessionId"),
-                thread_title=body.get("threadTitle"),
-                document_id=body.get("documentId"),
-            )
+            if body.get("content") is None and body.get("sourceFormat") == "pdf":
+                base, meta = core.prepare_pdf_bundle(
+                    title=body.get("title"),
+                    tags=body.get("tags"),
+                    origin_kind=body.get("originKind"),
+                    session_id=body.get("sessionId"),
+                    thread_title=body.get("threadTitle"),
+                    source_url=body.get("sourceURL"),
+                    document_id=body.get("documentId"),
+                )
+            else:
+                base, meta, source_md = core.prepare_inbox_bundle(
+                    content=body.get("content"),
+                    title=body.get("title"),
+                    tags=body.get("tags"),
+                    origin_kind=body.get("originKind"),
+                    session_id=body.get("sessionId"),
+                    thread_title=body.get("threadTitle"),
+                    document_id=body.get("documentId"),
+                )
         except core.ValidationError as error:
             raise ApiError(400, "invalid_input", str(error)) from error
 
@@ -222,7 +238,8 @@ def create_app(
 
         staging = core.stage_bundle(inbox, base)
         try:
-            core.write_file(staging / "source.md", source_md)
+            if source_md is not None:
+                core.write_file(staging / "source.md", source_md)
             core.write_file(
                 staging / "meta.json",
                 json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
@@ -230,7 +247,8 @@ def create_app(
             # Size and hash are recorded for the files written here too, not
             # just the uploaded ones. The iPad verifies every download against
             # what the feed advertised, and a null hash would quietly turn that
-            # check off for exactly the two files every document has.
+            # check off for exactly the files every document has.
+            names = ["meta.json"] if source_md is None else ["source.md", "meta.json"]
             written = [
                 {
                     "name": name,
@@ -238,7 +256,7 @@ def create_app(
                     "bytes": (staging / name).stat().st_size,
                     "sha256": relay_files.sha256_of(staging / name),
                 }
-                for name in ("source.md", "meta.json")
+                for name in names
             ]
             folder_name = index.reserve_document(
                 base=base,

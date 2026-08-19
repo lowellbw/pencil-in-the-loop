@@ -259,7 +259,7 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
         cachedInstalled = true
 
         do {
-            let chunks = try await capture.start()
+            let chunks = try await capture.startWaitingForInput()
 
             let module = makeTranscriber(reportVolatileResults: true)
             transcriber = module

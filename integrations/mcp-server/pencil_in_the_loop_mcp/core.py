@@ -308,6 +308,8 @@ def build_meta(
     thread_title: str | None = None,
     now: datetime | None = None,
     document_id: str | None = None,
+    source_format: str = "markdown",
+    source_url: str | None = None,
 ) -> dict[str, Any]:
     """The ``meta.json`` payload, shaped exactly as docs/05 shows it.
 
@@ -326,8 +328,10 @@ def build_meta(
         "title": title,
         "createdAt": utc_now_iso(now),
         "origin": origin,
-        "sourceFormat": "markdown",
+        "sourceFormat": source_format,
     }
+    if source_url:
+        meta["sourceURL"] = source_url
     if tags:
         meta["tags"] = tags
     return meta
@@ -440,6 +444,53 @@ def prepare_inbox_bundle(
     )
     base = bundle_name(clean_title, now.date() if now else None)
     return base, meta, _ensure_h1(body, clean_title)
+
+
+def prepare_pdf_bundle(
+    *,
+    title: Any,
+    tags: Any = None,
+    origin_kind: str | None = None,
+    session_id: str | None = None,
+    thread_title: str | None = None,
+    source_url: str | None = None,
+    now: datetime | None = None,
+    document_id: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Validate and shape a bundle whose payload is a PDF, not markdown.
+
+    `docs/05-file-contracts.md` has always allowed this: `document.pdf` is the
+    file that is always present and `source.md` is the one that exists "when
+    there was one". Nothing could produce such a bundle until now, because
+    every writer went through `prepare_inbox_bundle`, which requires markdown.
+
+    There is no content to derive a title from, so a title is required rather
+    than optional — a PDF called "untitled" in a library is a document nobody
+    can find again.
+
+    - Returns: the base folder name and the `meta.json` payload. No source.md,
+      because there is no source.
+    - Raises: `ValidationError`, and nothing else.
+    """
+    if not isinstance(title, str) or not title.strip():
+        raise ValidationError("a PDF needs a title; there is no text to take one from")
+    clean_title = validate_title(title, "")
+    clean_tags = validate_tags(tags)
+    kind = detect_origin_kind(origin_kind)
+    session = detect_session(session_id)
+
+    meta = build_meta(
+        title=clean_title,
+        kind=kind,
+        session=session,
+        tags=clean_tags,
+        thread_title=thread_title,
+        now=now,
+        document_id=document_id,
+        source_format="pdf",
+        source_url=source_url,
+    )
+    return bundle_name(clean_title, now.date() if now else None), meta
 
 
 def write_inbox_bundle(

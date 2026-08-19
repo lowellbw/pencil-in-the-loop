@@ -222,7 +222,7 @@ public actor LegacySpeechEngine: SpeechTranscribing {
         request = audioRequest
 
         do {
-            let chunks = try await capture.start()
+            let chunks = try await capture.startWaitingForInput()
             task = recogniser.recognitionTask(with: audioRequest) { result, error in
                 let text = result?.bestTranscription.formattedString
                 let isFinal = result?.isFinal ?? false

@@ -55,6 +55,7 @@ UTF8View UTF16View
 AttributedString AttributedStringKey
 Calendar CharacterSet
 Data DataProtocol Date DateComponents DateFormatter DateInterval DispatchQueue
+Duration
 FileHandle FileManager FileWrapper
 IndexSet ISO8601DateFormatter
 JSONDecoder JSONEncoder JSONSerialization
