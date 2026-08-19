@@ -106,6 +106,36 @@ final class DocumentStoreSearchTests: XCTestCase {
         XCTAssertEqual(archived.map(\.folderName), ["2026-08-19-latency-budget"])
     }
 
+    /// `extractedText` is a `String` carrying `@Attribute(.externalStorage)`,
+    /// which maps to Core Data's `allowsExternalBinaryDataStorage` — an option
+    /// defined for binary attributes. SwiftData accepts it here rather than
+    /// throwing at container creation, so the schema is fine; what that leaves
+    /// open is whether a value big enough to actually be spilled out of the row
+    /// is still reachable from the `#Predicate`, or whether search quietly stops
+    /// working for exactly the long documents it matters most for.
+    ///
+    /// Half a megabyte is past any plausible inline threshold. The needle sits
+    /// at the far end, so a match cannot come from a truncated prefix.
+    func testSearchReachesTextLongEnoughToBeStoredOutsideTheRow() async throws {
+        let store = try StorageTestFactory.store()
+        let filler = String(repeating: "The frame budget holds. ", count: 22_000)
+        try await store.upsert(
+            StorageTestFactory.ingested(
+                title: "Long paper",
+                folderName: "2026-08-20-long-paper",
+                extractedText: filler + " The sentinel phrase is pemmican."
+            )
+        )
+        XCTAssertGreaterThan(filler.utf8.count, 500_000)
+
+        let hits = try await store.summaries(LibraryQuery(searchText: "pemmican"))
+        XCTAssertEqual(
+            hits.map(\.folderName),
+            ["2026-08-20-long-paper"],
+            "search has to reach text that external storage moved out of the row"
+        )
+    }
+
     func testStateFilterNarrowsToOneSection() async throws {
         let store = try await populated()
         let found = try await store.documentId(forFolderName: "2026-08-18-auth-refactor-plan")

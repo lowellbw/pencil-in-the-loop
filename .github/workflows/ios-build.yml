@@ -72,11 +72,14 @@ jobs:
       # image has no iPad by that name the step fails with "Unable to find a
       # destination". `xcrun simctl list devices available` prints what it does
       # have; put one of those here.
+      # `PencilLoopKit` is the scheme for the library product and carries no
+      # test action; `PencilLoopKit-Package` is the one SwiftPM synthesises for
+      # the whole package, and is the only one that can run the tests.
       - name: Run package tests (Simulator)
         working-directory: PencilLoopKit
         run: |
           xcodebuild test \
-            -scheme PencilLoopKit \
+            -scheme PencilLoopKit-Package \
             -destination "platform=iOS Simulator,name=$SIMULATOR" \
             CODE_SIGNING_ALLOWED=NO
         env:

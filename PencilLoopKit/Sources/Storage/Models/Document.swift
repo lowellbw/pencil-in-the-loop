@@ -79,21 +79,28 @@ final class Document {
     /// between a library fetch that reads a thousand rows and one that reads a
     /// thousand rows plus a thousand novels.
     ///
-    /// **First thing to check on the Mac.** `.externalStorage` maps to Core
+    /// **Checked on the Mac, and it stands.** `.externalStorage` maps to Core
     /// Data's `allowsExternalBinaryDataStorage`, which is defined for binary
-    /// attributes only. If SwiftData validates it the way Core Data
-    /// historically has, `LibraryContainer.make()` throws at launch and every
-    /// `StorageTests` case fails with it — a loud, unmissable failure with one
-    /// obvious cause. It is left in place deliberately, because the alternative
-    /// is a guess: storing the text as `Data` behind a computed accessor takes
-    /// it out of the `#Predicate` in `LibraryFetch` and turns the one-round-trip
-    /// search that docs/02-spec.md § S1 asks for into a two-stage in-memory
-    /// filter, and that is not a trade to make blind.
+    /// attributes only, so the worry was that SwiftData would validate it the
+    /// way Core Data historically has and throw out of `LibraryContainer.make()`
+    /// at launch. On the iOS 26.5 SDK it does not: the container builds and all
+    /// of `StorageTests` passes.
     ///
-    /// If it does throw, the remedy in order: delete the attribute here — a
-    /// plain `String` column is correct and search keeps working — and only if
-    /// library-fetch memory then proves to be a problem, move to `Data` plus a
-    /// computed accessor and pay for the two-stage search knowingly.
+    /// The second half of the question is the one that could have failed
+    /// quietly rather than loudly — whether a value big enough to really be
+    /// spilled out of the row is still reachable from the `#Predicate` in
+    /// `LibraryFetch`, or whether search stops working for exactly the long
+    /// documents it matters most for. It is reachable;
+    /// `testSearchReachesTextLongEnoughToBeStoredOutsideTheRow` holds half a
+    /// megabyte of text and finds a phrase at the end of it.
+    ///
+    /// Keep both facts together if this is ever revisited. The remedy, if a
+    /// later SDK does throw: delete the attribute — a plain `String` column is
+    /// correct and search keeps working — and only if library-fetch memory then
+    /// proves to be a problem, move to `Data` plus a computed accessor, which
+    /// takes the column out of the predicate and turns the one-round-trip search
+    /// docs/02-spec.md § S1 asks for into a two-stage in-memory filter. That is
+    /// not a trade to make blind.
     @Attribute(.externalStorage) var extractedText: String
 
     /// `SourceFormat.rawValue`.

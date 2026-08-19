@@ -55,13 +55,21 @@ xcodebuild build \
 
 # Only worth attempting once something compiled; a failed build makes this noise.
 if [ "$fail" -eq 0 ]; then
-  SIM=$(xcrun simctl list devices available 2>/dev/null \
-        | grep -oE 'iPad[^(]*' | head -1 | sed 's/ *$//')
-  if [ -n "$SIM" ]; then
+  # Matched by UDID, not by name. Every iPad name now carries a parenthesised
+  # chip — "iPad Pro 13-inch (M5)" — and the obvious way to read the name off
+  # this listing stops at the first bracket, producing a name no destination
+  # matches. The UDID has no such problem; the name is only for the message.
+  SIM_LINE=$(xcrun simctl list devices available 2>/dev/null | grep -E '^ +iPad' | head -1)
+  SIM_ID=$(printf '%s' "$SIM_LINE" \
+           | grep -oE '[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}' | head -1)
+  SIM=$(printf '%s' "$SIM_LINE" | sed -E 's/^ +//; s/ \([0-9A-Fa-f-]{36}\).*$//')
+  if [ -n "$SIM_ID" ]; then
     say "4/4  Running the tests on $SIM"
+    # Not the `PencilLoopKit` scheme: that one builds the library product and
+    # has no test action. `-Package` is the one SwiftPM gives the tests to.
     ( cd PencilLoopKit && xcodebuild test \
-        -scheme PencilLoopKit \
-        -destination "platform=iOS Simulator,name=$SIM" \
+        -scheme PencilLoopKit-Package \
+        -destination "platform=iOS Simulator,id=$SIM_ID" \
         CODE_SIGNING_ALLOWED=NO ) >>"$LOG" 2>&1 \
       && echo "  ok" || { echo "  test failures - see $LOG"; fail=1; }
   else

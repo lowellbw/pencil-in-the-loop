@@ -54,7 +54,7 @@ The job runs these, in this order, and stops at the first failure:
 | `swift package resolve` | The manifest is malformed, or swift-markdown will not resolve. Nothing else has been attempted. |
 | `xcodebuild -scheme PencilLoopKit -destination generic/platform=iOS` | A real iOS compile error in the package. |
 | `xcodebuild -project PencilLoop.xcodeproj -scheme PencilLoop` | The package is fine; the problem is in the app shell, the plists or the project file. |
-| `xcodebuild test -scheme PencilLoopKit -destination "platform=iOS Simulator,…"` | Everything compiles and a test fails — or the runner has no simulator by that name, which is the one line of that step worth checking first. |
+| `xcodebuild test -scheme PencilLoopKit-Package -destination "platform=iOS Simulator,…"` | Everything compiles and a test fails — or the runner has no simulator by that name, which is the one line of that step worth checking first. |
 
 There used to be a host `swift build` step in front of those, and it is gone: it compiled
 the package for macOS, which was the fastest possible signal while the package was pure
@@ -65,10 +65,10 @@ host, and `AnnotateTests` and `AppUITests` link PencilKit and UIKit.
 Only once CI is green — or once you have read its whole error list — is it worth opening
 Xcode.
 
-One thing to bring back from that first green run: `PencilLoopKit/Package.resolved`. It
-cannot be generated on a machine with no network and no Swift, so it is not in the repo
-yet. Run `swift package resolve` locally once and commit the result — until then the
-dependency graph is re-resolved, and can silently move, on every machine.
+`PencilLoopKit/Package.resolved` is committed as of the first green run: swift-markdown
+0.8.0 and swift-cmark 0.8.0. Before that it could not exist — it cannot be generated on a
+machine with no network and no Swift — and the dependency graph was re-resolved, and could
+silently move, on every machine.
 
 ---
 
@@ -120,13 +120,13 @@ Roughly in the order you are likely to hit them.
 
 | Symptom | Why | Remedy |
 |---|---|---|
-| Manifest fails to parse: `extra argument 'defaultIsolation'` or `type 'SwiftSetting' has no member 'defaultIsolation'` | `.defaultIsolation(MainActor.self)` needs a Swift 6.2 or newer toolchain. The manifest declares tools version 6.0. | Delete that one line from the `AppUI` target's `swiftSettings` in `PencilLoopKit/Package.swift`, and write `@MainActor` on the view types instead. |
-| Manifest fails to parse: `type 'SupportedPlatform.IOSVersion' has no member 'v26'` | The platform enum only knows the versions its own SwiftPM shipped with. | Change `.iOS(.v26)` to the string form `.iOS("26.0")`, which every SwiftPM accepts. |
+| Manifest fails to parse: `extra argument 'defaultIsolation'` or `type 'SwiftSetting' has no member 'defaultIsolation'` | **Hit, and fixed.** `.defaultIsolation(MainActor.self)` is a PackageDescription 6.2 feature and the manifest declared tools version 6.0. | The manifest now says `6.2`, which is the version it always needed. Deleting the line and writing `@MainActor` on 64 view types is the remedy only on a pre-6.2 toolchain. |
+| Manifest fails to parse: `type 'SupportedPlatform.IOSVersion' has no member 'v26'` | **Hit, and fixed by the same change.** `.v26` is also PackageDescription 6.2. | Covered by the tools version bump above. On an older toolchain, `.iOS("26.0")` is the string form every SwiftPM accepts. |
 | `failed to resolve dependencies` / `no versions of swift-markdown match the requirement` | The floor is `from: "0.6.0"`. Upstream tags 0.1.0–0.8.0 were verified to exist, so this should resolve to 0.8.0. | Bump the one number in `PencilLoopKit/Package.swift`. `swift package resolve` prints the versions it did find. |
 | swift-markdown resolves but then fails to compile | 0.8.0's own manifest is tools version 6.2, and it pulls swift-cmark and swift-docc-plugin. | Nothing to fix on an Xcode 26 toolchain. On an older one, pin down: `.package(url: …, .upToNextMinor(from: "0.6.0"))`. |
 | A wall of `use of protocol 'Foo' as a type must be written 'any Foo'` | `SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY = YES` in `Config/Shared.xcconfig`. | The fixes are mechanical and worth doing. If it is burying you on day one, set it to `NO`, get to green, turn it back on, fix them properly. |
 | `cannot find 'PKStrokeRecognizer' in scope`, or `is only available in iPadOS 27.0 or newer` | The recogniser ships in iPadOS 27; the deployment floor here is 26.0 so the project builds on a 26 SDK. | Leave the `PENCILLOOP_STROKE_RECOGNIZER` define commented out in `Annotate`'s `swiftSettings`. Ink still works — strokes are captured, persisted and exported as cropped images; only the handwriting-to-text search path is off. Turn it on when you move the floor to 27.0 in `Config/Shared.xcconfig`, in the same commit. |
-| `SpeechAnalyzer` / `SpeechTranscriber` do not exist, or their initialisers do not match | The new Speech API moved between betas. | The transcriber sits behind a protocol precisely for this: point the factory in `Annotate` at the `SFSpeechRecognizer` implementation (`requiresOnDeviceRecognition = true`) and delete the `SpeechAnalyzer` file. Accuracy drops a little; nothing else in the app notices. |
+| `SpeechAnalyzer` / `SpeechTranscriber` do not exist, or their initialisers do not match | The new Speech API moved between betas. | **Did not happen** — `AnalyserSpeechEngine.swift` compiled unchanged against the iOS 26.5 SDK. The seam is still there if a later SDK moves it: define `PENCILLOOP_LEGACY_SPEECH`, delete that one file. |
 | `Source files for target Core should be located under Sources/Core` | `PencilLoopKit/Sources/Core/` is written by a different unit and may not have landed yet. | Confirm it is on the branch you are building. Every other module has a placeholder file for exactly this reason; `Core` deliberately does not, so its absence is loud. |
 | `Multiple commands produce .../Info.plist` | An `Info.plist` inside a file-system-synchronized folder got compiled in as a resource. | The project already excludes both plists and both entitlements files via `PBXFileSystemSynchronizedBuildFileExceptionSet`. If it reappears, uncheck target membership for the file in Xcode's file inspector, which writes the same exception back. |
 | `Signing for "PencilLoop" requires a development team` | §2a. | Fill in `Config/Signing.xcconfig`. |
@@ -138,27 +138,32 @@ Roughly in the order you are likely to hit them.
 ## 4 · Triage order
 
 **Separate the package from the app first.** Almost all of the code is in the package, and
-the package builds without a project file, without signing and without a simulator:
+the package builds without a project file and without signing:
 
 ```sh
-swift build --package-path PencilLoopKit
+cd PencilLoopKit && xcodebuild build -scheme PencilLoopKit -destination 'generic/platform=iOS'
 ```
 
 If that fails, the app target is irrelevant — ignore Xcode entirely until it passes.
 
-Then fix module by module, in dependency order. Each one only depends on the ones above
-it, so an error in `Core` is causing errors in all six below it, and fixing `Core` first
-will delete most of your error list:
+**Not `swift build`.** It builds for the host, and the manifest declares `.iOS` as its
+only platform — so every target compiles with no macOS floor at all and the first thing
+you see is a page of `'AsyncStream' is only available in macOS 10.15 or newer`, which is
+about nothing. That is the same reason CI dropped its host build step (§1); the advice to
+use `swift build` outlived the code that it worked on. `-destination 'generic/platform=iOS'`
+is the closest thing to a plain package compile that this package actually has.
+
+Fix module by module, in dependency order. Each one only depends on the ones above it, so
+an error in `Core` is causing errors in all six below it, and fixing `Core` first will
+delete most of your error list:
 
 ```
 Core → Storage → Sync → Ingest → Annotate → Export → AppUI
 ```
 
-To compile just one module and its dependencies:
-
-```sh
-swift build --package-path PencilLoopKit --target Storage
-```
+There is no per-target flag to reach for here, and none is needed: the build goes in that
+order and stops at the first module that fails, so the errors you are shown are already
+the topmost ones. Fix those, build again, and the next module's errors appear.
 
 Two structural invariants worth not breaking while you are in there:
 
