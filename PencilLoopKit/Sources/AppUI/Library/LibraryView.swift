@@ -30,6 +30,25 @@ public struct LibraryView<Detail: View>: View {
 
     @State private var model: LibraryModel
     @State private var selection: UUID?
+
+    /// Which columns are showing.
+    ///
+    /// Bound rather than left automatic so that opening a document can close
+    /// the library behind it: docs/01-design-principles.md § 4 asks for a page
+    /// that goes edge to edge, with no persistent sidebar over it. On an iPad
+    /// in landscape the automatic behaviour keeps both columns, which leaves
+    /// the reader in about two thirds of the screen with a list of other
+    /// documents beside it — the opposite of content-first.
+    ///
+    /// The sidebar is never more than a swipe or the toolbar button away, and
+    /// it comes back when the selection clears, so returning to an empty detail
+    /// shows the library rather than an empty column.
+    ///
+    /// `.all` rather than `.automatic`, and the difference is not cosmetic:
+    /// binding this property at all changes what `.automatic` means, and it
+    /// collapses the sidebar on launch — leaving a first run staring at "No
+    /// Document Selected" with the library hidden behind a button.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isChoosingFolder = false
     @State private var isShowingSettings = false
 
@@ -58,7 +77,7 @@ public struct LibraryView<Detail: View>: View {
     }
 
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
         } detail: {
             if let summary = model.summary(id: selection) {
@@ -68,6 +87,12 @@ public struct LibraryView<Detail: View>: View {
                     .font(.body)
                     .foregroundStyle(.secondary)
             }
+        }
+        .onChange(of: selection) { _, chosen in
+            // Opening a document gives it the whole screen; closing one brings
+            // the library back rather than leaving an empty column beside an
+            // empty detail.
+            columnVisibility = chosen == nil ? .all : .detailOnly
         }
     }
 

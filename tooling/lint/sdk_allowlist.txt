@@ -109,7 +109,7 @@ HStack
 Image
 Label LabelStyle Layout LazyVStack LazyHStack List
 Material Menu
-Namespace NavigationLink NavigationSplitView NavigationStack
+Namespace NavigationLink NavigationSplitView NavigationStack NavigationSplitViewVisibility
 Observable ObservableObject
 Path Picker PresentationDetent PreviewProvider ProgressView
 Rectangle RoundedRectangle
