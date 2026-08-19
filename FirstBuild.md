@@ -112,6 +112,55 @@ One thing that command does *not* catch, because it is a prefix rather than the 
 `tooling/xcodegen/project.yml` has `bundleIdPrefix: com.example`. Change it by hand if you
 ever intend to use the XcodeGen fallback (§5).
 
+### c · Four things between a green build and a running app
+
+None of these are code, none produce a useful error the first time, and all four were hit
+in order on the first real device run. They are listed in the order they bite.
+
+**Developer Mode, on the iPad.** Settings ▸ Privacy & Security ▸ Developer Mode, then a
+restart and a confirmation after it comes back. Until then the device appears in
+`xcrun devicectl list devices` as `connected (no DDI)` and every build fails with
+`Timed out waiting for all destinations` — which reads like a hang and is not one. The
+menu item only appears after a Mac has *tried* to run a development build, so the first
+failure is what creates the setting you need.
+
+**The Program License Agreement.** If it has been updated since you last signed in,
+everything that touches your account is refused and the real error is one line —
+`Unable to process request - PLA Update available` — buried above nine consequences of it
+about missing capabilities and unregistered devices. Accept it at
+developer.apple.com/account and none of the other nine need any action.
+
+**Registering the device.** `-allowProvisioningUpdates` creates app ids, adds the App
+Groups capability and creates the group, but it will **not** register a new device, so the
+error list shrinks and then stops shrinking on `Device "…" isn't registered in your
+developer account`. The second flag is the whole fix, and it is easy to miss because the
+first one is the famous one:
+
+```sh
+xcodebuild build \
+  -project PencilLoop.xcodeproj -scheme PencilLoop \
+  -destination "id=$UDID" \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration
+```
+
+Registering a device spends one of the hundred slots your membership gets each year, and
+the list can only be reset at renewal. Xcode's UI does the same thing when you press Run.
+
+**A locked screen.** `devicectl … process launch` fails with `RequestDenied` / `Locked`
+against a locked iPad. It is exactly what it says; it is only confusing because it arrives
+after four failures that were not.
+
+The whole sequence, once all four are done:
+
+```sh
+UDID=$(xcrun xctrace list devices | sed -nE 's/^(.*iPad.*) \(([0-9]{8}-[0-9A-F]{16})\)$/\2/p' | head -1)
+xcodebuild build -project PencilLoop.xcodeproj -scheme PencilLoop \
+  -destination "id=$UDID" -allowProvisioningUpdates -allowProvisioningDeviceRegistration
+xcrun devicectl device install app --device "$UDID" \
+  ~/Library/Developer/Xcode/DerivedData/PencilLoop-*/Build/Products/Debug-iphoneos/PencilLoop.app
+xcrun devicectl device process launch --device "$UDID" com.yourname.pencilloop
+```
+
 ---
 
 ## 3 · Expected errors, and the one-line remedy for each
