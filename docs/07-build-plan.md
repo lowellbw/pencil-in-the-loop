@@ -77,6 +77,21 @@ The watcher's poke path is built against a command that has not been confirmed t
 needs none of it, so M6 is not blocked — but do not ship `poke` as a sender default until
 that command is real.
 
+## M7 · Notes — making a document, not just receiving one
+
+- `BlankPaperRenderer` in `Ingest`: plain, lined or grid A4 at `PageGeometry.notebook`,
+  ruled *into* the page so ink cannot drift against the lines
+- `NoteCreator` beside `DocumentIngestor`: stage into a temporary directory, then run the
+  ordinary ingest path. Deliberately **not** through the sync folder — a note has to be
+  creatable offline with no folder adopted, and a private notebook is not correspondence
+- `OriginKind.note`, and `note.json` recording the ruling so appended pages match
+- A **New** menu in the library, and **Add Pages** in the reader for notebooks only
+- A typed route through `MarkdownPDFRenderer`, so a written note gets a source map and
+  real quoted anchors
+
+Built after M6 rather than in sequence, because it needed nothing that was not already
+there. `11-backlog.md` § B1 has the reasoning and what was deliberately left out.
+
 ## Definition of done for v1
 
 - [ ] Fully usable with the network off, from launch to a written review bundle

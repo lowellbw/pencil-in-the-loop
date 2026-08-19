@@ -20,7 +20,19 @@ No account, no login, no onboarding carousel. Second run goes straight to the li
 
 Behaviours: search across document text *and* recognised handwriting; sort by date added
 or title; swipe to archive; pull to force a folder re-scan. Tapping a row opens the reader
-in the detail column.
+in the detail column, and the sidebar collapses so the document has the screen.
+
+A **New** menu in the toolbar makes a document rather than waiting for one
+(`11-backlog.md` § B1): a blank notebook — plain, lined or grid paper, eight pages to
+start — or a document typed as markdown and rendered by the same path as anything sent.
+Both arrive as ordinary documents with `origin.kind = "note"`, so everything downstream
+treats them as it treats any other. Creating one selects it, which opens the reader on
+page one. The empty state offers a notebook too: with an empty library and no network it
+is the only useful thing there is to do.
+
+Neither can be edited afterwards. Re-rendering would re-paginate and strand every stroke
+already on the page — see `00-brief.md`, which scopes this as a review tool rather than an
+editor.
 
 Pull-to-refresh is not a courtesy control. File coordination does not reliably see every
 change a provider makes in the background, so the sync layer polls and treats every

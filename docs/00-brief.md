@@ -76,7 +76,11 @@ squeeze system-wide. Long-press is always the primary gesture.
 
 ## Explicitly out of scope for v1
 
-- Editing document text. This is a review tool, not an editor.
+- Editing document text. This is a review tool, not an editor. Starting a blank
+  notebook or typing a new one (`11-backlog.md` § B1) is not editing and is in scope;
+  changing the words of a document that already exists is not, including one written
+  here. Re-rendering re-paginates, and every stroke already on the page would be left
+  a line or two from where it was written.
 - Real-time collaboration or multi-user anything.
 - An account. There are no users to have one; the relay is reached with a shared token.
 - Windows/Android/web. iPad only.

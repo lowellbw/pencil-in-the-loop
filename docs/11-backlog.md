@@ -16,25 +16,43 @@ assumes every mark sits on top of a document somebody else wrote. That covers
 review, and it misses the case where reading produces thinking that needs
 somewhere to go.
 
-### B1 · Notes — blank paper, in the app
+### B1 · Notes — blank paper, in the app — **shipped**
 
-Start a note without a document. Lined or plain paper, Pencil, nothing else.
+Start a note without a document. Plain, lined or grid paper, Pencil, nothing
+else. Kept here rather than deleted, because the reasoning is what the
+implementation is built on and the open question below has an answer now.
 
-This is not a feature so much as a removal of an assumption: the app already has
-the whole ink stack — per-page canvases, `.pencilOnly`, autosave, handwriting
-recognition, page tints. A note is that stack with a generated blank page
-instead of a rendered one.
+This was not a feature so much as a removal of an assumption: the app already
+had the whole ink stack — per-page canvases, `.pencilOnly`, autosave,
+handwriting recognition, page tints. A note is that stack with a generated
+blank page instead of a rendered one.
 
-- **Cost:** low. A blank-page generator in `Ingest` (the renderer already emits
-  A4 at fixed geometry), a `DocState`/`OriginKind` for locally-authored, and a
-  "New note" affordance in the library. The reader, ink layer and search work
-  unchanged.
+- **Cost:** low, as estimated. `BlankPaperRenderer` in `Ingest`, `NoteCreator`
+  beside `DocumentIngestor`, `OriginKind.note`, and a New menu in the library.
+  The reader, ink layer, search and export needed no changes at all.
 - **Paper styles:** plain, lined, grid. Rendered *into* the page, so ink can
-  never drift relative to the rule lines, exactly as with document text.
-- **Open question:** does a note get sent to Claude the same way a review does?
-  A note with no origin has no thread to return to, so it would use the
-  share-sheet path. That may be the honest answer, or it may argue for letting
-  a note be *addressed* to a session at creation time.
+  never drift relative to the rule lines, exactly as with document text. Ruled
+  at 28pt and gridded at 5mm — a handwriting measure, not the 11pt text
+  leading.
+- **Also shipped, beyond the original write-up:** a typed route. Markdown
+  written in the app goes through `MarkdownPDFRenderer`, so it arrives with a
+  source map and real quoted anchors rather than the rect-only ones blank paper
+  falls back to. And `PageGeometry.notebook` — `annotationFriendly`'s 140pt
+  marginalia gutter exists so handwriting can go beside somebody else's text;
+  on a blank page the handwriting *is* the text.
+- **Deliberately not shipped:** editing a note after it is made. Re-rendering
+  re-paginates, and `DocumentStore.apply` keeps the marks when the source is
+  regenerated, so every stroke would be stranded a line or two from where it
+  was written. `docs/00-brief.md` already says this is a review tool and not an
+  editor; authoring a new document is not editing an existing one, and the line
+  holds either way.
+- **Open question, answered:** a note is sent exactly as a review is. It has no
+  `returnPath`, so the bundle lands in the relay's `outbox/` and the agent
+  collects it with `list_reviews()` — which `docs/12-relay.md` § 4 had already
+  made the return path over HTTP. No share-sheet special case was needed, and
+  `ReviewSheetModel.canSend` already accepted a bundle carrying only ink.
+  Whether a note should be *addressed* to a session at creation is still open,
+  and is now the only part of this entry that is.
 
 ### B2 · A note attached to a document
 
