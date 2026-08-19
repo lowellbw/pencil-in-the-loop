@@ -407,6 +407,84 @@ class ReviewTests(RelayApiTestCase):
             self.assertIn(response.status_code, (400, 404), path)
 
 
+@unittest.skipIf(TestClient is None, "starlette is not installed")
+class McpMountTests(unittest.TestCase):
+    """The MCP endpoint's auth.
+
+    This is a regression test for a real hole: the guard originally only
+    covered `/v1/`, so mounting the MCP app left every tool callable by
+    anyone who knew the URL. A stub ASGI app stands in for the SDK, because
+    what is being tested is the guard, not the protocol.
+    """
+
+    def setUp(self) -> None:
+        from starlette.responses import PlainTextResponse
+        from pencil_in_the_loop_mcp.relay.app import create_app
+
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.index = Index(self.root / "index.sqlite3")
+        self.addCleanup(self.index.close)
+
+        async def stub(scope, receive, send):
+            await PlainTextResponse("mcp reached")(scope, receive, send)
+
+        self.client = TestClient(
+            create_app(
+                sync_root=self.root,
+                index=self.index,
+                device_token=TOKEN,
+                mcp_app=stub,
+                mcp_token="mcp-secret",
+            )
+        )
+
+    def test_the_endpoint_is_not_open_to_anyone_who_knows_the_url(self) -> None:
+        self.assertEqual(self.client.get("/mcp/").status_code, 401)
+        self.assertEqual(
+            self.client.get(
+                "/mcp/", headers={"Authorization": "Bearer wrong"}
+            ).status_code,
+            401,
+        )
+
+    def test_the_device_token_does_not_open_the_mcp_endpoint(self) -> None:
+        """Two secrets, so revoking one does not revoke the other."""
+        response = self.client.get(
+            "/mcp/", headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_the_mcp_token_in_a_header_is_accepted(self) -> None:
+        response = self.client.get(
+            "/mcp/", headers={"Authorization": "Bearer mcp-secret"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("mcp reached", response.text)
+
+    def test_the_capability_url_authenticates_by_being_known(self) -> None:
+        response = self.client.get("/mcp/mcp-secret/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_a_wrong_capability_url_is_refused(self) -> None:
+        response = self.client.get("/mcp/not-the-secret/")
+        self.assertEqual(response.status_code, 401)
+
+    def test_the_bare_capability_url_redirects_rather_than_404s(self) -> None:
+        """It is the URL a person is handed, so pasting it exactly must work."""
+        response = self.client.get("/mcp/mcp-secret", follow_redirects=False)
+        self.assertEqual(response.status_code, 307)
+        self.assertTrue(response.headers["location"].endswith("/mcp/mcp-secret/"))
+
+    def test_no_mcp_endpoint_exists_when_no_token_is_configured(self) -> None:
+        from pencil_in_the_loop_mcp.relay.app import create_app
+
+        client = TestClient(
+            create_app(sync_root=self.root, index=self.index, device_token=TOKEN)
+        )
+        self.assertEqual(client.get("/mcp/").status_code, 404)
+
+
 class OpsTests(RelayApiTestCase):
     def test_export_returns_a_tarball_of_the_sync_root(self) -> None:
         import io

@@ -288,15 +288,46 @@ def streamable_http_app(sync_root: Path | None = None) -> Any:
     try:
         from mcp.server.transport_security import TransportSecuritySettings
 
-        # The relay is reached at whatever hostname the platform gives it, so
-        # the SDK's DNS-rebinding guard would refuse every request. Auth is the
-        # bearer token, and the transport is TLS the platform terminates.
-        kwargs["transport_security"] = TransportSecuritySettings(
-            allowed_hosts=["*"], allowed_origins=["*"]
-        )
+        kwargs["transport_security"] = _transport_security(TransportSecuritySettings)
     except ImportError:  # pragma: no cover - depends on the SDK version
         pass
     return server.streamable_http_app(**kwargs)
+
+
+def _transport_security(settings_type: Any) -> Any:
+    """DNS-rebinding protection, configured for wherever this is deployed.
+
+    The SDK validates the Host header by default, which is right for a server
+    on a laptop and wrong for one behind a platform router that sets Host to
+    whatever domain it assigned. So: allow-list the real hostname when the
+    platform tells us it — `PENCIL_ALLOWED_HOSTS`, or Railway's own variable —
+    and otherwise turn the check off with the reason stated rather than leave
+    every request failing with "Invalid Host header".
+
+    Turning it off is defensible here specifically. DNS rebinding is an attack
+    on a server that trusts the network position of its caller; this one trusts
+    nothing but a bearer token, which is not a cookie and carries no ambient
+    authority, so a browser tricked into calling the relay still cannot
+    authenticate.
+    """
+    hosts = [
+        host.strip()
+        for host in os.environ.get("PENCIL_ALLOWED_HOSTS", "").split(",")
+        if host.strip()
+    ]
+    platform_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    if platform_domain:
+        hosts.append(platform_domain)
+
+    if not hosts:
+        return settings_type(enable_dns_rebinding_protection=False)
+
+    hosts += ["localhost", "127.0.0.1"]
+    return settings_type(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=hosts,
+        allowed_origins=[f"https://{host}" for host in hosts],
+    )
 
 
 def main() -> None:

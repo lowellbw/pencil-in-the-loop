@@ -26,6 +26,7 @@ import hmac
 import io
 import json
 import tarfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -34,7 +35,13 @@ from starlette.datastructures import Headers
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from starlette.routing import Mount, Route
 
 from .. import core
@@ -624,15 +631,31 @@ def create_app(
         ),
     ]
 
+    capability_prefix = f"/mcp/{mcp_token}" if (mcp_app and mcp_token) else None
+
     if mcp_app is not None:
-        if mcp_token:
+        if capability_prefix:
             # Claude Desktop's custom-connector UI takes a URL, not a static
             # header, so the secret has to live in the path there. Weaker than a
             # header — it lands in the connector config and in any access log
-            # that records paths — and accepted deliberately for one person's
-            # tool rather than building an OAuth provider to avoid it. The
-            # longer path is mounted first so it wins the match.
-            routes.append(Mount(f"/mcp/{mcp_token}", app=mcp_app))
+            # that records paths, which is why uvicorn's access log is off — and
+            # accepted deliberately for one person's tool rather than building
+            # an OAuth provider to avoid it.
+            #
+            # A Mount only matches when something follows its prefix, so the
+            # bare URL needs a redirect of its own. Without it, pasting the URL
+            # exactly as given would 404 — and that is the URL a person is
+            # handed.
+            routes.append(
+                Route(
+                    capability_prefix,
+                    lambda request: RedirectResponse(
+                        f"{capability_prefix}/", status_code=307
+                    ),
+                    methods=["GET", "POST", "DELETE"],
+                )
+            )
+            routes.append(Mount(capability_prefix, app=mcp_app))
         routes.append(Mount("/mcp", app=mcp_app))
 
     async def guard(
@@ -644,16 +667,44 @@ def create_app(
         that touch the filesystem are plain `def` functions running in a
         threadpool, and a sync function cannot await a request body.
         """
+        path = request.url.path
         try:
-            if request.url.path.startswith("/v1/"):
+            if path.startswith("/v1/"):
                 _require_token(request, device_token)
                 if request.method == "POST":
                     request.state.body = await _json_body(request)
+            elif path.startswith("/mcp"):
+                # The capability URL carries the secret in the path, so a
+                # request that already matched it is authenticated by having
+                # found it. Every other /mcp request must present the token as
+                # a header — Claude Code can, and the endpoint would otherwise
+                # be wide open, which is a much worse failure than an awkward
+                # URL.
+                if not (capability_prefix and path.startswith(capability_prefix)):
+                    if not mcp_token:
+                        raise ApiError(404, "not_found", "No MCP endpoint here.")
+                    _require_token(request, mcp_token)
             return await call_next(request)
         except ApiError as error:
             return error.response()
 
+    @asynccontextmanager
+    async def lifespan(_: Starlette):
+        """Run the mounted MCP app's lifespan alongside ours.
+
+        Starlette does not propagate lifespan into a mounted sub-app, and the
+        MCP streamable-HTTP transport starts its session task group there — so
+        without this every MCP request fails with "Task group is not
+        initialized", at runtime, on a route that looks correctly wired.
+        """
+        if mcp_app is None:
+            yield
+            return
+        async with mcp_app.router.lifespan_context(mcp_app):
+            yield
+
     app = Starlette(
+        lifespan=lifespan,
         routes=routes,
         middleware=[Middleware(BaseHTTPMiddleware, dispatch=guard)],
         # An ApiError raised inside an endpoint is shaped here; the middleware
