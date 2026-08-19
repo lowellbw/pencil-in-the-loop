@@ -34,6 +34,15 @@ public struct ReviewSheet: View {
     /// Holding is not a gesture VoiceOver passes through, so the dictation
     /// control becomes a button when it is on (`CommentHintRow` does the same).
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
+    /// When the Pencil was last seen hovering over the closing instruction.
+    ///
+    /// A timestamp rather than a bool because a squeeze is not instantaneous:
+    /// the hand tightens, the Pencil can drift out of the 12mm hover range, and
+    /// refusing then would make the gesture feel unreliable rather than
+    /// scoped. `ReviewSheet.hoverFreshness` is the grace period, and it is
+    /// `CommentGestureTuning`'s number for the same reason.
+    @State private var lastInstructionHoverAt: Date?
     private let onOpenReply: (UUID) -> Void
 
     /// - Parameters:
@@ -121,8 +130,10 @@ public struct ReviewSheet: View {
                     .lineLimit(3...10)
                     .accessibilityLabel("Closing instruction")
                     .accessibilityHint("One free-text field. Turns a pile of notes into a request.")
+                    .onContinuousHover { phase in self.noteHover(phase) }
 
                 instructionDictationRow
+                    .onContinuousHover { phase in self.noteHover(phase) }
             } header: {
                 Text("Closing instruction")
             } footer: {
@@ -130,6 +141,15 @@ public struct ReviewSheet: View {
             }
         }
         .listStyle(.insetGrouped)
+        .background {
+            // Squeeze is device-level: it arrives wherever the Pencil is, so
+            // the reporter can live anywhere in the sheet and the *hover* is
+            // what decides whether this sheet should act on it.
+            PencilSqueezeReporter(
+                onBegan: { self.squeezeBegan() },
+                onEnded: { self.model.endInstructionDictation(environment: self.environment) }
+            )
+        }
         .safeAreaInset(edge: .bottom) {
             ReviewSendBar(
                 path: model.returnPath,
@@ -273,7 +293,7 @@ public struct ReviewSheet: View {
             }
         } else {
             Label {
-                Text(model.isDictatingInstruction ? "Listening\u{2026}" : "**Hold** to talk")
+                Text(model.isDictatingInstruction ? "Listening\u{2026}" : "**Hold** or squeeze to talk")
                     .foregroundStyle(model.isDictatingInstruction ? .primary : .secondary)
             } icon: {
                 Image(systemName: model.isDictatingInstruction ? "mic.fill" : "mic")
@@ -293,6 +313,46 @@ public struct ReviewSheet: View {
             )
             .accessibilityLabel("Hold to dictate the closing instruction")
         }
+    }
+
+    /// How stale the last hover may be and still count as "over the section".
+    ///
+    /// `CommentGestureTuning`'s value, and the same reasoning: a Pencil resting
+    /// in a case reports no hover, and one lifted a second ago is still being
+    /// aimed at what it was over.
+    private static let hoverFreshness: TimeInterval = 1.5
+
+    private func noteHover(_ phase: HoverPhase) {
+        switch phase {
+        case .active:
+            lastInstructionHoverAt = Date()
+        case .ended:
+            lastInstructionHoverAt = nil
+        }
+    }
+
+    /// Squeeze to talk, but only over the closing instruction.
+    ///
+    /// Scoped rather than global on purpose. The reader is still behind this
+    /// sheet with its own squeeze handler attached, and a gesture that means
+    /// two things at once means neither; requiring the Pencil to be over the
+    /// field makes the intent unambiguous to the user as well as to the code.
+    private func squeezeBegan() {
+        guard ReviewSheet.shouldDictate(lastHoverAt: lastInstructionHoverAt, now: Date()) else { return }
+        CommentHaptics.squeezeRecognised()
+        model.beginInstructionDictation(environment: environment)
+    }
+
+    /// Whether a squeeze arriving now was aimed at the closing instruction.
+    ///
+    /// Static and pure so it can be tested: a squeeze cannot be simulated, but
+    /// the rule deciding what one means is the part that can be wrong, and it
+    /// is wrong in two opposite directions. Too strict and the gesture feels
+    /// broken; too loose and squeezing for something else starts recording.
+    static func shouldDictate(lastHoverAt: Date?, now: Date) -> Bool {
+        guard let lastHoverAt else { return false }
+        let age = now.timeIntervalSince(lastHoverAt)
+        return age >= 0 && age <= ReviewSheet.hoverFreshness
     }
 
     private var instructionBinding: Binding<String> {

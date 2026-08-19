@@ -105,7 +105,7 @@ Divider
 Edge EdgeInsets Environment EnvironmentKey EnvironmentValues EnvironmentObject
 Font ForEach Form
 GeometryReader Gradient Grid Group
-HStack
+HoverPhase HStack
 Image
 Label LabelStyle Layout LazyVStack LazyHStack List
 Material Menu
