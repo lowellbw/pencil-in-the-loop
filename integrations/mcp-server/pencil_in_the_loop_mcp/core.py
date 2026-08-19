@@ -518,6 +518,12 @@ def _read_json_file(path: Path) -> Any:
         return None
 
 
+# Public aliases, for the relay. Same reasoning as write_file/fsync_dir above:
+# the underscore names stay because this module calls them by module global.
+read_text_file = _read_text
+read_json_file = _read_json_file
+
+
 def _title_from_review_md(text: str | None) -> str | None:
     if not text:
         return None
