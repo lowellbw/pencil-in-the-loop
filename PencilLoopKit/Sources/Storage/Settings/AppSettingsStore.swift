@@ -202,10 +202,41 @@ public actor AppSettingsStore: SettingsStoring {
             return .initial
         }
         do {
-            return try JSONDecoder().decode(AppSettings.self, from: data)
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+            return resettingInkIfStale(decoded, suiteName: suiteName)
         } catch {
             log.error("Settings could not be decoded; falling back to defaults.")
             return .initial
         }
+    }
+
+    /// Brings an install whose saved ink predates the current shipped defaults
+    /// back to them, once.
+    ///
+    /// The tool picker writes every change the user makes straight back into
+    /// `AppSettings.ink`, so changing the shipped default reaches nobody who has
+    /// ever touched the picker — which, after a few minutes with the app, is
+    /// everybody. This is the one-shot that does reach them.
+    ///
+    /// **Once, and then never again.** The stamp is written back immediately
+    /// rather than left for the next unrelated write, so a deliberate choice
+    /// made after the reset is not undone on the following launch. A failed
+    /// write is deliberately not fatal: the value in memory is still the reset
+    /// one, so this launch behaves correctly and the next one tries again.
+    private static func resettingInkIfStale(
+        _ settings: AppSettings,
+        suiteName: String?
+    ) -> AppSettings {
+        guard settings.inkDefaultsGeneration != InkDefaults.generation else { return settings }
+        var reset = settings
+        reset.ink = .standard
+        reset.inkDefaultsGeneration = InkDefaults.generation
+        do {
+            let data = try JSONEncoder().encode(reset)
+            defaults(suiteName: suiteName).set(data, forKey: defaultsKey)
+        } catch {
+            log.error("Ink defaults were reset in memory but the stamp could not be written.")
+        }
+        return reset
     }
 }

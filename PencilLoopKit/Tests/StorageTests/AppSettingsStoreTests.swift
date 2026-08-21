@@ -151,8 +151,17 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertNil(settings.serverBaseURL)
 
         XCTAssertEqual(settings.pageTint, .sepia)
-        XCTAssertEqual(settings.ink.tool, .marker)
         XCTAssertFalse(settings.sendInkedPagesAsImages)
+
+        // Ink is the one field an upgrade deliberately *does* change, and this
+        // blob is precisely the case: no `inkDefaultsGeneration`, so the
+        // one-shot in `AppSettingsStore.resettingInkIfStale` brings it back to
+        // the shipped defaults. It used to assert the marker survived, which
+        // was only ever incidental evidence that the field decoded at all —
+        // and the assertions above carry that load. `AppSettingsInkResetTests`
+        // owns the reset's own behaviour.
+        XCTAssertEqual(settings.ink, .standard)
+        XCTAssertEqual(settings.inkDefaultsGeneration, InkDefaults.generation)
     }
 
     func testABlobMissingAlmostEveryKeyFallsBackFieldByField() async {

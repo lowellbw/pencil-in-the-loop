@@ -37,6 +37,16 @@ public struct AppSettings: Codable, Sendable, Hashable {
     /// Set once S0 completes. Guards the whole first-run path.
     public var hasCompletedFirstRun: Bool
 
+    /// Which generation of shipped ink defaults this blob has seen, or nil in
+    /// one written before the stamp existed.
+    ///
+    /// Optional for the same reason `syncTransport` is, and read the same way:
+    /// nil means "older than this field", not "unset by choice". Anything other
+    /// than `InkDefaults.generation` means the shipped defaults have moved on
+    /// since this blob was written, and `AppSettingsStore` resets `ink` once and
+    /// stamps it.
+    public var inkDefaultsGeneration: Int?
+
     // MARK: - The server transport
     //
     // Three Optionals, and they are Optional for a reason that is written out
@@ -72,6 +82,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         transcriptionLocaleIdentifier: String = AppSettings.defaultTranscriptionLocaleIdentifier,
         sendInkedPagesAsImages: Bool = true,
         hasCompletedFirstRun: Bool = false,
+        inkDefaultsGeneration: Int? = InkDefaults.generation,
         syncTransport: SyncTransport? = nil,
         serverBaseURLString: String? = nil,
         serverDisplayName: String? = nil
@@ -83,6 +94,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         self.transcriptionLocaleIdentifier = transcriptionLocaleIdentifier
         self.sendInkedPagesAsImages = sendInkedPagesAsImages
         self.hasCompletedFirstRun = hasCompletedFirstRun
+        self.inkDefaultsGeneration = inkDefaultsGeneration
         self.syncTransport = syncTransport
         self.serverBaseURLString = serverBaseURLString
         self.serverDisplayName = serverDisplayName
@@ -134,6 +146,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         case transcriptionLocaleIdentifier
         case sendInkedPagesAsImages
         case hasCompletedFirstRun
+        case inkDefaultsGeneration
         case syncTransport
         case serverBaseURLString
         case serverDisplayName
@@ -177,6 +190,10 @@ public struct AppSettings: Codable, Sendable, Hashable {
                 Bool.self,
                 forKey: .hasCompletedFirstRun
             ) ?? false,
+            // Genuinely nil for a blob written before the stamp existed, and
+            // that is the signal the reset reads — so no `?? generation`
+            // default here, which would erase exactly the case it detects.
+            inkDefaultsGeneration: try container.decodeIfPresent(Int.self, forKey: .inkDefaultsGeneration),
             syncTransport: try container.decodeIfPresent(SyncTransport.self, forKey: .syncTransport),
             serverBaseURLString: try container.decodeIfPresent(String.self, forKey: .serverBaseURLString),
             serverDisplayName: try container.decodeIfPresent(String.self, forKey: .serverDisplayName)
@@ -257,7 +274,28 @@ public struct InkDefaults: Codable, Sendable, Hashable {
     /// § 2).
     public var tintHex: String
 
-    public init(tool: InkToolKind = .pen, widthPoints: Double = 3, tintHex: String = "#1C1C1E") {
+    /// The finest stroke the app offers, and what a document opens on.
+    ///
+    /// Matches `InkToolFactory.minimumWidthPoints`, which is where the number
+    /// is enforced; it is repeated here because Core does not import PencilKit
+    /// and cannot read it. If that constant moves, this follows it.
+    /// PencilKit clamps to its own floor per ink type regardless, so asking for
+    /// the finest is always safe.
+    public static let finestWidthPoints: Double = 1
+
+    /// Bumped whenever the shipped defaults change in a way that should reach
+    /// installs that already have a saved value.
+    ///
+    /// A stored blob whose `AppSettings.inkDefaultsGeneration` is not this gets
+    /// its ink reset once, in `AppSettingsStore.load(suiteName:)`, and is then
+    /// left alone — so a deliberate choice made after the reset still sticks.
+    public static let generation = 1
+
+    public init(
+        tool: InkToolKind = .pen,
+        widthPoints: Double = InkDefaults.finestWidthPoints,
+        tintHex: String = "#1C1C1E"
+    ) {
         self.tool = tool
         self.widthPoints = widthPoints
         self.tintHex = tintHex
