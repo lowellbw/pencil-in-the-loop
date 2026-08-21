@@ -41,24 +41,31 @@ public enum CommentGestureTrigger: Sendable, Hashable {
     /// a second touch landed. Treated as a cancellation, never as a save.
     case holdCancelled
 
-    /// A Pencil Pro squeeze began, anchored at the hover point when hovering.
-    /// A secondary trigger and never the only way in
+    /// A Pencil Pro squeeze was completed, anchored at the hover point when
+    /// hovering. A secondary trigger and never the only way in
     /// (docs/01-design-principles.md rule 5).
-    case squeezeBegan(point: CGPoint)
-
-    /// The squeeze was released. Same meaning as `holdEnded`.
-    case squeezeEnded
-
-    /// The squeeze was interrupted. Same meaning as `holdCancelled`.
-    case squeezeCancelled
+    ///
+    /// **One case, not three.** A squeeze used to arrive as began/ended/
+    /// cancelled so it could be held like a long press, and a recording begun
+    /// that way ended on its own a few seconds in with the squeeze still held.
+    /// The system recognises a squeeze rather than relaying a sensor — SwiftUI's
+    /// mirror of the API offers `active`, `ended` and `failed`, where `failed`
+    /// is a squeeze that never completed — so how long one may be sustained is
+    /// not ours to decide. Apple's guidance is to treat it as a single discrete
+    /// action (WWDC24 § Squeeze the most out of Apple Pencil).
+    ///
+    /// So a squeeze *toggles*: once to start talking, once to stop. Holding is
+    /// still hold-to-talk, and it is still the long press, which is a gesture
+    /// the app owns end to end.
+    case squeezeToggled(point: CGPoint)
 
     /// Where this trigger happened, when it happened somewhere.
     public var point: CGPoint? {
         switch self {
         case let .armed(point): return point
         case let .holdBegan(point): return point
-        case let .squeezeBegan(point): return point
-        case .armingEnded, .holdEnded, .holdCancelled, .squeezeEnded, .squeezeCancelled:
+        case let .squeezeToggled(point): return point
+        case .armingEnded, .holdEnded, .holdCancelled:
             return nil
         }
     }

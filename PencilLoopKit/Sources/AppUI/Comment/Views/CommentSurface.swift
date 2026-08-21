@@ -51,11 +51,31 @@ public struct CommentSurface: ViewModifier {
                         onScribbleTextChanged: { model.updateScribbleText($0) }
                     )
                     .presentationCompactAdaptation(.popover)
+                    // ─── WHY A RECORDING PINS THE POPOVER OPEN ───────────────
+                    // A popover dismisses when you touch outside it, and the
+                    // reader scrolls underneath. Scrolling to see the rest of
+                    // the paragraph you are talking about therefore dismissed
+                    // the popover, and `dismissPopover` cancels — so the scroll
+                    // threw the sentence away. Both modifiers are conditional:
+                    // while recording the popover holds and the scroll passes
+                    // through to the page, and the moment recording stops it is
+                    // an ordinary popover again that tapping away closes.
+                    //
+                    // Dismissal is deliberately *not* disabled outright. A
+                    // recording begun with a squeeze is ended with a squeeze,
+                    // and a Pencil that runs out of battery mid-sentence would
+                    // leave a popover nothing could close. Letting it dismiss
+                    // and making dismissal keep the speech (`dismissPopover`)
+                    // is the version with no trap in it.
+                    .presentationBackgroundInteraction(
+                        model.isRecording ? .enabled : .automatic
+                    )
                 }
             }
-            // Backgrounding mid-recording is a cancellation, not a save. The
-            // machine says so (`VoiceRecordingMachine.Event.cancelled`), and
-            // nothing else is watching for it.
+            // Backgrounding ends the recording, because audio does not survive
+            // it. What happens to the words is `dismissPopover`'s single rule
+            // and not a second one here: mid-recording it keeps them, idle it
+            // cancels.
             .onChange(of: scenePhase) { _, phase in
                 guard phase != .active, model.popover != nil else { return }
                 model.dismissPopover()

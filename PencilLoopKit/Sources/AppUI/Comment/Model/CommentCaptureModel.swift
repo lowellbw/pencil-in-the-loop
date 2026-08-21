@@ -88,6 +88,42 @@ public final class CommentCaptureModel {
     // MARK: - Machinery
 
     private var machine = VoiceRecordingMachine()
+
+    /// What is holding the current recording open.
+    ///
+    /// ─── WHY A RECORDING NEEDS AN OWNER ──────────────────────────────────
+    /// Until squeeze became a toggle, every recording was owned by a touch
+    /// that was still down, and "the Pencil lifted" and "this recording is
+    /// over" were the same fact. `.armingEnded` could therefore be forwarded
+    /// as `touchUp` unconditionally, on the reasoning that the machine would
+    /// be in `.arming` and would ignore it.
+    ///
+    /// A squeeze-started recording is owned by nothing. The Pencil is free,
+    /// and the arming recogniser watches *every* Pencil touch on the page —
+    /// inking included, by design (`CommentGestureController`). So an ordinary
+    /// stroke's lift arrived as `touchUp` while the machine was in
+    /// `.recording`, which is a real transition, and ended a dictation the
+    /// stroke had nothing to do with. Drawing while talking is not an exotic
+    /// case: `CommentSurface` deliberately lets touches through to the page
+    /// while recording.
+    ///
+    /// So a lift only ends the recording that lift started.
+    private var owner: RecordingOwner = .none
+
+    /// Which gesture a live recording belongs to.
+    private enum RecordingOwner {
+
+        /// Nothing is recording.
+        case none
+
+        /// A press that is still down: the page long-press, or the popover's
+        /// hold-to-talk control. Its release is what ends the recording.
+        case touch
+
+        /// A squeeze or a VoiceOver tap. No touch is holding it, so no lift
+        /// may end it — only another toggle, a cancel, or a failure.
+        case toggle
+    }
     private var streamTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
     private var prewarmTask: Task<Void, Never>?
@@ -136,6 +172,12 @@ public final class CommentCaptureModel {
 
         self.gestures?.onTrigger = { [weak self] trigger in
             self?.handle(trigger)
+        }
+        // What tells the reader's own popover apart from a sheet over it, so a
+        // squeeze can always stop what the reader is already running
+        // (`CommentGestureController.shouldHandleSqueeze`).
+        self.gestures?.ownsPopover = { [weak self] in
+            self?.popover != nil
         }
         startTermExtraction()
         refreshSpeechAvailability()
@@ -188,20 +230,52 @@ public final class CommentCaptureModel {
             send(.touchDown(at: Date()))
 
         case .armingEnded:
-            // Meaningful only while arming; once the hold has begun, the hold's
-            // own end is what saves, and the machine ignores the duplicate.
+            // Only the press that started a recording may end it. While arming
+            // this is the lift that abandons the gesture, which is what it is
+            // for; during a squeeze-started recording it is somebody drawing,
+            // and forwarding it stopped their dictation mid-sentence (`owner`).
+            guard endsTouchOwnedRecording else { break }
             send(.touchUp(at: Date()))
 
         case let .holdBegan(point):
+            // A pause mid-stroke reaches the hold recogniser too. While
+            // something is already being dictated that used to call `present`,
+            // which replaces `machine` and `popover` outright and threw the
+            // sentence in progress away; a second popover is not what a pause
+            // means (`owner`).
+            guard machine.isRecording == false else { break }
             open(at: point, recording: true)
 
-        case let .squeezeBegan(point):
-            open(at: point, recording: true)
+        case let .squeezeToggled(point):
+            // Squeeze is a toggle, and it reuses the path VoiceOver already
+            // takes (`toggleRecording`) so there is one definition of what
+            // toggling means rather than two that can drift. With a popover
+            // open it starts or stops whatever is in front of the user —
+            // including one opened from the selection menu that has not begun
+            // recording yet. With no popover there is nothing to toggle, so the
+            // squeeze opens one and starts, exactly as it always did.
+            plsq("reader squeezeToggled popover=\(popover != nil) recording=\(machine.isRecording)")
+            // `isRecording` is asked first, ahead of `popover != nil`, so that
+            // stopping never depends on the popover still being there. The two
+            // are kept in step today and the order should not matter; making
+            // the stop the first question means a squeeze can always end a
+            // recording even if some future path lets them drift apart, which
+            // is the failure worth being structurally safe against — a
+            // microphone left open has no other way out.
+            if machine.isRecording {
+                owner = .none
+                send(.touchUp(at: Date()))
+            } else if popover != nil {
+                toggleRecording()
+            } else {
+                open(at: point, recording: true, startedBy: .toggle)
+            }
 
-        case .holdEnded, .squeezeEnded:
+        case .holdEnded:
+            guard endsTouchOwnedRecording else { break }
             send(.touchUp(at: Date()))
 
-        case .holdCancelled, .squeezeCancelled:
+        case .holdCancelled:
             send(.cancelled)
         }
     }
@@ -224,6 +298,7 @@ public final class CommentCaptureModel {
     /// The popover's hold-to-talk control went down.
     public func beginHoldToTalk() {
         guard popover != nil else { return }
+        owner = .touch
         send(.holdRecognised(at: Date()))
     }
 
@@ -231,6 +306,8 @@ public final class CommentCaptureModel {
     /// `GestureTiming.minimumHoldDuration` this discards, exactly as a Pencil
     /// lift does — the rule lives in the machine and applies to both.
     public func endHoldToTalk() {
+        guard endsTouchOwnedRecording else { return }
+        owner = .none
         send(.touchUp(at: Date()))
     }
 
@@ -243,8 +320,10 @@ public final class CommentCaptureModel {
     public func toggleRecording() {
         guard popover != nil else { return }
         if machine.isRecording {
+            owner = .none
             send(.touchUp(at: Date()))
         } else {
+            owner = .toggle
             send(.holdRecognised(at: Date()))
         }
     }
@@ -293,12 +372,48 @@ public final class CommentCaptureModel {
         save(text: text, source: .handwriting, anchor: state.anchor, correcting: false)
     }
 
-    /// The popover was dismissed — tapped away, or the app went to the
-    /// background. Cancels rather than saves.
+    /// Whether audio is being captured right now.
+    ///
+    /// Read by `CommentSurface` to hold the popover open while it is true. A
+    /// popover dismissal *discards* (`dismissPopover`), and the reader scrolls
+    /// under an open popover — so without this a scroll to see the rest of the
+    /// paragraph you are talking about throws away the sentence you just said.
+    public var isRecording: Bool { machine.isRecording }
+
+    /// Whether a Pencil lift arriving now should be forwarded as `touchUp`.
+    ///
+    /// True while arming — the lift that abandons a gesture before it becomes
+    /// anything still has to be reported — and while a *touch-owned* recording
+    /// is running. False for a squeeze- or VoiceOver-started one, which no lift
+    /// may end (`owner`).
+    private var endsTouchOwnedRecording: Bool {
+        machine.isRecording ? owner == .touch : true
+    }
+
+    /// The popover went away — tapped away, scrolled out from under, or the
+    /// app went to the background.
+    ///
+    /// **A dismissal mid-recording keeps what was said.** It used to cancel, on
+    /// the reasoning that a dismissal is not a save. That reasoning holds for
+    /// an idle popover and fails badly for a recording one: every way a popover
+    /// can be dismissed is something the user did *to the document* — scrolled
+    /// it, tapped it, took a call — and none of them mean "throw away the
+    /// sentence I just spoke". Discarding is unrecoverable; a comment saved by
+    /// mistake is one marker to delete.
+    ///
+    /// Nothing is closed here in that case. The machine moves to `finishing`,
+    /// the transcript settles, and the `commit`/`dismiss` effects close the
+    /// popover in their own time — closing now would cut the final word off
+    /// (`VoiceRecordingMachine` § finishing).
+    ///
+    /// The mis-touch rule is untouched: under `minimumHoldDuration` still
+    /// discards, because that rule is about how little was said.
     public func dismissPopover() {
         guard popover != nil else { return }
         if machine.isFinished {
             close()
+        } else if machine.isRecording {
+            send(.touchUp(at: Date()))
         } else {
             send(.cancelled)
             close()
@@ -424,12 +539,17 @@ public final class CommentCaptureModel {
 
     // MARK: - Private
 
-    private func open(at point: CGPoint, recording: Bool) {
+    private func open(at point: CGPoint, recording: Bool, startedBy: RecordingOwner = .touch) {
         guard let hit = resolver?.textHit(at: point) else { return }
-        present(anchor: anchor(from: hit), at: point, recording: recording)
+        present(anchor: anchor(from: hit), at: point, recording: recording, startedBy: startedBy)
     }
 
-    private func present(anchor: Anchor, at point: CGPoint, recording: Bool) {
+    private func present(
+        anchor: Anchor,
+        at point: CGPoint,
+        recording: Bool,
+        startedBy: RecordingOwner = .touch
+    ) {
         refreshSpeechAvailability()
         let canSpeak = isSpeechUsable
         machine = VoiceRecordingMachine()
@@ -440,7 +560,11 @@ public final class CommentCaptureModel {
             stage: .waiting,
             isSpeechAvailable: canSpeak
         )
-        guard recording, canSpeak else { return }
+        guard recording, canSpeak else {
+            owner = .none
+            return
+        }
+        owner = startedBy
         send(.holdRecognised(at: Date()))
     }
 
@@ -581,6 +705,7 @@ public final class CommentCaptureModel {
     private func close() {
         popover = nil
         machine = VoiceRecordingMachine()
+        owner = .none
         streamTask?.cancel()
         streamTask = nil
     }
@@ -594,6 +719,7 @@ public final class CommentCaptureModel {
         prewarmTask = nil
         popover = nil
         machine = VoiceRecordingMachine()
+        owner = .none
     }
 
     private func startTermExtraction() {

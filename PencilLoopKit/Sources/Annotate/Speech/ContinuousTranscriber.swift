@@ -78,7 +78,12 @@ public actor ContinuousTranscriber: SpeechTranscribing {
     ) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         AsyncThrowingStream { continuation in
             let work = Task {
-                await self.beginRecording()
+                guard await self.claimRecording() else {
+                    continuation.finish(throwing: PencilLoopError.speechUnavailable(
+                        reason: "Another recording is already running."
+                    ))
+                    return
+                }
                 var silentRestarts = 0
 
                 while await self.isRecording {
@@ -150,10 +155,23 @@ public actor ContinuousTranscriber: SpeechTranscribing {
 
     // MARK: - Accumulating across restarts
 
-    private func beginRecording() {
+    /// Starts a recording, or refuses when one is already running.
+    ///
+    /// `SpeechTranscribing` is documented as one recording at a time
+    /// (Protocols.swift § Lifecycle). This used to *assume* callers obeyed it
+    /// and reset the accumulated text unconditionally, so a second recording
+    /// started by mistake did not merely compete with the first — it erased
+    /// what the first had already transcribed, and the user lost a comment they
+    /// had finished speaking with no error anywhere.
+    ///
+    /// Refusing is louder and cannot lose words. The running recording wins,
+    /// because it is the one with a person talking into it.
+    private func claimRecording() -> Bool {
+        guard isRecording == false else { return false }
         isRecording = true
         carried = ""
         current = ""
+        return true
     }
 
     private func finishRecording() {

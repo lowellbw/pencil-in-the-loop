@@ -415,6 +415,7 @@ final class ReviewSheetModel {
     /// here than in the comment popover — the keyboard has not gone anywhere
     /// (docs/02-spec.md § S3).
     func beginInstructionDictation(environment: any AppEnvironment) {
+        plsq("begin called, already=\(isDictatingInstruction)")
         guard isDictatingInstruction == false else { return }
         isDictatingInstruction = true
         instructionBeforeDictation = closingInstruction
@@ -435,6 +436,7 @@ final class ReviewSheetModel {
                 // reading "Listening…" over a dead microphone, which is exactly
                 // the failure that looked like a length limit.
                 guard let self, self.isDictatingInstruction else { return }
+                plsq("stream ended on its own -> endDictation")
                 self.endDictation(with: .speechUnavailable(reason: "Dictation stopped."))
             } catch let error as PencilLoopError {
                 self?.endDictation(with: error)
@@ -451,6 +453,7 @@ final class ReviewSheetModel {
     /// the comment path follows, and the reason a released hold does not lose
     /// the end of a sentence.
     func endInstructionDictation(environment: any AppEnvironment) {
+        plsq("end called, dictating=\(isDictatingInstruction)")
         guard isDictatingInstruction else { return }
         let transcriber = environment.transcriber
         dictationTask?.cancel()

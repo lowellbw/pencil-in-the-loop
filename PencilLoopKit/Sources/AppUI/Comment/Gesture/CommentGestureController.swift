@@ -33,6 +33,15 @@ public final class CommentGestureController: NSObject, UIGestureRecognizerDelega
     /// Where triggers go. Set by `CommentCaptureModel` before `attach()`.
     public var onTrigger: ((CommentGestureTrigger) -> Void)?
 
+    /// Whether the reader currently has a comment popover of its own on screen.
+    /// Set by `CommentCaptureModel` alongside `onTrigger`.
+    ///
+    /// Read only by `shouldHandleSqueeze(isCovered:ownsPopover:)`, to tell the
+    /// reader's own presentation apart from somebody else's screen over it.
+    /// Absent — in a preview, or before the model wires it — reads as false,
+    /// which is the conservative answer: the squeeze is scoped as it was.
+    public var ownsPopover: (() -> Bool)?
+
     /// The dials. Replacing this re-installs the recognisers with the new
     /// numbers, which is what makes a device session a one-line change.
     public var tuning: CommentGestureTuning {
@@ -268,19 +277,77 @@ public final class CommentGestureController: NSObject, UIGestureRecognizerDelega
         didReceiveSqueeze squeeze: UIPencilInteraction.Squeeze
     ) {
         guard tuning.squeezeEnabled else { return }
+
+        // ─── WHOSE SQUEEZE IS THIS? ──────────────────────────────────────────
+        // A squeeze is device-level: it arrives at every `UIPencilInteraction`
+        // in a visible hierarchy, and the reader stays visible underneath a
+        // sheet. So with the review sheet open, one squeeze reached both its
+        // reporter *and* this controller, and this one opened a comment popover
+        // and started recording behind the sheet.
+        //
+        // That is not merely untidy. Both recordings resolve to the same engine
+        // (one per language), and starting a second resets the accumulated
+        // transcript of the first — so a stray recording behind a sheet silently
+        // threw away the comment being dictated in front of it.
+        //
+        // "Is anything presented over me" was the first answer and it was the
+        // wrong question, because **the reader's own comment popover is a
+        // presentation too** (`CommentSurface` uses SwiftUI's `.popover`, which
+        // on iPadOS is a real UIKit one). So the guard fired hardest exactly
+        // when the popover was open — which is when the user squeezes to *stop*
+        // — and ate the gesture, leaving the microphone running with nothing
+        // able to close it. It did so silently and intermittently, since
+        // whether the presentation lands on the root or on a descendant
+        // hosting controller depends on the split view's state.
+        //
+        // `ReviewSheet.squeezeToggled` had already reasoned this out for the
+        // other consumer: **stopping is not scoped, starting is.** Same rule
+        // here, in the same shape — a pure function, because a squeeze cannot
+        // be simulated and this is the part that can be wrong on its own.
+        let isCovered = hostView?.window?.rootViewController?.presentedViewController != nil
+        let ownsPopover = self.ownsPopover?() ?? false
+        let handles = Self.shouldHandleSqueeze(isCovered: isCovered, ownsPopover: ownsPopover)
+        plsq("reader squeeze phase=\(squeeze.phase) covered=\(isCovered) ownsPopover=\(ownsPopover) handles=\(handles)")
+        guard handles else { return }
+
         switch squeeze.phase {
-        case .began:
+        case .ended:
+            // `ended` is the phase that means *recognised*: the header defines
+            // it as a continuous gesture ending or a discrete one being
+            // recognised. `cancelled` is deliberately not folded in, as it was
+            // when this drove a press-and-hold. There the risk was a microphone
+            // left live by an untidy gesture, so cancelling had to stop it;
+            // here a cancelled squeeze is one the user never completed, and
+            // toggling on the strength of it starts a recording nobody asked
+            // for. A toggle has no half-finished state to unwind.
             guard let point = squeezeAnchorPoint else { return }
             CommentHaptics.squeezeRecognised()
-            onTrigger?(.squeezeBegan(point: point))
-        case .ended:
-            onTrigger?(.squeezeEnded)
-        case .cancelled:
-            onTrigger?(.squeezeCancelled)
-        case .changed:
+            onTrigger?(.squeezeToggled(point: point))
+        case .began, .changed, .cancelled:
             break
         @unknown default:
             break
         }
+    }
+
+    /// Whether a squeeze arriving now is the reader's to act on.
+    ///
+    /// Static and pure so it can be tested: a squeeze cannot be simulated and
+    /// a Pencil Pro does not exist in the Simulator, but this rule can be wrong
+    /// on its own, in two opposite directions. Too loose and a squeeze meant
+    /// for a sheet starts a recording behind it; too strict and a live
+    /// recording cannot be stopped.
+    ///
+    /// - Parameters:
+    ///   - isCovered: whether anything is presented over the reader — including,
+    ///     unavoidably, the reader's own comment popover.
+    ///   - ownsPopover: whether that presentation is the reader's own popover.
+    ///
+    /// The asymmetry is the whole point, and it is `ReviewSheet`'s: **a squeeze
+    /// that might stop something the reader is already running is never
+    /// refused.** Scoping a stop is how a microphone gets left open with no
+    /// gesture able to close it.
+    static func shouldHandleSqueeze(isCovered: Bool, ownsPopover: Bool) -> Bool {
+        ownsPopover || isCovered == false
     }
 }

@@ -214,6 +214,17 @@ public struct ReaderView: View {
 
         ToolbarItem(placement: .topBarTrailing) {
             Button("Review") {
+                // Settle any comment first, so the review sheet never opens
+                // over a live recording behind it. A squeeze is device-level
+                // and would then be ambiguous between the two surfaces, and
+                // both resolve to the same engine
+                // (`CommentGestureController.shouldHandleSqueeze`).
+                //
+                // `dismissPopover` rather than a cancel: mid-recording it keeps
+                // what was said and lets the transcript settle, which is the
+                // whole point of that method. It is a no-op with no popover
+                // open, which is the ordinary case.
+                self.model.capture?.dismissPopover()
                 self.onReview(self.documentId)
             }
             .disabled(self.model.isReady == false)

@@ -56,7 +56,7 @@ Full-bleed continuous-scroll PDF. Chrome auto-hides on scroll, returns on tap.
 | Finger drag | Scroll. Always. |
 | Pencil drag | Draw. Always. (`drawingPolicy = .pencilOnly`) |
 | Pencil long-press (0.4s) on the page | Open the comment popover anchored at that point |
-| Pencil Pro squeeze | Same as long-press, at the current hover point if hovering |
+| Pencil Pro squeeze | Toggle: squeeze to start talking, squeeze again to stop. Anchored at the current hover point if hovering |
 | Finger long-press on text | Standard iOS text selection → "Comment" in the menu |
 | Tap a comment marker | Open that comment for review or deletion |
 | Two-finger tap | Undo (system standard) |

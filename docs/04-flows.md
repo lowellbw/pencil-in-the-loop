@@ -90,14 +90,21 @@ haptic .light · popover appears showing the quoted excerpt
       ▼
 SpeechAnalyzer starts · waveform animates · transcript streams in
       ▼
-user releases
+long-press: user releases · squeeze: user squeezes again
       │
-      ├─ held < 0.3s ──▶ discard (mis-touch), no marker
+      ├─ recorded < 0.3s ──▶ discard (mis-touch), no marker
       │
-      └─ held ≥ 0.3s ──▶ post-process transcript against document term list
+      └─ recorded ≥ 0.3s ──▶ post-process transcript against document term list
                           ▼
                      save Comment · haptic .success · marker appears in margin
 ```
+
+**The two triggers end differently, and must.** A long press is held, so releasing
+ends it. A squeeze is not: the system recognises a squeeze rather than reporting a
+sensor, and it ends a sustained one on its own — a recording begun by holding a
+squeeze died a few seconds in, with the squeeze still held. So a squeeze toggles,
+and nothing in the app depends on one being held. The 0.3s mis-touch rule is
+unchanged and still measures how little was said, not how it was triggered.
 
 Scribble variant: tapping "✎ scribble instead" swaps the popover body for a Scribble
 field. Identical anchor, identical storage, `source = .handwriting`.

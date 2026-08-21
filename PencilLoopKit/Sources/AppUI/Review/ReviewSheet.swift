@@ -146,8 +146,7 @@ public struct ReviewSheet: View {
             // the reporter can live anywhere in the sheet and the *hover* is
             // what decides whether this sheet should act on it.
             PencilSqueezeReporter(
-                onBegan: { self.squeezeBegan() },
-                onEnded: { self.model.endInstructionDictation(environment: self.environment) }
+                onSqueeze: { self.squeezeToggled() }
             )
         }
         .safeAreaInset(edge: .bottom) {
@@ -304,6 +303,7 @@ public struct ReviewSheet: View {
                 minimumDuration: 0.05,
                 perform: {},
                 onPressingChanged: { isPressing in
+                    plsq("longPress isPressing=\(isPressing)")
                     if isPressing {
                         model.beginInstructionDictation(environment: environment)
                     } else {
@@ -331,13 +331,30 @@ public struct ReviewSheet: View {
         }
     }
 
-    /// Squeeze to talk, but only over the closing instruction.
+    /// Squeeze to start talking, squeeze again to stop — but a squeeze only
+    /// *starts* dictation when it was aimed at the closing instruction.
+    ///
+    /// A toggle rather than a hold because the system ends a sustained squeeze
+    /// on its own (PencilSqueezeReporter § why this reports one event and not
+    /// two). Holding still works; it is the finger long-press on the row.
     ///
     /// Scoped rather than global on purpose. The reader is still behind this
     /// sheet with its own squeeze handler attached, and a gesture that means
     /// two things at once means neither; requiring the Pencil to be over the
     /// field makes the intent unambiguous to the user as well as to the code.
-    private func squeezeBegan() {
+    /// **Stopping is not scoped, and starting is.** The hover rule below asks
+    /// whether a squeeze was aimed at this field, which is the right question
+    /// only when nothing is running yet. Once dictation is live the Pencil is
+    /// wherever a hand rests while somebody talks — nowhere near the row, and
+    /// `lastInstructionHoverAt` long since stale — so requiring hover to stop
+    /// would leave the microphone open with no gesture able to close it.
+    private func squeezeToggled() {
+        plsq("toggled dictating=\(model.isDictatingInstruction) hoverFresh=\(ReviewSheet.shouldDictate(lastHoverAt: lastInstructionHoverAt, now: Date()))")
+        if model.isDictatingInstruction {
+            CommentHaptics.squeezeRecognised()
+            model.endInstructionDictation(environment: environment)
+            return
+        }
         guard ReviewSheet.shouldDictate(lastHoverAt: lastInstructionHoverAt, now: Date()) else { return }
         CommentHaptics.squeezeRecognised()
         model.beginInstructionDictation(environment: environment)
