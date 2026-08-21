@@ -57,6 +57,11 @@ public final class ReaderDocumentCoordinator: NSObject {
     private var appliedDocumentId: UUID?
     private var hasRestoredPosition = false
 
+    /// The one recogniser here that a Pencil can reach. Kept so the delegate
+    /// can tell it apart from the finger-only three and ask the extra question
+    /// only of it (`installGestures`).
+    private weak var offPageTap: UITapGestureRecognizer?
+
     /// How long after the last movement the marker layer stops being redrawn
     /// every frame. Long enough to cover a flick's momentum, short enough that
     /// nothing keeps ticking while the reader reads.
@@ -144,13 +149,32 @@ public final class ReaderDocumentCoordinator: NSObject {
 
     // MARK: - Gestures
 
-    /// Every recogniser the reader installs is **finger-only**.
+    /// The reader's own recognisers, three finger-only and one that a Pencil
+    /// can reach off the page.
     ///
-    /// That is the whole reason this can be done safely at all: none of them can
-    /// see a Pencil touch, so none of them can delay, cancel or otherwise
-    /// interfere with drawing. Pencil gestures on this same view belong to the
-    /// comment unit, which configures its own not to interfere either
+    /// The finger-only three exist as they do because none of them can see a
+    /// Pencil touch, so none of them can delay, cancel or otherwise interfere
+    /// with drawing. Pencil gestures on this same view belong to the comment
+    /// unit, which configures its own not to interfere either
     /// (Comment/Gesture/CommentGestureController.swift).
+    ///
+    /// ─── WHY THERE IS A FOURTH ───────────────────────────────────────────────
+    /// The chrome hides on scroll and comes back on tap, and every tap in this
+    /// file was a *finger* tap. So with a Pencil in hand and nothing else, the
+    /// toolbar could not be brought back at all: a Pencil tap on the page draws
+    /// a dot, and the only remaining route to the library was the system's
+    /// edge swipe, which under a Pencil draws a line across the page instead of
+    /// revealing the sidebar. "I can't navigate with the sidebar entirely with
+    /// the pen — sometimes it thinks I'm trying to write" is exactly that, and
+    /// it is a hole in rule 5 of docs/01-design-principles.md: everything the
+    /// Pencil starts, the Pencil must be able to finish.
+    ///
+    /// The fix is a Pencil tap that is only ever delivered where there is no
+    /// page — the surround, and the gap between two pages. Nothing is drawn
+    /// there, because a `PKCanvasView` only ever covers a page, so this cannot
+    /// take a stroke away from anybody: it is a tap on the desk beside the
+    /// paper. `shouldReceive` below is where that is decided, per touch.
+    /// ─────────────────────────────────────────────────────────────────────────
     private func installGestures(on view: PDFView) {
         let fingerOnly = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
 
@@ -169,6 +193,12 @@ public final class ReaderDocumentCoordinator: NSObject {
         pan.allowedTouchTypes = fingerOnly
         ReaderDocumentCoordinator.makeNonBlocking(pan, delegate: self)
         view.addGestureRecognizer(pan)
+
+        let margin = UITapGestureRecognizer(target: self, action: #selector(self.handleTap(_:)))
+        margin.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        ReaderDocumentCoordinator.makeNonBlocking(margin, delegate: self)
+        view.addGestureRecognizer(margin)
+        self.offPageTap = margin
     }
 
     private static func makeNonBlocking(_ recogniser: UIGestureRecognizer, delegate: any UIGestureRecognizerDelegate) {
@@ -402,5 +432,24 @@ extension ReaderDocumentCoordinator: UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
         true
+    }
+
+    /// The Pencil tap is delivered only where there is no page under the point.
+    ///
+    /// `page(for:nearest:)` with `nearest: false` answers exactly the question
+    /// worth asking — "is there paper here?" — and answers nil in the surround
+    /// and in the gap between two pages, which is where this gesture lives. A
+    /// Pencil touch anywhere on a page is never seen by this recogniser at all,
+    /// so the canvas keeps every touch it would have had.
+    ///
+    /// The finger-only three are unconditional; they were installed before this
+    /// one and nothing about them has changed.
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        guard gestureRecognizer === self.offPageTap else { return true }
+        guard let view = self.pdfView else { return false }
+        return view.page(for: touch.location(in: view), nearest: false) == nil
     }
 }

@@ -31,6 +31,13 @@ layout. Sheets use `.presentationDetents`, with a grabber. Lists are `List` with
 tap, exactly like Books. The page goes edge to edge. No persistent sidebar, no floating
 palette, no visible tool picker until the user summons it.
 
+A tap on the page is a *finger* tap, because a Pencil tap on the page is a dot. So the
+Pencil gets the same tap in the surround beside the page, where there is no paper and
+nothing to draw on — otherwise the toolbar, and with it the way back to the library, is
+unreachable to somebody holding a pen and nothing else. The library's own "Library" button
+sits in that toolbar for the same reason: the system's edge swipe cannot be the way back
+when a Pencil dragged across the page is ink.
+
 **5. No custom gestures for anything important.** Long-press to comment is the one
 addition, and it's discoverable because a Pencil long-press does nothing else. Everything
 else is a tap, a scroll, or a standard swipe. Pencil Pro squeeze is a shortcut for people

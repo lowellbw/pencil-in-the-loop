@@ -87,6 +87,11 @@ public struct LibraryView<Detail: View>: View {
         } detail: {
             if let summary = model.summary(id: selection) {
                 detail(summary)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            libraryButton
+                        }
+                    }
             } else {
                 Text("No Document Selected")
                     .font(.body)
@@ -99,6 +104,33 @@ public struct LibraryView<Detail: View>: View {
             // empty detail.
             columnVisibility = chosen == nil ? .all : .detailOnly
         }
+    }
+
+    /// The way back, as a button rather than a swipe.
+    ///
+    /// Opening a document collapses the sidebar to give the page the whole
+    /// screen, and the way back was then the system's edge swipe. Under a
+    /// Pencil that swipe draws a line across the page — `drawingPolicy` is
+    /// `.pencilOnly`, so a Pencil dragged anywhere over the paper is ink, and
+    /// the sidebar never appears. One tap, on a target a Pencil can hit, is the
+    /// difference between navigating with the pen and having to put it down
+    /// (docs/01-design-principles.md § 5).
+    ///
+    /// Clearing the selection rather than only setting `columnVisibility`: the
+    /// two are already tied together by `onChange` below, and the selection is
+    /// the thing that is actually changing — the document is being closed.
+    ///
+    /// It lives here, in the library's own toolbar, because the selection is
+    /// the library's. The reader knows nothing about it and needs to know
+    /// nothing about it; its `onBack` stays for containers that have no
+    /// sidebar at all.
+    private var libraryButton: some View {
+        Button {
+            selection = nil
+        } label: {
+            Label("Library", systemImage: "sidebar.left")
+        }
+        .accessibilityLabel("Library")
     }
 
     // MARK: - Sidebar
