@@ -15,12 +15,16 @@ final class SpeechEngineFactoryTests: XCTestCase {
     private func facts(
         compiledIn: Bool = true,
         analyserLocale: Bool = true,
-        legacyLocale: Bool = true
+        legacyLocale: Bool = true,
+        analyserInstalled: Bool = true,
+        legacyOnDevice: Bool = false
     ) -> SpeechEngineFactory.Facts {
         SpeechEngineFactory.Facts(
             analyserCompiledIn: compiledIn,
             analyserSupportsLocale: analyserLocale,
-            legacySupportsLocale: legacyLocale
+            legacySupportsLocale: legacyLocale,
+            analyserAssetsInstalled: analyserInstalled,
+            legacyTranscribesOnDevice: legacyOnDevice
         )
     }
 
@@ -42,6 +46,33 @@ final class SpeechEngineFactoryTests: XCTestCase {
         XCTAssertEqual(
             SpeechEngineFactory.kind(for: .automatic, facts: facts(compiledIn: false)),
             .legacy
+        )
+    }
+
+    /// The first press on a fresh install. The analyser knows the language and
+    /// has not downloaded it yet, so it would refuse the recording outright;
+    /// the fallback's model is already there, so somebody who holds to talk
+    /// gets dictation rather than a sentence about a download.
+    func testAutomaticFallsBackWhileTheAnalyserModelIsStillMissing() {
+        XCTAssertEqual(
+            SpeechEngineFactory.kind(
+                for: .automatic,
+                facts: facts(analyserInstalled: false, legacyOnDevice: true)
+            ),
+            .legacy
+        )
+    }
+
+    /// With neither model on the device there is nothing to rescue the
+    /// recording with, and the analyser is the engine that reports the download
+    /// honestly and starts one.
+    func testAutomaticKeepsTheAnalyserWhenNeitherModelIsInstalled() {
+        XCTAssertEqual(
+            SpeechEngineFactory.kind(
+                for: .automatic,
+                facts: facts(analyserInstalled: false, legacyOnDevice: false)
+            ),
+            .analyser
         )
     }
 

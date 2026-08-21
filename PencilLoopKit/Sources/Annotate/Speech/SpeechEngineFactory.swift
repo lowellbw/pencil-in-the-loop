@@ -75,14 +75,32 @@ public enum SpeechEngineFactory {
         /// Whether `SFSpeechRecognizer` knows this language at all.
         public var legacySupportsLocale: Bool
 
+        /// Whether the analyser's model for this language is on the device
+        /// **right now**, as opposed to merely being a language it knows.
+        ///
+        /// Defaults to true so that a caller reasoning only about languages
+        /// gets the behaviour this rule always had.
+        public var analyserAssetsInstalled: Bool
+
+        /// Whether `SFSpeechRecognizer` can transcribe this language without a
+        /// network round trip right now — `supportsOnDeviceRecognition`.
+        ///
+        /// Only ever used to rescue a recording the analyser could not take.
+        /// Defaults to false, which is the conservative answer.
+        public var legacyTranscribesOnDevice: Bool
+
         public init(
             analyserCompiledIn: Bool,
             analyserSupportsLocale: Bool,
-            legacySupportsLocale: Bool
+            legacySupportsLocale: Bool,
+            analyserAssetsInstalled: Bool = true,
+            legacyTranscribesOnDevice: Bool = false
         ) {
             self.analyserCompiledIn = analyserCompiledIn
             self.analyserSupportsLocale = analyserSupportsLocale
             self.legacySupportsLocale = legacySupportsLocale
+            self.analyserAssetsInstalled = analyserAssetsInstalled
+            self.legacyTranscribesOnDevice = legacyTranscribesOnDevice
         }
     }
 
@@ -105,6 +123,14 @@ public enum SpeechEngineFactory {
     ///   substituting a different engine behind the user's back.
     /// - `.automatic` takes the analyser only when it is both compiled in and
     ///   supports the language, and the fallback otherwise.
+    /// - `.automatic` also **stands aside for the fallback when the analyser's
+    ///   model has not been downloaded yet** and the fallback can transcribe
+    ///   the language on device now. The analyser refuses a recording outright
+    ///   until its assets land — "the dictation model is still downloading",
+    ///   which is the sentence somebody sees when they hold to talk on a fresh
+    ///   install and is indistinguishable, from where they are standing, from
+    ///   dictation being broken. The fallback's model is provisioned by iOS
+    ///   with the speech permission and is usually already there.
     ///
     /// There is deliberately no "neither" answer. When no engine can transcribe
     /// the user's language, the caller still gets an engine, that engine still
@@ -117,7 +143,11 @@ public enum SpeechEngineFactory {
         case .analyser:
             return facts.analyserCompiledIn ? .analyser : .legacy
         case .automatic:
-            return facts.analyserCompiledIn && facts.analyserSupportsLocale ? .analyser : .legacy
+            guard facts.analyserCompiledIn, facts.analyserSupportsLocale else { return .legacy }
+            if facts.analyserAssetsInstalled == false && facts.legacyTranscribesOnDevice {
+                return .legacy
+            }
+            return .analyser
         }
     }
 
@@ -138,7 +168,9 @@ public enum SpeechEngineFactory {
         let facts = Facts(
             analyserCompiledIn: true,
             analyserSupportsLocale: await AnalyserSpeechEngine.supportsLocale(locale),
-            legacySupportsLocale: LegacySpeechEngine.supportsLocale(locale)
+            legacySupportsLocale: LegacySpeechEngine.supportsLocale(locale),
+            analyserAssetsInstalled: await AnalyserSpeechEngine.isInstalled(locale),
+            legacyTranscribesOnDevice: LegacySpeechEngine.supportsOnDeviceTranscription(for: locale)
         )
         switch kind(for: preference, facts: facts) {
         case .analyser:

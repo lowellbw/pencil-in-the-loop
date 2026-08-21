@@ -640,13 +640,22 @@ public final class CommentCaptureModel {
                     guard let self else { return }
                     self.send(.transcriptUpdated(value))
                 }
-                // Finished with no error and no stop: recognition gave up on
-                // its own. `ContinuousTranscriber` already restarts an engine
-                // that merely finalised an utterance, so this is the real
-                // thing. Reporting it keeps whatever was transcribed and tells
-                // the user, rather than leaving the popover listening to
-                // nothing (ContinuousTranscriber § the bug this exists for).
-                self?.send(.failed(.speechUnavailable(reason: "Dictation stopped.")))
+                // Finished with no error. Either the hold ended — `stop()`
+                // finishes this stream normally, and the machine is already in
+                // `.finishing` waiting for the settled text — or recognition
+                // gave up on its own while the user was still talking.
+                //
+                // Only the second is a failure, and the machine's phase is what
+                // tells them apart. Reporting both put the popover into
+                // `.failed` on the way out of an ordinary comment, racing the
+                // `.finalText` that was about to save it.
+                // `ContinuousTranscriber` already restarts an engine that
+                // merely finalised an utterance, so a finish while still
+                // recording is the real thing, and saying nothing would leave
+                // the popover listening to nothing
+                // (ContinuousTranscriber § the bug this exists for).
+                guard let self, self.machine.isRecording else { return }
+                self.send(.failed(.speechUnavailable(reason: "Dictation stopped.")))
             } catch let error as PencilLoopError {
                 self?.send(.failed(error))
             } catch {

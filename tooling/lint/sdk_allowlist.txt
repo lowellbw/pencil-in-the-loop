@@ -27,6 +27,7 @@
 Any AnyObject AnyHashable AnySequence AnyIterator AnyCollection
 Array ArraySlice AsyncStream AsyncThrowingStream AsyncSequence AsyncIteratorProtocol
 Bool BinaryInteger BinaryFloatingPoint Bundle
+CancellationError
 Character CaseIterable Codable CodingKey CodingKeys Collection Comparable
 CustomStringConvertible CustomDebugStringConvertible
 Decodable Decoder DecodingError Dictionary Double

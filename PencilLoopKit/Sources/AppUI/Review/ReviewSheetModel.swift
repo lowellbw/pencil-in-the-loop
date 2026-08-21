@@ -57,6 +57,19 @@ final class ReviewSheetModel {
     /// partial results replaces itself rather than appending.
     private var instructionBeforeDictation: String?
 
+    /// True from the instant a release is seen until `stop()` has returned.
+    ///
+    /// **This is what tells a deliberate stop apart from an engine giving up**,
+    /// and without it every ordinary release reported a failure: stopping
+    /// finishes the transcriber's stream *normally*, the streaming task falls
+    /// out of its `for try await` loop with `isDictatingInstruction` still true
+    /// — it is cleared in the stop task, which is at that moment still awaiting
+    /// the engine — and the branch below that exists for a recogniser that
+    /// really has stopped fired instead. The user let go, and the sheet said
+    /// "Dictation is unavailable. Dictation stopped." and put back the text
+    /// they had just spoken.
+    private var isStoppingInstructionDictation = false
+
     /// Accumulated reading time for the subtitle. Zero when never tracked, in
     /// which case the subtitle is just the title.
     var readingSeconds: TimeInterval
@@ -416,7 +429,11 @@ final class ReviewSheetModel {
     /// (docs/02-spec.md § S3).
     func beginInstructionDictation(environment: any AppEnvironment) {
         plsq("begin called, already=\(isDictatingInstruction)")
-        guard isDictatingInstruction == false else { return }
+        // A press that lands while the previous one is still handing the
+        // microphone back is ignored rather than raced: starting a second
+        // recording against the same engine is what produces "Another recording
+        // is already running", and the words go nowhere either way.
+        guard isDictatingInstruction == false, isStoppingInstructionDictation == false else { return }
         isDictatingInstruction = true
         instructionBeforeDictation = closingInstruction
         failureMessage = nil
@@ -429,17 +446,24 @@ final class ReviewSheetModel {
                     guard let self, self.isDictatingInstruction else { return }
                     self.applyDictated(value.displayText)
                 }
-                // The stream finished without an error and without the user
-                // letting go. `ContinuousTranscriber` restarts an engine that
-                // merely lost interest, so reaching here means recognition
-                // really has stopped — and saying nothing would leave the row
-                // reading "Listening…" over a dead microphone, which is exactly
-                // the failure that looked like a length limit.
-                guard let self, self.isDictatingInstruction else { return }
+                // The stream finished without an error. That is either the user
+                // letting go — `endInstructionDictation` stops the engine, which
+                // finishes this stream normally — or recognition giving up on
+                // its own. Only the second is worth reporting:
+                // `ContinuousTranscriber` restarts an engine that merely lost
+                // interest, so an unasked-for finish means the microphone is
+                // dead, and saying nothing would leave the row reading
+                // "Listening…" over it.
+                guard let self, self.isDictatingInstruction,
+                      self.isStoppingInstructionDictation == false else { return }
                 plsq("stream ended on its own -> endDictation")
                 self.endDictation(with: .speechUnavailable(reason: "Dictation stopped."))
             } catch let error as PencilLoopError {
                 self?.endDictation(with: error)
+            } catch is CancellationError {
+                // The stop path cancelled this task once it had the settled
+                // text. Nothing failed.
+                return
             } catch {
                 self?.endDictation(with: .speechUnavailable(reason: error.localizedDescription))
             }
@@ -452,20 +476,29 @@ final class ReviewSheetModel {
     /// engine may finalise a trailing word after its last yield — the same rule
     /// the comment path follows, and the reason a released hold does not lose
     /// the end of a sentence.
+    ///
+    /// **The engine is stopped before the streaming task is cancelled**, and
+    /// that order is the whole of why the last word survives. Cancelling first
+    /// terminates the stream, which the transcriber reads as the consumer
+    /// walking away — it stops the engine itself and throws the settled text
+    /// away, and the `stop()` below then returns "" from a recording that has
+    /// already ended.
     func endInstructionDictation(environment: any AppEnvironment) {
         plsq("end called, dictating=\(isDictatingInstruction)")
-        guard isDictatingInstruction else { return }
+        guard isDictatingInstruction, isStoppingInstructionDictation == false else { return }
+        isStoppingInstructionDictation = true
         let transcriber = environment.transcriber
-        dictationTask?.cancel()
-        dictationTask = nil
         stopDictationTask?.cancel()
         stopDictationTask = Task { [weak self] in
             let settled = await transcriber.stop()
             guard let self else { return }
+            self.dictationTask?.cancel()
+            self.dictationTask = nil
             if settled.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                 self.applyDictated(settled)
             }
             self.isDictatingInstruction = false
+            self.isStoppingInstructionDictation = false
             self.instructionBeforeDictation = nil
         }
     }
@@ -484,7 +517,13 @@ final class ReviewSheetModel {
         closingInstruction = existing.isEmpty ? spoken : existing + " " + spoken
     }
 
+    /// A recording that ended because something went wrong.
+    ///
+    /// Never called for a stop the user asked for: an engine tearing down can
+    /// be noisy, and putting back the text somebody has just spoken because the
+    /// teardown complained would lose the whole point of the recording.
     private func endDictation(with error: PencilLoopError) {
+        guard isStoppingInstructionDictation == false else { return }
         dictationTask?.cancel()
         dictationTask = nil
         isDictatingInstruction = false

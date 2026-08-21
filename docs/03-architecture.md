@@ -194,6 +194,20 @@ which recogniser is used. If accuracy is still poor, `SFSpeechRecognizer` with
 `requiresOnDeviceRecognition = true` accepts ~100 `contextualStrings`; keep it as a
 fallback path behind a protocol so either engine can be swapped in.
 
+**The fallback is also what covers the download.** `SpeechAnalyzer` refuses a recording
+outright until its language model is on the device, which on a fresh install is the first
+few holds — and "the dictation model is still downloading" is indistinguishable, to
+somebody holding a Pencil, from dictation being broken. So `SpeechEngineFactory` chooses
+`SFSpeechRecognizer` while the analyser's model is missing and iOS has already provisioned
+the fallback's, and the analyser once its assets land. The download still starts; it just
+no longer costs the user the comment they were speaking.
+
+**Ending a recording is not a failure.** Stopping an engine finishes its stream normally,
+so "the stream finished" alone cannot tell a released hold apart from a recogniser that
+died mid-sentence. Every consumer of `SpeechTranscribing` must know which of the two it is
+looking at before it reports anything — the review sheet by a stopping flag it sets before
+it calls `stop()`, the comment popover by `VoiceRecordingMachine`'s phase.
+
 ## Performance targets
 
 | | Target |

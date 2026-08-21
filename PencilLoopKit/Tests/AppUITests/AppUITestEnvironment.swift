@@ -34,14 +34,19 @@ struct AppUITestEnvironment: AppEnvironment {
     let settings: any SettingsStoring
     let folderAccess: any FolderAccessing
 
+    /// - Parameter transcriber: an engine that stays open until `stop()`, for
+    ///   the tests about what a released hold does. The default finishes its
+    ///   stream immediately, which is right for every other test here and is
+    ///   itself the "recognition gave up" case.
     init(
         store: any DocumentStoring,
         sync: any SyncCoordinating = AppUITestSyncCoordinator(),
-        settings: AppSettings = .initial
+        settings: AppSettings = .initial,
+        transcriber: (any SpeechTranscribing)? = nil
     ) {
         self.store = store
         self.sync = sync
-        self.transcriber = PreviewSpeechTranscriber()
+        self.transcriber = transcriber ?? PreviewSpeechTranscriber()
         self.recogniser = PreviewHandwritingRecogniser()
         self.corrector = PreviewTranscriptCorrector()
         self.bundleBuilder = PreviewReviewBundleBuilder()
