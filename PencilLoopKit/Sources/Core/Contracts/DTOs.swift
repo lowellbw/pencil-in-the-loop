@@ -68,6 +68,20 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
     /// handle for matching a reply back to its document.
     public var folderName: String
 
+    /// Kept at the top of the Library in its own section, above every state
+    /// section (docs/02-spec.md § S1).
+    ///
+    /// **Orthogonal to `state`, not another value of it.** A pinned document is
+    /// still Unread or Reviewing or Read and still moves between those on its
+    /// own; pinning only changes where it is drawn. Making it a fourth
+    /// `DocState` would have meant pinning a document forgot whether it had
+    /// been read, and un-pinning would have had to guess.
+    ///
+    /// The store holds the moment it was pinned rather than a flag — see
+    /// `Document.pinnedAt` — but nothing in the UI needs the date, so what
+    /// crosses the boundary is the answer to the only question a row asks.
+    public var isPinned: Bool
+
     /// Why the last attempt to refresh this document failed, when it failed and
     /// the document is still readable. Nil when the last attempt succeeded.
     ///
@@ -95,6 +109,7 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
         commentCount: Int,
         hasInk: Bool,
         folderName: String,
+        isPinned: Bool = false,
         refreshFailureReason: String? = nil
     ) {
         self.id = id
@@ -107,6 +122,7 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
         self.commentCount = commentCount
         self.hasInk = hasInk
         self.folderName = folderName
+        self.isPinned = isPinned
         self.refreshFailureReason = refreshFailureReason
     }
 }

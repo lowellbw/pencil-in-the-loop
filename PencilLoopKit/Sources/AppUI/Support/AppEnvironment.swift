@@ -240,6 +240,8 @@ public actor PreviewDocumentStore: DocumentStoring {
 
     public func setState(_ state: DocState, documentId: UUID) throws {}
 
+    public func setPinned(_ pinned: Bool, documentId: UUID) throws {}
+
     public func setLastReadPage(_ pageIndex: Int, documentId: UUID) throws {}
 
     public func setLocalState(_ state: DocumentLocalState, documentId: UUID) throws {}
@@ -444,9 +446,25 @@ public actor PreviewSettingsStore: SettingsStoring {
 
 extension DocumentSummary {
 
-    /// Three rows covering the three library sections, for previews.
+    /// Four rows covering the three library sections and the Pinned one, for
+    /// previews. A pinned sample is here rather than only in the Library
+    /// preview because an empty Pinned section does not draw at all
+    /// (`LibraryView.pinnedSection`) — without one, nothing previews it.
     public static var previewSamples: [DocumentSummary] {
         [
+            DocumentSummary(
+                id: UUID(uuidString: "F7A1C0DE-0000-4000-8000-000000000004") ?? UUID(),
+                title: "Retrieval eval harness",
+                originDisplayName: OriginKind.claudeCode.displayName,
+                addedAt: Date(timeIntervalSince1970: 1_786_500_000),
+                pageCount: 6,
+                state: .unread,
+                localState: .local,
+                commentCount: 1,
+                hasInk: false,
+                folderName: "2026-08-14-retrieval-eval-harness",
+                isPinned: true
+            ),
             DocumentSummary(
                 id: UUID(uuidString: "F7A1C0DE-0000-4000-8000-000000000001") ?? UUID(),
                 title: "Auth refactor plan",

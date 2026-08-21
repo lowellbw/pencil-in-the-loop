@@ -14,8 +14,14 @@ import SwiftData
 /// The models as they stand in the first shipping build.
 ///
 /// **Adding to this is not allowed once a build has shipped.** A new or renamed
-/// property means a new `VersionedSchema` (`LibrarySchemaV2`) and a stage in
-/// `LibraryMigrationPlan`.
+/// property then means a new `VersionedSchema` and a stage in
+/// `LibraryMigrationPlan` — and read that file's header first, because a new
+/// version costs more than it looks like it costs.
+///
+/// Nothing has shipped, so `Document.pinnedAt` was added here rather than in a
+/// V2. That is the rule above being followed, not bent: the whole point of the
+/// "once a build has shipped" clause is that there is no store on anyone's
+/// device holding data this schema would have to migrate.
 public enum LibrarySchemaV1: VersionedSchema {
 
     /// 1.0.0. Bumped by the *next* schema, never by edits to this one.

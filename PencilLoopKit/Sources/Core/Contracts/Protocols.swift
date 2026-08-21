@@ -494,6 +494,20 @@ public protocol DocumentStoring: Actor {
 
     func setState(_ state: DocState, documentId: UUID) throws
 
+    /// Pins a document to the top of the Library, or un-pins it
+    /// (docs/02-spec.md § S1).
+    ///
+    /// Idempotent: pinning a pinned document is a no-op and does not move it,
+    /// so a double tap on the swipe action cannot silently reorder the list.
+    ///
+    /// **Not destructive and not a state change.** `DocumentSummary.isPinned`
+    /// is orthogonal to `DocState` — see its doc comment — so this never moves
+    /// a document between Unread, Reviewing and Read, and un-pinning returns it
+    /// to whichever section it was already in.
+    ///
+    /// - Throws: `.documentNotFound` when the id is unknown.
+    func setPinned(_ pinned: Bool, documentId: UUID) throws
+
     /// Persisted on scroll, restored on open. Frequent — implementations should
     /// coalesce.
     func setLastReadPage(_ pageIndex: Int, documentId: UUID) throws

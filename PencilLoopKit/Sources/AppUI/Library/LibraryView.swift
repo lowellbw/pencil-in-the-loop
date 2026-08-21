@@ -136,6 +136,7 @@ public struct LibraryView<Detail: View>: View {
 
     private var sidebar: some View {
         List(selection: $selection) {
+            pinnedSection
             ForEach(DocState.librarySections, id: \.self) { state in
                 sectionView(for: state)
             }
@@ -214,24 +215,65 @@ public struct LibraryView<Detail: View>: View {
         }
     }
 
+    /// The documents kept at the top, above every state section
+    /// (docs/02-spec.md § S1).
+    ///
+    /// Absent rather than empty when nothing is pinned: an empty "Pinned"
+    /// heading is a permanent piece of furniture explaining a feature the user
+    /// is not using, which docs/01-design-principles.md § 6 rules out. The
+    /// state sections already work this way.
+    @ViewBuilder private var pinnedSection: some View {
+        let summaries = model.pinned
+        if summaries.isEmpty == false {
+            Section("Pinned") {
+                ForEach(summaries) { summary in
+                    row(for: summary)
+                }
+            }
+        }
+    }
+
     @ViewBuilder private func sectionView(for state: DocState) -> some View {
         let summaries = model.rows(in: state)
         if summaries.isEmpty == false {
             Section(state.displayName) {
                 ForEach(summaries) { summary in
-                    LibraryRow(summary: summary)
-                        .tag(summary.id)
-                        .selectionDisabled(summary.isLocal == false)
-                        .swipeActions(edge: .trailing) {
-                            Button {
-                                Task { await self.model.archive(summary) }
-                            } label: {
-                                Label("Archive", systemImage: "archivebox")
-                            }
-                        }
+                    row(for: summary)
                 }
             }
         }
+    }
+
+    /// One row, wherever it is drawn.
+    ///
+    /// The Pinned section and the state sections are the same rows in a
+    /// different place, so they get the same gestures: pinning is on the
+    /// leading edge and archiving on the trailing, in both. A pinned row that
+    /// could not be un-pinned by the gesture that pinned it would be a
+    /// one-way door.
+    private func row(for summary: DocumentSummary) -> some View {
+        LibraryRow(summary: summary)
+            .tag(summary.id)
+            .selectionDisabled(summary.isLocal == false)
+            .swipeActions(edge: .leading) {
+                Button {
+                    Task { await self.model.setPinned(summary.isPinned == false, summary) }
+                } label: {
+                    // "Unpin" rather than "Pinned": a swipe action is a verb,
+                    // and it says what the tap will do, not what is true now.
+                    summary.isPinned
+                        ? Label("Unpin", systemImage: "pin.slash")
+                        : Label("Pin", systemImage: "pin")
+                }
+                .tint(.orange)
+            }
+            .swipeActions(edge: .trailing) {
+                Button {
+                    Task { await self.model.archive(summary) }
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+            }
     }
 
     /// Making a document rather than waiting for one to arrive.

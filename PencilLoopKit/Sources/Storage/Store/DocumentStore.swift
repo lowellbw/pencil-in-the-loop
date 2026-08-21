@@ -242,6 +242,36 @@ public actor DocumentStore: DocumentStoring {
         try commit()
     }
 
+    /// Pins a document to the top of the Library, or un-pins it
+    /// (docs/02-spec.md § S1).
+    ///
+    /// Coalesced like `setState(_:documentId:)`: pinning something already
+    /// pinned does not write, so it cannot move a row within the Pinned section
+    /// by rewriting `pinnedAt`. Un-pinning clears the date rather than
+    /// remembering it — a document that is not pinned has no pin time, and
+    /// keeping a stale one would make the column lie to the sort.
+    ///
+    /// `state` is untouched on purpose. Pinning is orthogonal to it
+    /// (DTOs.swift § `DocumentSummary.isPinned`).
+    public func setPinned(_ pinned: Bool, documentId: UUID) throws {
+        let row = try requireDocument(id: documentId)
+        guard (row.pinnedAt != nil) != pinned else { return }
+        row.pinnedAt = pinned ? Date() : nil
+        try commit()
+    }
+
+    /// When a document was pinned, or nil when it is not pinned.
+    ///
+    /// Internal to Storage: `DocumentSummary.isPinned` is the whole of what the
+    /// UI needs, and putting a date on the contract that no view reads would be
+    /// a `Core/Contracts` change earning nothing (STYLE.md § 1). It is here so
+    /// the tests can tell "still pinned" from "pinned again", which is the
+    /// difference `setPinned(_:documentId:)`'s coalescing turns on and which
+    /// `isPinned` cannot show.
+    func pinnedAt(documentId: UUID) throws -> Date? {
+        try documentRow(id: documentId)?.pinnedAt
+    }
+
     /// Persisted on scroll, restored on open (docs/02-spec.md § S2).
     ///
     /// Coalesced: a page index that has not changed does not write, so the

@@ -19,6 +19,8 @@
 //    `IngestedDocument.relativePath`.
 //  • `readingSeconds` is new: the review sheet shows time spent
 //    (docs/02-spec.md § S4) and `ReviewDraft.timeSpent` needs a source.
+//  • `pinnedAt` is new: pinning is orthogonal to `DocState` and needed a column
+//    of its own rather than a fourth state (docs/02-spec.md § S1).
 //  • `refreshFailureReason` / `refreshFailedAt` are new: a failed re-ingest of a
 //    document whose pinned bytes are intact is a failed *refresh*, not a lost
 //    document, and it needs somewhere to live that is not `localState`. See
@@ -135,6 +137,20 @@ final class Document {
     var localStateProgress: Double?
     var localStateReason: String?
 
+    /// When the user pinned this document, or nil when it is not pinned
+    /// (docs/02-spec.md § S1).
+    ///
+    /// **A date rather than a `Bool`, at no extra cost.** `pinnedAt == nil` is
+    /// the flag, so nothing is given up, and the moment is there if the Pinned
+    /// section ever wants its own order. It does not want one today: the
+    /// section follows whatever the sort menu says, because a Sort control that
+    /// visibly does not apply to the top section is worse than a pin order
+    /// nobody asked for (`LibraryModel.pinned`).
+    ///
+    /// Deliberately not a `DocState` case. Pinning must not make a document
+    /// forget whether it has been read (DTOs.swift § `DocumentSummary.isPinned`).
+    var pinnedAt: Date?
+
     /// Restored on open (docs/02-spec.md § S2).
     var lastReadPage: Int
 
@@ -212,6 +228,7 @@ final class Document {
         localStateRaw: String = Document.localStateLocal,
         localStateProgress: Double? = nil,
         localStateReason: String? = nil,
+        pinnedAt: Date? = nil,
         lastReadPage: Int = 0,
         readingSeconds: Double = 0,
         commentCount: Int = 0,
@@ -242,6 +259,7 @@ final class Document {
         self.localStateRaw = localStateRaw
         self.localStateProgress = localStateProgress
         self.localStateReason = localStateReason
+        self.pinnedAt = pinnedAt
         self.lastReadPage = lastReadPage
         self.readingSeconds = readingSeconds
         self.commentCount = commentCount
@@ -418,6 +436,7 @@ extension Document {
             commentCount: commentCount,
             hasInk: inkedPageCount > 0,
             folderName: folderName,
+            isPinned: pinnedAt != nil,
             refreshFailureReason: summaryRefreshFailureReason
         )
     }

@@ -51,6 +51,7 @@ public final class LibraryModel {
     public private(set) var transport: SyncTransport = .folder
 
     private var grouped: [DocState: [DocumentSummary]] = [:]
+    private var pinnedRows: [DocumentSummary] = []
     private let environment: any AppEnvironment
 
     public init(environment: any AppEnvironment) {
@@ -75,8 +76,21 @@ public final class LibraryModel {
     }
 
     /// The rows of one section, in the order the store returned them.
+    ///
+    /// Pinned documents are **not** here. They are drawn once, in the Pinned
+    /// section above (`pinned`); a row in two places is a row you can tap twice
+    /// and a selection that highlights in two sections at once.
     public func rows(in state: DocState) -> [DocumentSummary] {
         grouped[state] ?? []
+    }
+
+    /// The Pinned section, above every state section (docs/02-spec.md § S1).
+    ///
+    /// In the store's order, which is the order the sort menu asked for — the
+    /// section is a different *place*, not a different sort
+    /// (`Document.pinnedAt`).
+    public var pinned: [DocumentSummary] {
+        pinnedRows
     }
 
     /// The selected row, if the selection still names one.
@@ -128,6 +142,27 @@ public final class LibraryModel {
         do {
             try await environment.store.setState(.archived, documentId: summary.id)
             apply(rows.filter { $0.id != summary.id })
+        } catch {
+            statusMessage = SyncFolderChoice.describe(error)
+        }
+    }
+
+    /// Swipe to pin, or to un-pin. The row moves between the Pinned section and
+    /// its state section; nothing else about it changes (docs/02-spec.md § S1).
+    ///
+    /// Re-groups from the rows already in hand rather than re-reading the
+    /// store: the pin is a local fact and the list is already correct for the
+    /// current query, so a round trip would only make the row jump a frame
+    /// later than the finger that moved it.
+    public func setPinned(_ pinned: Bool, _ summary: DocumentSummary) async {
+        do {
+            try await environment.store.setPinned(pinned, documentId: summary.id)
+            apply(rows.map { row in
+                guard row.id == summary.id else { return row }
+                var updated = row
+                updated.isPinned = pinned
+                return updated
+            })
         } catch {
             statusMessage = SyncFolderChoice.describe(error)
         }
@@ -218,12 +253,25 @@ public final class LibraryModel {
         statusMessage = message
     }
 
+    /// Splits one fetch into the sections the sidebar draws.
+    ///
+    /// A pinned document goes into `pinnedRows` and *not* into its state
+    /// section, so every row appears exactly once. `.archived` is excluded from
+    /// both — including from Pinned, so archiving something pinned makes it
+    /// leave the list like anything else rather than becoming the one archived
+    /// document still on screen.
     private func apply(_ fetched: [DocumentSummary]) {
         rows = fetched
         var sections: [DocState: [DocumentSummary]] = [:]
+        var pinned: [DocumentSummary] = []
         for summary in fetched where summary.state != .archived {
-            sections[summary.state, default: []].append(summary)
+            if summary.isPinned {
+                pinned.append(summary)
+            } else {
+                sections[summary.state, default: []].append(summary)
+            }
         }
         grouped = sections
+        pinnedRows = pinned
     }
 }

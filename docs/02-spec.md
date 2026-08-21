@@ -12,15 +12,27 @@ No account, no login, no onboarding carousel. Second run goes straight to the li
 
 ## S1 · Library
 
-`NavigationSplitView` sidebar. Sections: **Reviewing**, **Unread**, **Read**. Each row:
+`NavigationSplitView` sidebar. Sections: **Pinned**, then **Reviewing**, **Unread**,
+**Read**. Each row:
 
 - Title (from PDF metadata, markdown H1, or filename)
 - Subtitle: origin + relative date + page count — e.g. "Cowork · 8 min ago · 4 pages"
 - Trailing: offline state (downloaded / syncing) as a subtle dot, not a badge
 
 Behaviours: search across document text *and* recognised handwriting; sort by date added
-or title; swipe to archive; pull to force a folder re-scan. Tapping a row opens the reader
-in the detail column, and the sidebar collapses so the document has the screen.
+or title; swipe left to archive; swipe right to pin or un-pin; pull to force a folder
+re-scan. Tapping a row opens the reader in the detail column, and the sidebar collapses so
+the document has the screen.
+
+**Pinned** holds whatever the user has put there, above everything else, and does not
+appear at all when nothing is pinned. A pinned document is drawn there and *only* there —
+never twice — but it keeps its reading state: pinning something Unread does not mark it
+read, annotating a pinned document still moves it to Reviewing underneath, and un-pinning
+returns it to whichever section it had reached. Pinning is therefore a place, not a state,
+and it is stored as one (`Document.pinnedAt`). The Pinned section obeys the same sort as
+every other section — a Sort control that visibly does not apply to the top of the list
+would be worse than any pin order it could impose. Pinning is not destructive and needs no
+confirmation; the same swipe un-does it.
 
 A **New** menu in the toolbar makes a document rather than waiting for one
 (`11-backlog.md` § B1): a blank notebook — plain, lined or grid paper, eight pages to
