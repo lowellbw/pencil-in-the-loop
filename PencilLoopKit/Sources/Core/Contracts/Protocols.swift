@@ -490,6 +490,25 @@ public protocol DocumentStoring: Actor {
     /// error row instead of nothing.
     func recordIngestFailure(folderName: String, reason: String) throws
 
+    /// Renames a document.
+    ///
+    /// The title is a label; `folderName` is an identity and is **not**
+    /// touched. A note created untitled keeps the folder it was born with
+    /// however many times it is renamed, so every stroke, comment and review
+    /// already filed against it still points at it.
+    ///
+    /// The caller is responsible for the copy of the title in `meta.json` —
+    /// `NoteCreator.rename(to:forFolderNamed:)` — because re-ingesting a
+    /// document reads the title from there, and adding a page to a notebook is
+    /// a re-ingest. A rename recorded here alone comes back undone the next
+    /// time somebody adds paper.
+    ///
+    /// Ignores a title that is empty or whitespace: a row with no name is one
+    /// nobody can find again, and an untitled note already has a default.
+    ///
+    /// - Throws: `.documentNotFound` when the id is unknown.
+    func setTitle(_ title: String, documentId: UUID) throws
+
     // Reading state
 
     func setState(_ state: DocState, documentId: UUID) throws

@@ -52,10 +52,9 @@ public struct LibraryView<Detail: View>: View {
     @State private var isChoosingFolder = false
     @State private var isShowingSettings = false
 
-    /// Which kind of document the New menu is making, and therefore whether
-    /// the sheet is up at all. One piece of state rather than a bool and a
-    /// kind, which cannot then disagree.
-    @State private var creating: NoteCreationView.Kind?
+    /// True while a new note is being made, which is long enough to press the
+    /// button twice. Two taps used to mean two notebooks.
+    @State private var isCreatingNote = false
 
     /// - Parameters:
     ///   - environment: the one route to every dependency, the folder picker's
@@ -187,7 +186,7 @@ public struct LibraryView<Detail: View>: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                newMenu
+                newNoteButton
             }
             ToolbarItem(placement: .topBarTrailing) {
                 sortMenu
@@ -236,14 +235,6 @@ public struct LibraryView<Detail: View>: View {
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(environment: environment)
-        }
-        .sheet(item: $creating) { kind in
-            NoteCreationView(kind: kind, model: model) { created in
-                // The same two steps `selecting` takes, and for the same
-                // reason: the row was made a moment ago and the list has to
-                // know about it before it can be selected.
-                self.selection = created
-            }
         }
     }
 
@@ -308,26 +299,47 @@ public struct LibraryView<Detail: View>: View {
             }
     }
 
-    /// Making a document rather than waiting for one to arrive.
+    /// Making a note rather than waiting for a document to arrive.
     ///
-    /// A menu rather than two buttons because the toolbar already carries two
-    /// items and a fourth would crowd the title out on the narrow column.
-    private var newMenu: some View {
-        Menu {
-            Button {
-                creating = .notebook
-            } label: {
-                Label("Blank Notebook", systemImage: "square.grid.2x2")
-            }
-            Button {
-                creating = .written
-            } label: {
-                Label("Written Document", systemImage: "text.alignleft")
-            }
+    /// ─── ONE TAP, AND NOTHING TO ANSWER FIRST ────────────────────────────────
+    /// This was a menu with two entries, each opening a sheet: a title field, a
+    /// paper picker, a page-count stepper, Cancel and Create. Five decisions
+    /// between a person with a Pencil in their hand and a blank page, at the
+    /// moment they have a thought they want to write down.
+    ///
+    /// Every one of them had a good default, and every one of them is easier to
+    /// answer *after* there is something on the paper: the note names itself
+    /// from its first sentence, the ruling is changed from the page while you
+    /// are looking at it, and pages are added when you run out. So the button
+    /// makes the notebook and opens it, and there is nothing to cancel.
+    /// ─────────────────────────────────────────────────────────────────────────
+    private var newNoteButton: some View {
+        Button {
+            self.createNote()
         } label: {
-            Label("New", systemImage: "square.and.pencil")
+            Label("New Note", systemImage: "square.and.pencil")
         }
-        .accessibilityLabel("New")
+        .disabled(isCreatingNote)
+        .accessibilityLabel("New Note")
+    }
+
+    /// Makes a notebook and opens it on page one.
+    ///
+    /// The selection is what opens it, and the row has to be in the list before
+    /// it can be selected — `LibraryModel.createNotebook` reloads before it
+    /// returns, which is the same two steps `selecting` takes and for the same
+    /// reason.
+    private func createNote() {
+        guard isCreatingNote == false else { return }
+        isCreatingNote = true
+        Task {
+            let created = await self.model.createNotebook()
+            self.isCreatingNote = false
+            // On failure the reason is already in the status line under the
+            // list, and nothing has been created.
+            guard let created else { return }
+            self.selection = created
+        }
     }
 
     private var sortMenu: some View {
@@ -352,15 +364,16 @@ public struct LibraryView<Detail: View>: View {
                     Text("No documents")
                         .font(.body)
                         .foregroundStyle(.secondary)
-                    // Only on the folder transport. Offering a folder picker to
-                    // someone whose documents come from a relay sends them to
-                    // fix something that is not broken.
-                    // The only useful thing to do with an empty library and
-                    // no network. One button, per the note above.
-                    Button("New Notebook") {
-                        creating = .notebook
+                    // The only useful thing to do with an empty library and no
+                    // network, and the same one tap as the toolbar's.
+                    Button("New Note") {
+                        self.createNote()
                     }
                     .font(.body)
+                    .disabled(isCreatingNote)
+                    // The folder picker is only on the folder transport.
+                    // Offering it to someone whose documents come from a relay
+                    // sends them to fix something that is not broken.
                     if model.transport == .folder {
                         Button("Choose Folder…") {
                             isChoosingFolder = true

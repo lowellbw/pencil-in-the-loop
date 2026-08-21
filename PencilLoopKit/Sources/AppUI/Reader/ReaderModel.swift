@@ -65,8 +65,13 @@ public final class ReaderModel {
     /// summoned (docs/01-design-principles.md § Specific choices).
     public private(set) var isToolPickerVisible = false
 
-    /// The page wash, read from `AppSettings` when the document opens.
+    /// The page wash, read from `AppSettings` when the document opens and
+    /// changed from the page itself (`setPageTint(_:environment:)`).
     public private(set) var pageTint: PageTint = .none
+
+    /// What a notebook's pages are ruled with, or `.plain` for anything that
+    /// did not come from `NoteCreator`. Only meaningful when `canAddPages`.
+    public private(set) var paper: PaperStyle = .plain
 
     /// Zero-based page the reader is on: restored on open, persisted as it
     /// changes.
@@ -151,6 +156,9 @@ public final class ReaderModel {
         }
         self.detail = detail
         self.currentPageIndex = ReaderModel.clamp(detail.lastReadPage, pageCount: detail.pageCount)
+        self.paper = detail.origin.kind == .note
+            ? NoteCreator().paper(forFolderNamed: detail.folderName)
+            : .plain
 
         let settings = await newEnvironment.settings.settings
         guard self.documentId == newDocumentId else { return }
@@ -263,9 +271,94 @@ public final class ReaderModel {
         await self.open(documentId: growing, environment: environment)
     }
 
-    /// Whether this document is one the app wrote and can therefore extend.
+    /// Whether this document is one the app wrote and can therefore extend or
+    /// re-rule.
     public var canAddPages: Bool {
         detail?.origin.kind == .note && isReady
+    }
+
+    /// Re-rules the open notebook and reopens it on the same page.
+    ///
+    /// The same order, and the same reasons, as `addPages(_:environment:)`:
+    /// PDFKit holds `document.pdf` open, so the reader closes first — which
+    /// flushes the debounced ink and the reading position — then the paper is
+    /// rendered again, then it reopens. Ink, comments and the reading position
+    /// survive, because the page count has not changed and `upsert` leaves them
+    /// alone when a source is regenerated (`NoteCreator.setPaper`).
+    public func setPaper(_ chosen: PaperStyle, environment: any AppEnvironment) async {
+        guard let changing = self.documentId, let detail = self.detail,
+              detail.origin.kind == .note, chosen != self.paper else { return }
+        let folderName = detail.folderName
+        let pageCount = detail.pageCount
+
+        await self.closeCurrent()
+        do {
+            let reruled = try await NoteCreator().setPaper(
+                chosen, forFolderNamed: folderName, pageCount: pageCount
+            )
+            _ = try await environment.store.upsert(reruled)
+            self.onDocumentChanged?()
+        } catch {
+            // The notebook is exactly as it was, so reopening below puts the
+            // reader back on it with the old ruling rather than nothing.
+            self.unavailableMessage = SyncFolderChoice.describe(error)
+        }
+        await self.open(documentId: changing, environment: environment)
+    }
+
+    /// Changes the page wash from the page it washes.
+    ///
+    /// Written through to `AppSettings` because the tint is a reading
+    /// preference rather than a property of one document — the next document
+    /// opens the way this one looks. It is set here, in the reader, because
+    /// this is the only screen where the difference between Cream and Sepia is
+    /// visible while it is being chosen.
+    public func setPageTint(_ chosen: PageTint, environment: any AppEnvironment) async {
+        guard chosen != self.pageTint else { return }
+        self.pageTint = chosen
+        var settings = await environment.settings.settings
+        settings.pageTint = chosen
+        do {
+            try await environment.settings.update(settings)
+        } catch {
+            ReaderLog.reader.error("The page tint could not be saved; it holds for this session.")
+        }
+    }
+
+    /// Renames the open document.
+    ///
+    /// Two writes, and both are needed. The store holds what the library shows;
+    /// `meta.json` holds what survives a re-ingest, and adding a page to a
+    /// notebook is a re-ingest — so a rename recorded in the store alone comes
+    /// back undone the next time somebody presses Add Pages
+    /// (Protocols.swift § DocumentStoring.setTitle).
+    ///
+    /// The folder name never changes. It is the identity every stroke, comment
+    /// and sent review is filed under.
+    ///
+    /// Any document can be renamed, not only a note — the field is the same
+    /// field. A document that is later *re-sent* arrives with its sender's
+    /// title again, because the sender's `meta.json` is the one that lands in
+    /// `inbox/`, and that is right: the rename was local and the document has
+    /// moved on.
+    ///
+    /// - Parameter title: whatever is in the field. Empty or whitespace is
+    ///   ignored rather than refused: a document with no name is a row nobody
+    ///   can find again, and the old name is a better answer than an error.
+    public func rename(to title: String, environment: any AppEnvironment) async {
+        guard let documentId = self.documentId, var detail = self.detail else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false, trimmed != detail.title else { return }
+        do {
+            try await environment.store.setTitle(trimmed, documentId: documentId)
+        } catch {
+            ReaderLog.reader.error("This document could not be renamed.")
+            return
+        }
+        NoteCreator().rename(to: trimmed, forFolderNamed: detail.folderName)
+        detail.title = trimmed
+        self.detail = detail
+        self.onDocumentChanged?()
     }
 
     private func closeCurrent() async {
@@ -287,9 +380,11 @@ public final class ReaderModel {
             // Nothing else tells the sidebar (§ Annotation).
             self.onDocumentChanged?()
         }
-
         // A newer document has taken the model over; everything below would
         // dismantle its state rather than this one's.
+        guard self.documentId == closing else { return }
+
+        await self.nameIfUnnamed()
         guard self.documentId == closing else { return }
 
         self.pageResolver.forgetOverlays()
@@ -305,6 +400,39 @@ public final class ReaderModel {
         // reopened — back to the library and straight in again — asks for the
         // same one. Leaving this set is a blank page on the second open.
         self.documentId = nil
+    }
+
+    /// Names an untitled note after the first sentence written in it.
+    ///
+    /// Runs when the note is closed, which is the moment the ink has been
+    /// flushed and the recogniser has had the whole session to read page one.
+    ///
+    /// **Silent, best-effort, and never in anybody's way.** A note with no
+    /// recognised handwriting — no recogniser in this build, a page of
+    /// diagrams, a recogniser that declined — keeps the name it has, and the
+    /// rename in the page's own menu is the answer to all of those. A note
+    /// somebody has already named is never touched
+    /// (`NoteAutoTitle.isUnnamed(_:untitled:)`).
+    private func nameIfUnnamed() async {
+        guard let environment = self.environment,
+              let documentId = self.documentId,
+              let detail = self.detail,
+              detail.origin.kind == .note,
+              NoteAutoTitle.isUnnamed(detail.title, untitled: NoteCreator.untitled) else { return }
+
+        // Read back rather than taken from `detail`: recognition runs off the
+        // main actor while the note is open and writes straight to the store,
+        // so the copy the reader loaded on open never has it.
+        guard let pages = try? await environment.store.pages(documentId: documentId) else { return }
+        let recognised = pages
+            .sorted { $0.pageIndex < $1.pageIndex }
+            .compactMap(\.recognisedInk)
+            .first { $0.isEmpty == false }
+        guard let recognised, let title = NoteAutoTitle.title(fromRecognisedInk: recognised) else { return }
+
+        try? await environment.store.setTitle(title, documentId: documentId)
+        NoteCreator().rename(to: title, forFolderNamed: detail.folderName)
+        self.onDocumentChanged?()
     }
 
     /// Accumulates reading time until the calling task is cancelled.

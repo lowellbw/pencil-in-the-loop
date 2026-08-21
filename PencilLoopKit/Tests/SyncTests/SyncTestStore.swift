@@ -129,6 +129,8 @@ actor SyncTestStore: DocumentStoring {
         stateChanges.append(StateChange(state: state, documentId: documentId))
     }
 
+    func setTitle(_ title: String, documentId: UUID) throws {}
+
     func setPinned(_ pinned: Bool, documentId: UUID) throws {}
 
     func setLastReadPage(_ pageIndex: Int, documentId: UUID) throws {}

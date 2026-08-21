@@ -220,6 +220,25 @@ public actor DocumentStore: DocumentStoring {
         try commit()
     }
 
+    /// Renames a document (Protocols.swift § DocumentStoring.setTitle).
+    ///
+    /// `folderName` is untouched: it is the identity every stroke, comment and
+    /// sent review is filed under, and renaming a note months later must not
+    /// orphan any of them. So a note called "Note" that becomes "Cutover plan"
+    /// still lives in `2026-08-21-note`, and that is correct rather than
+    /// untidy — the folder name has a date in it for the same reason.
+    ///
+    /// An empty or whitespace title is ignored rather than rejected: the caller
+    /// is a text field somebody has just cleared, and the recovery is to leave
+    /// the name alone rather than to show an error.
+    public func setTitle(_ title: String, documentId: UUID) throws {
+        let row = try requireDocument(id: documentId)
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false, row.title != trimmed else { return }
+        row.title = trimmed
+        try commit()
+    }
+
     /// Why the last attempt to ingest a folder failed, or nil when the last one
     /// succeeded or the folder is unknown.
     ///

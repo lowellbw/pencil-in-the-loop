@@ -38,6 +38,13 @@ public struct ReaderView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = ReaderModel()
 
+    /// Whether the rename field is up, and what is in it. Held here rather than
+    /// in the model because it is a field somebody is typing in, not a fact
+    /// about the document — the document's title only changes when Rename is
+    /// pressed.
+    @State private var isRenaming = false
+    @State private var draftTitle = ""
+
     /// - Parameters:
     ///   - environment: the one route to every dependency. Passed in rather than
     ///     read from the SwiftUI environment because the key that would carry it
@@ -117,6 +124,16 @@ public struct ReaderView: View {
                 await self.model.noteActive(phase == .active)
             }
         }
+        .alert("Rename", isPresented: self.$isRenaming) {
+            TextField("Title", text: self.$draftTitle)
+                .textInputAutocapitalization(.sentences)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                Task { await self.model.rename(to: self.draftTitle, environment: self.environment) }
+            }
+        } message: {
+            Text("What this is called in the library. The note keeps everything written in it.")
+        }
     }
 
     // MARK: - Layers
@@ -154,9 +171,13 @@ public struct ReaderView: View {
 
     // MARK: - Toolbar
 
-    /// Back, title, comment count, tool picker, Review (docs/02-spec.md § S2).
-    /// A standard `.toolbar`, not a hand-rolled bar
+    /// Back, title, comment count, the Page menu, tool picker, Review
+    /// (docs/02-spec.md § S2). A standard `.toolbar`, not a hand-rolled bar
     /// (docs/01-design-principles.md § 3).
+    ///
+    /// In the app's split view the way back is the library's own button, added
+    /// to this same bar from `LibraryView` — the selection belongs to the
+    /// sidebar. `onBack` is for a container that has no sidebar at all.
     /// How many sheets one press adds.
     ///
     /// The same number a new notebook starts with, so running out and pressing
@@ -184,22 +205,8 @@ public struct ReaderView: View {
                 .accessibilityLabel(self.commentCountLabel)
         }
 
-        // Only for a notebook. There is no sensible meaning to appending blank
-        // paper to a document somebody sent you, so the button is not there at
-        // all rather than there and refusing.
-        if self.model.canAddPages {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task {
-                        await self.model.addPages(
-                            ReaderView.pagesPerAddition, environment: self.environment
-                        )
-                    }
-                } label: {
-                    Label("Add Pages", systemImage: "plus.rectangle.on.rectangle")
-                }
-                .accessibilityLabel("Add \(ReaderView.pagesPerAddition) more pages")
-            }
+        ToolbarItem(placement: .topBarTrailing) {
+            self.pageMenu
         }
 
         ToolbarItem(placement: .topBarTrailing) {
@@ -229,6 +236,79 @@ public struct ReaderView: View {
             }
             .disabled(self.model.isReady == false)
         }
+    }
+
+    /// The settings that belong to the page you are looking at.
+    ///
+    /// ─── WHY THESE ARE HERE AND NOT IN SETTINGS ──────────────────────────────
+    /// The page tint lived in the Settings sheet, two taps and a screen away
+    /// from the page it tints, where choosing between Cream and Sepia meant
+    /// closing Settings to see what you had done. The paper a notebook is ruled
+    /// with was worse: it could only be chosen in the sheet that made the
+    /// notebook, before there was anything to look at, and never again.
+    ///
+    /// Both are about how the open page looks, so both are on it. The tint is
+    /// still one setting for the whole app — the next document opens the way
+    /// this one looks — and the ruling still belongs to the one notebook.
+    /// ─────────────────────────────────────────────────────────────────────────
+    private var pageMenu: some View {
+        Menu {
+            Button {
+                self.draftTitle = self.title
+                self.isRenaming = true
+            } label: {
+                Label("Rename…", systemImage: "pencil")
+            }
+
+            if self.model.canAddPages {
+                // Only for a notebook. There is no sensible meaning to
+                // re-ruling or appending blank paper to a document somebody
+                // sent you, so these are not there at all rather than there and
+                // refusing.
+                Picker("Paper", selection: self.paperBinding) {
+                    ForEach(PaperStyle.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                Button {
+                    Task {
+                        await self.model.addPages(
+                            ReaderView.pagesPerAddition, environment: self.environment
+                        )
+                    }
+                } label: {
+                    Label("Add \(ReaderView.pagesPerAddition) Pages", systemImage: "plus.rectangle.on.rectangle")
+                }
+            }
+
+            Picker("Page Tint", selection: self.tintBinding) {
+                ForEach(PageTint.allCases, id: \.self) { tint in
+                    Text(tint.displayName).tag(tint)
+                }
+            }
+        } label: {
+            Label("Page", systemImage: "textformat.size")
+        }
+        .disabled(self.model.isReady == false)
+        .accessibilityLabel("Page settings")
+    }
+
+    private var paperBinding: Binding<PaperStyle> {
+        Binding(
+            get: { self.model.paper },
+            set: { chosen in
+                Task { await self.model.setPaper(chosen, environment: self.environment) }
+            }
+        )
+    }
+
+    private var tintBinding: Binding<PageTint> {
+        Binding(
+            get: { self.model.pageTint },
+            set: { chosen in
+                Task { await self.model.setPageTint(chosen, environment: self.environment) }
+            }
+        )
     }
 
     // MARK: - Derived

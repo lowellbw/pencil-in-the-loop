@@ -34,17 +34,26 @@ every other section — a Sort control that visibly does not apply to the top of
 would be worse than any pin order it could impose. Pinning is not destructive and needs no
 confirmation; the same swipe un-does it.
 
-A **New** menu in the toolbar makes a document rather than waiting for one
-(`11-backlog.md` § B1): a blank notebook — plain, lined or grid paper, eight pages to
-start — or a document typed as markdown and rendered by the same path as anything sent.
-Both arrive as ordinary documents with `origin.kind = "note"`, so everything downstream
-treats them as it treats any other. Creating one selects it, which opens the reader on
-page one. The empty state offers a notebook too: with an empty library and no network it
-is the only useful thing there is to do.
+A **New Note** button in the toolbar makes a notebook rather than waiting for a document
+(`11-backlog.md` § B1). **One tap, and nothing to answer first**: lined paper, eight pages,
+no title, open on page one. It arrives as an ordinary document with
+`origin.kind = "note"`, so everything downstream treats it as it treats any other. The
+empty state offers the same one tap: with an empty library and no network it is the only
+useful thing there is to do.
 
-Neither can be edited afterwards. Re-rendering would re-paginate and strand every stroke
-already on the page — see `00-brief.md`, which scopes this as a review tool rather than an
-editor.
+The three questions that used to stand in front of it — title, ruling, page count — are
+all answered better from the page than before it, so that is where they are now
+(§ S2): the note names itself from its first recognised sentence or is renamed from the
+page menu, the ruling is changed while you are looking at it, and pages are added when you
+run out.
+
+A note's *text* still cannot be edited, and there is no longer a route that types one:
+markdown written in the app was a text box that produced a document nobody could change
+afterwards, which is a worse version of what an agent sends you. Rendered documents come
+from the loop; the app's own paper is for handwriting. Re-rendering a document's text
+would re-paginate it and strand every stroke on the page — see `00-brief.md`, which scopes
+this as a review tool rather than an editor. Re-*ruling* a notebook does not: blank pages
+have no reflow, so the pages come out identical and the ink stays exactly where it was.
 
 Pull-to-refresh is not a courtesy control. File coordination does not reliably see every
 change a provider makes in the background, so the sync layer polls and treats every
@@ -59,7 +68,22 @@ dimmed and non-openable rather than failing on tap.
 
 Full-bleed continuous-scroll PDF. Chrome auto-hides on scroll, returns on tap.
 
-**Toolbar (when visible):** back, title, comment count, tool-picker toggle, Review button.
+**Toolbar (when visible):** Library, title, comment count, a Page menu, tool-picker toggle,
+Review button.
+
+**The Page menu** holds what the open page looks like and what it is called: Rename, the
+page tint, and — for a notebook — the paper it is ruled with and Add Pages. The tint is
+still one setting for the whole app; it is chosen here because this is the only screen
+where the difference between Cream and Sepia is visible while it is being chosen. Re-ruling
+regenerates `document.pdf` at the same page count and keeps every stroke, comment and the
+reading position (`NoteCreator.setPaper`). Renaming changes the title in the library and in
+`meta.json`, and never the folder name, which is the identity everything is filed under.
+
+**A note names itself.** A notebook made in one tap is called "Note" until the handwriting
+recogniser has read page one, at which point its first sentence becomes its title — once,
+and only while nobody has named it. Recognition ships in iPadOS 27 and is an enhancement
+everywhere (`04-flows.md` § F3), so a build or a page without it leaves the note called
+"Note" and Rename is one tap away.
 
 **Interactions:**
 
@@ -143,9 +167,13 @@ Never a dead end.
 
 ## S6 · Settings
 
-Deliberately short. Sync folder (change), page tint, ink defaults, transcription language,
-"Send inked pages as images" default, and a Storage row showing cache size with a purge
-button. Nothing else.
+Deliberately short. Sync folder (change), ink defaults, transcription language, "Send inked
+pages as images" default, and a Storage row showing cache size with a purge button. Nothing
+else.
+
+Shorter by one row than it was: the page tint is chosen on the page it tints (§ S2). A
+setting whose whole point is how something looks does not belong two taps away from the
+thing it changes.
 
 ## Cross-cutting requirements
 

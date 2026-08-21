@@ -2,10 +2,11 @@
 //  SettingsView.swift
 //  AppUI · Settings
 //
-//  S6. Deliberately short (docs/02-spec.md § S6): sync folder, page tint, ink
-//  defaults, transcription language, the inked-pages default, and storage.
-//  Plus the one speech row docs/03-architecture.md § 4 asks for. Nothing else —
-//  the spec means "nothing else" literally.
+//  S6. Deliberately short (docs/02-spec.md § S6): sync folder, ink defaults,
+//  transcription language, the inked-pages default, and storage. Plus the one
+//  speech row docs/03-architecture.md § 4 asks for. Nothing else — the spec
+//  means "nothing else" literally, and one row has since left: the page tint
+//  is chosen on the page it tints.
 //
 
 import SwiftUI
@@ -44,7 +45,6 @@ public struct SettingsView: View {
         NavigationStack {
             List {
                 folderSection
-                readingSection
                 inkSection
                 dictationSection
                 reviewSection
@@ -146,15 +146,10 @@ public struct SettingsView: View {
         )
     }
 
-    private var readingSection: some View {
-        Section("Reading") {
-            Picker("Page Tint", selection: binding(\.pageTint)) {
-                ForEach(PageTint.allCases, id: \.self) { tint in
-                    Text(tint.displayName).tag(tint)
-                }
-            }
-        }
-    }
+    // The page tint is not here any more. It is on the page it tints
+    // (`ReaderView.pageMenu`), which is the only screen where the difference
+    // between Cream and Sepia can be seen while it is being chosen. It is still
+    // one setting for the whole app; it is only chosen somewhere better.
 
     private var inkSection: some View {
         Section("Ink") {

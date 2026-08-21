@@ -85,9 +85,10 @@ that command is real.
   ordinary ingest path. Deliberately **not** through the sync folder — a note has to be
   creatable offline with no folder adopted, and a private notebook is not correspondence
 - `OriginKind.note`, and `note.json` recording the ruling so appended pages match
-- A **New** menu in the library, and **Add Pages** in the reader for notebooks only
-- A typed route through `MarkdownPDFRenderer`, so a written note gets a source map and
-  real quoted anchors
+- A **New Note** button in the library — one tap, no sheet, no questions — and a **Page**
+  menu in the reader carrying Rename, the paper, the page tint and Add Pages
+- A note names itself from the first sentence the recogniser reads on page one, while
+  nobody has named it (`NoteAutoTitle`)
 
 Built after M6 rather than in sequence, because it needed nothing that was not already
 there. `11-backlog.md` § B1 has the reasoning and what was deliberately left out.

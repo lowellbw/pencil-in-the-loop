@@ -115,20 +115,83 @@ final class NoteCreatorTests: XCTestCase {
         XCTAssertEqual(creator.paper(forFolderNamed: "2026-08-19-something-sent"), .plain)
     }
 
-    // MARK: - A written document
+    // MARK: - One tap
 
-    func testATypedDocumentIsRenderedAndMapped() async throws {
-        let created = try await creator.createWrittenDocument(
-            title: "Auth refactor",
-            markdown: "# Auth refactor\n\nThe token is minted once and reused.\n",
-            existingFolderNames: []
+    /// The library's New button passes nothing at all, so the defaults are what
+    /// a new note actually is.
+    func testANotebookMadeWithNothingSpecifiedIsUsable() async throws {
+        let created = try await creator.createNotebook(existingFolderNames: [])
+
+        XCTAssertEqual(created.title, NoteCreator.untitled)
+        XCTAssertEqual(created.pageCount, NoteCreator.defaultPageCount)
+        XCTAssertEqual(creator.paper(forFolderNamed: created.folderName), NoteCreator.defaultPaper)
+        XCTAssertEqual(created.origin.kind, .note)
+    }
+
+    /// Untitled is now the ordinary case, so two notes made in one sitting all
+    /// want the same folder name.
+    func testTwoUntitledNotesInOneDayDoNotCollide() async throws {
+        let first = try await creator.createNotebook(existingFolderNames: [])
+        let second = try await creator.createNotebook(existingFolderNames: [first.folderName])
+        XCTAssertNotEqual(first.folderName, second.folderName)
+    }
+
+    // MARK: - Renaming
+
+    /// The store holds what the library shows; `meta.json` holds what survives
+    /// a re-ingest. Without the second, a rename comes back undone the next
+    /// time somebody adds paper — which is what `addPages` does below.
+    func testARenameSurvivesAddingPages() async throws {
+        let created = try await creator.createNotebook(existingFolderNames: [])
+        creator.rename(to: "Cutover plan", forFolderNamed: created.folderName)
+
+        let grown = try await creator.addPages(
+            2, toFolderNamed: created.folderName, currentPageCount: created.pageCount
+        )
+        XCTAssertEqual(grown.title, "Cutover plan")
+        XCTAssertEqual(grown.id, created.id)
+        XCTAssertEqual(grown.folderName, created.folderName, "the folder is the identity and does not move")
+    }
+
+    func testAnEmptyRenameLeavesTheNameAlone() async throws {
+        let created = try await creator.createNotebook(title: "Field notes", existingFolderNames: [])
+        creator.rename(to: "   ", forFolderNamed: created.folderName)
+
+        let grown = try await creator.addPages(
+            1, toFolderNamed: created.folderName, currentPageCount: created.pageCount
+        )
+        XCTAssertEqual(grown.title, "Field notes")
+    }
+
+    // MARK: - Re-ruling
+
+    func testChangingThePaperKeepsThePagesAndTheIdentity() async throws {
+        let created = try await creator.createNotebook(
+            title: "Squared", paper: .grid, pages: 3, existingFolderNames: []
+        )
+        let reruled = try await creator.setPaper(
+            .lined, forFolderNamed: created.folderName, pageCount: created.pageCount
         )
 
-        XCTAssertEqual(created.sourceFormat, .markdown)
-        XCTAssertEqual(created.origin.kind, .note)
-        XCTAssertNotNil(created.sourceMarkdownURL, "the markdown is kept beside the rendering")
-        XCTAssertNotNil(created.sourceMap, "a typed note gets quoted anchors, not rect-only ones")
-        XCTAssertTrue(created.extractedText.contains("minted once"))
+        XCTAssertEqual(reruled.pageCount, 3, "re-ruling is not a resize")
+        XCTAssertEqual(reruled.id, created.id, "a new id would orphan every stroke on the page")
+        XCTAssertEqual(reruled.folderName, created.folderName)
+        XCTAssertEqual(creator.paper(forFolderNamed: created.folderName), .lined)
+    }
+
+    /// Pages added after a re-ruling match what is on screen now, not what the
+    /// notebook was made with.
+    func testPagesAddedAfterAReRulingMatchTheNewPaper() async throws {
+        let created = try await creator.createNotebook(
+            title: "Squared", paper: .grid, pages: 1, existingFolderNames: []
+        )
+        _ = try await creator.setPaper(
+            .plain, forFolderNamed: created.folderName, pageCount: created.pageCount
+        )
+        _ = try await creator.addPages(
+            2, toFolderNamed: created.folderName, currentPageCount: 1
+        )
+        XCTAssertEqual(creator.paper(forFolderNamed: created.folderName), .plain)
     }
 
     // MARK: - Growing

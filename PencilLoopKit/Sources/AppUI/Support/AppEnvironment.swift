@@ -238,6 +238,22 @@ public actor PreviewDocumentStore: DocumentStoring {
 
     public func recordIngestFailure(folderName: String, reason: String) throws {}
 
+    /// Renames the row a preview holds, so a preview of the reader's rename
+    /// shows the new name rather than silently keeping the old one.
+    public func setTitle(_ title: String, documentId: UUID) throws {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return }
+        storedSummaries = storedSummaries.map { summary in
+            guard summary.id == documentId else { return summary }
+            var renamed = summary
+            renamed.title = trimmed
+            return renamed
+        }
+        if storedDetail?.id == documentId {
+            storedDetail?.title = trimmed
+        }
+    }
+
     public func setState(_ state: DocState, documentId: UUID) throws {}
 
     public func setPinned(_ pinned: Bool, documentId: UUID) throws {}

@@ -34,18 +34,35 @@ blank page instead of a rendered one.
   never drift relative to the rule lines, exactly as with document text. Ruled
   at 28pt and gridded at 5mm — a handwriting measure, not the 11pt text
   leading.
-- **Also shipped, beyond the original write-up:** a typed route. Markdown
-  written in the app goes through `MarkdownPDFRenderer`, so it arrives with a
-  source map and real quoted anchors rather than the rect-only ones blank paper
-  falls back to. And `PageGeometry.notebook` — `annotationFriendly`'s 140pt
-  marginalia gutter exists so handwriting can go beside somebody else's text;
-  on a blank page the handwriting *is* the text.
-- **Deliberately not shipped:** editing a note after it is made. Re-rendering
-  re-paginates, and `DocumentStore.apply` keeps the marks when the source is
-  regenerated, so every stroke would be stranded a line or two from where it
-  was written. `docs/00-brief.md` already says this is a review tool and not an
-  editor; authoring a new document is not editing an existing one, and the line
-  holds either way.
+- **Also shipped, beyond the original write-up:** `PageGeometry.notebook` —
+  `annotationFriendly`'s 140pt marginalia gutter exists so handwriting can go
+  beside somebody else's text; on a blank page the handwriting *is* the text.
+- **Shipped, then removed:** a typed route. Markdown written in the app went
+  through `MarkdownPDFRenderer`, so it arrived with a source map and real
+  quoted anchors. It went because of what it was in practice: a text box, in a
+  sheet, producing a document that could never be edited again — a worse
+  version of the thing an agent sends you, on the one screen whose job is to
+  get somebody onto paper quickly. Rendered documents come from the loop; the
+  app's own paper is for handwriting. Nothing in `Ingest` lost the ability —
+  `DocumentIngestor` renders markdown for every document that arrives — and if
+  the case comes back it will come back as "capture something typed", which is
+  a different feature with a different shape.
+- **Made one tap, later.** Creating a note asked three questions first: title,
+  paper, page count. All three have a good default and all three are easier to
+  answer once there is something on the page, so the sheet is gone. The button
+  makes the notebook and opens it; the ruling is changed from the page, pages
+  are added when you run out, and the title comes from the first recognised
+  sentence or from Rename in the page menu. The one thing that could not simply
+  move was re-ruling, and it turned out to be free: blank pages have no reflow,
+  so regenerating the paper at the same page count leaves every stroke where it
+  was (`NoteCreator.setPaper`).
+- **Deliberately not shipped:** editing a note's *text* after it is made.
+  Re-rendering text re-paginates, and `DocumentStore.apply` keeps the marks when
+  the source is regenerated, so every stroke would be stranded a line or two
+  from where it was written. `docs/00-brief.md` already says this is a review
+  tool and not an editor; authoring a new document is not editing an existing
+  one, and the line holds either way. Renaming and re-ruling are not this:
+  neither moves a single glyph on the page.
 - **Open question, answered:** a note is sent exactly as a review is. It has no
   `returnPath`, so the bundle lands in the relay's `outbox/` and the agent
   collects it with `list_reviews()` — which `docs/12-relay.md` § 4 had already
