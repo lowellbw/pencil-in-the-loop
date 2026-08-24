@@ -37,10 +37,18 @@ do §2 when you first want to run it on the iPad.
 
 **Do this before opening Xcode.**
 
-`.github/workflows/ios-build.yml` runs on every push. Its macOS job is the first real
-compiler this code has ever met, and it is a far better first read than Xcode is: it
-prints a complete, flat, greppable error list, in dependency order, with no editor state,
-no derived data and no signing in the way.
+`.github/workflows/ios-build.yml` — **at the root of the repository, not in this
+directory** — runs on every push that touches `pencil-in-the-loop/`. Its macOS job is the
+first real compiler this code has ever met, and it is a far better first read than Xcode
+is: it prints a complete, flat, greppable error list, in dependency order, with no editor
+state, no derived data and no signing in the way.
+
+The file sat at `pencil-in-the-loop/.github/workflows/` for the whole of Waves 0–3, which
+is the tidier-looking place and meant it never ran once: GitHub reads workflows only from
+the repository root, and one anywhere else is an inert text file. So this section
+described something that was not happening, and every milestone was written and merged
+without ever meeting a compiler. If the Actions tab is empty, that is the first thing to
+check.
 
 ```sh
 git push

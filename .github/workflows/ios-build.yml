@@ -4,12 +4,35 @@
 # CI is not a safety net here — it is the build. Push, read the log, and you have
 # a complete error list before Xcode is opened. Everything is therefore hard-fail:
 # a green tick that hid a compile error would be worse than useless.
+#
+# ─── WHY THIS FILE IS AT THE REPOSITORY ROOT ─────────────────────────────────
+# It lived at `pencil-in-the-loop/.github/workflows/`, next to the project it
+# builds, which reads as the tidier place and meant it had never run once.
+# GitHub only looks in the root `.github/workflows/`; a workflow anywhere else
+# is an inert text file. So `FirstBuild.md` § 1 — "push, then read CI" — was
+# describing something that was not happening, and every milestone in this repo
+# was written, reviewed and merged without ever meeting a compiler.
+#
+# The app is a subdirectory of a repository that holds other things, so every
+# path below is prefixed, and the triggers are scoped to that subdirectory: a
+# push that touches nothing in `pencil-in-the-loop/` has no reason to start a
+# macOS runner.
+# ─────────────────────────────────────────────────────────────────────────────
 
 name: iOS build
 
 on:
   push:
+    paths:
+      - 'pencil-in-the-loop/**'
+      - '.github/workflows/ios-build.yml'
   pull_request:
+    paths:
+      - 'pencil-in-the-loop/**'
+      - '.github/workflows/ios-build.yml'
+  # So a build can be asked for without an edit to provoke it — the first thing
+  # anyone wants after fixing a runner problem.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,7 +58,7 @@ jobs:
       # Fastest possible signal: this fails in seconds on a manifest error or a
       # dependency-resolution failure, before any target has been built.
       - name: Resolve package dependencies
-        working-directory: PencilLoopKit
+        working-directory: pencil-in-the-loop/PencilLoopKit
         run: swift package resolve
 
       # There is deliberately no host `swift build` step any more. It was the
@@ -48,7 +71,7 @@ jobs:
       # The package, built for iOS. Xcode synthesises a scheme for a package
       # directory, so this needs no project file either.
       - name: Build PencilLoopKit for iOS
-        working-directory: PencilLoopKit
+        working-directory: pencil-in-the-loop/PencilLoopKit
         run: |
           xcodebuild build \
             -scheme PencilLoopKit \
@@ -58,6 +81,7 @@ jobs:
       # The app and the embedded share extension. Code signing is off: the point
       # is compiler errors, and signing needs a team ID that is not in the repo.
       - name: Build the app
+        working-directory: pencil-in-the-loop
         run: |
           xcodebuild build \
             -project PencilLoop.xcodeproj \
@@ -76,7 +100,7 @@ jobs:
       # test action; `PencilLoopKit-Package` is the one SwiftPM synthesises for
       # the whole package, and is the only one that can run the tests.
       - name: Run package tests (Simulator)
-        working-directory: PencilLoopKit
+        working-directory: pencil-in-the-loop/PencilLoopKit
         run: |
           xcodebuild test \
             -scheme PencilLoopKit-Package \
@@ -101,4 +125,4 @@ jobs:
       # The lint suite is pure stdlib Python on purpose: it runs anywhere, and it
       # catches the project-file and plist mistakes that a compiler never sees.
       - name: Run project checks
-        run: make -C tooling check
+        run: make -C pencil-in-the-loop/tooling check
