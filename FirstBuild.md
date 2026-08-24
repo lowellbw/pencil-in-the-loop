@@ -46,9 +46,15 @@ state, no derived data and no signing in the way.
 The file sat at `pencil-in-the-loop/.github/workflows/` for the whole of Waves 0–3, which
 is the tidier-looking place and meant it never ran once: GitHub reads workflows only from
 the repository root, and one anywhere else is an inert text file. So this section
-described something that was not happening, and every milestone was written and merged
-without ever meeting a compiler. If the Actions tab is empty, that is the first thing to
-check.
+described a loop that was not running — the Mac builds behind § 3 happened, at somebody's
+desk, but nothing was checked on push. If the Actions tab is empty, that is the first
+thing to check.
+
+**The runner needs Xcode 26.** `macos-15` defaults to Xcode 16.4, which is Swift 6.1 and
+the iOS 18.5 SDK: `swift package resolve` stops in one second on `package is using Swift
+tools version 6.2.0 but the installed version is 6.1.0`, before anything is compiled. The
+job therefore runs on `macos-26`, selects the newest installed Xcode, and fails with a
+sentence rather than a compile error if the SDK it finds is older than 26.
 
 ```sh
 git push

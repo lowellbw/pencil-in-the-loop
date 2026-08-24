@@ -42,18 +42,43 @@ jobs:
 
   build:
     name: Build (macOS)
-    runs-on: macos-15
+    # `macos-15` defaults to Xcode 16.4 — Swift 6.1, iOS 18.5 SDK — and this
+    # package declares `swift-tools-version: 6.2` and an iOS 26.0 floor, so
+    # resolution stopped in one second before anything was compiled.
+    runs-on: macos-26
     continue-on-error: false
     timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
 
+      # Runner images carry several Xcodes and the default is not always the
+      # newest. Pick by version rather than trusting it, and print what was
+      # there — a toolchain surprise should be one legible line in the log.
+      - name: Select the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app || true
+          newest=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$newest" ]; then
+            sudo xcode-select -s "$newest/Contents/Developer"
+          fi
+
       - name: Show toolchain
         run: |
           xcodebuild -version
           swift --version
           xcrun --sdk iphoneos --show-sdk-version
+
+      # A wrong toolchain produces errors that read like code problems — a
+      # manifest that "will not parse", an SDK with "no member v26". Say which
+      # it is, once, here.
+      - name: Check the toolchain is new enough
+        run: |
+          sdk=$(xcrun --sdk iphoneos --show-sdk-version)
+          if [ "${sdk%%.*}" -lt 26 ]; then
+            echo "::error::This project needs the iOS 26 SDK — Config/Shared.xcconfig sets IPHONEOS_DEPLOYMENT_TARGET = 26.0 and PencilLoopKit/Package.swift declares swift-tools-version 6.2. This runner has the $sdk SDK. Use a runner image with Xcode 26."
+            exit 1
+          fi
 
       # Fastest possible signal: this fails in seconds on a manifest error or a
       # dependency-resolution failure, before any target has been built.
