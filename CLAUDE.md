@@ -20,12 +20,22 @@ Full spec in `docs/`. Read `docs/07-build-plan.md` to find the current milestone
    paths may show a spinner waiting on a request.
 2. **Always local.** Documents are downloaded in full and pinned into the app container
    on arrival. Never left living in a file provider, never evicted.
-3. **The files are the API.** The folder is the reference transport and needs no network
-   at all. The hosted relay (`docs/12-relay.md`) is an opt-in second transport that
-   carries exactly the same bytes — still no account, still no proprietary format,
-   because `meta.json`, `review.json` and `manifest.json` *are* the wire format on both.
-   See `docs/05-file-contracts.md` — those formats are a public contract, don't change
-   them casually.
+3. **The files are the API.** `meta.json`, `review.json` and `manifest.json` *are* the
+   wire format, on every transport — still no account, still no proprietary format. See
+   `docs/05-file-contracts.md`; those formats are a public contract, don't change them
+   casually.
+
+   Two transports carry those bytes. A build that ships pointed at a relay
+   (`Config/Local.xcconfig` → `RelayDefaults`) **uses it by default**, because the folder
+   needs a file provider configured at both ends and that is what stopped the loop running
+   at all. The folder is not deprecated and not going anywhere: it is fully supported, it
+   is still the path that needs no network and no uptime from anyone, and it is one tap
+   away in Settings. A build with no relay configured still starts there.
+
+   What is load-bearing is not which transport is default. It is that the files are the
+   whole contract, that nothing needs an account, and that the app keeps working when the
+   network does not — see `docs/11-backlog.md` § the relay, which made this distinction
+   before the default moved.
 4. **One mode.** Finger scrolls, Pencil draws (`drawingPolicy = .pencilOnly`). The user
    never switches tools to annotate.
 5. **Anchors are quoted text, never line numbers.** Documents get regenerated.

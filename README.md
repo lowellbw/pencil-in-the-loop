@@ -43,8 +43,9 @@ transport is the reference path and keeps working untouched.
 1. **Offline first.** Every feature except the initial sync and the send-back works on a
    plane. No network call is ever on the critical path of reading or annotating.
 2. **The files are the API.** No proprietary format. If a tool can write a file, it can
-   send you a document. The folder is the reference transport and works with no network
-   at all; the relay is an opt-in second transport carrying exactly the same bytes.
+   send you a document. A build that ships pointed at a relay uses it by default; the
+   folder is fully supported, is one tap away in Settings, and remains the path that
+   works with no network at all. Both carry exactly the same bytes.
 3. **One mode.** Finger scrolls, Pencil draws. The user never switches tools to annotate.
 4. **Anchors survive regeneration.** Comments attach to quoted text, never to line numbers.
 5. **Native, not branded.** See `docs/01-design-principles.md`. If a screen looks like it

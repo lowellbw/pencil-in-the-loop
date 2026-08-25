@@ -8,7 +8,8 @@ Claude Code and Codex without three integrations.
 Those files move two ways. **The folder is the reference transport** — a directory shared
 by whatever the user already uses, needing nothing installed and no network once a
 document has landed. Everything in this document is written against it, and it is
-unchanged. **The relay is an opt-in second transport**, added because a shared folder
+unchanged, and everything it describes is true on both. **The relay is the second
+transport and the default where a build ships pointed at one**, added because a shared folder
 needs a file provider configured on the Mac *and* the iPad, and where that is not true
 none of this runs at all. Its storage is the same `inbox/` and `outbox/` layout, served
 over HTTPS behind a shared token; it moves the same bytes and invents nothing. It is new

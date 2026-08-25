@@ -40,7 +40,7 @@ voice comments, and a one-tap return path to the originating conversation.
 | Voice → text | `SpeechAnalyzer` + `SpeechTranscriber` | Fully on-device once language assets download. No network on the critical path. |
 | Comment anchors | Quoted excerpt with context, never line numbers | Claude regenerates documents. Quoted strings still resolve; line numbers don't. Same principle as a diff-based edit tool. |
 | Transport | A user-chosen folder, watched | Works with iCloud Drive, Dropbox, or a git repo synced by Working Copy. No account, no per-tool integration. |
-| Second transport | A hosted relay, opt-in | Added because the folder needs a file provider configured at both ends, and that stopped the loop running at all. Same files, moved over HTTPS instead. The folder stays the reference path; see `12-relay.md`. |
+| Second transport | A hosted relay, the default where a build ships pointed at one | Added because the folder needs a file provider configured at both ends, and that stopped the loop running at all. Same files, moved over HTTPS instead. The folder is fully supported and stays the no-network path; see `12-relay.md`. |
 | Primary source | **Cowork, and it must be invisible** | Cowork already writes to connected folders on the desktop, so outbound needs no plumbing at all. A shipped skill sends anything substantial automatically — the user never asks. See `06-integrations.md`. |
 | Return path | Poke the originating session | See `06-integrations.md`. Genuinely lands in the same thread for both Cowork and Claude Code. |
 

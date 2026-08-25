@@ -11,10 +11,16 @@ it unchanged. `GET /v1/export.tar` produces a tarball you can untar into a Dropb
 and the folder transport picks up exactly where the relay left off. Migration in either
 direction is a `tar`.
 
-**It is opt-in and it is second.** The folder needs no network, no account and no
-uptime from anyone, and it stays the reference path. If the relay is down, a device that
-has already synced loses nothing: every document it holds is pinned in its own container
-and opens on a plane exactly as before.
+**It is second in the order it was built, and first in the order it is offered.** A build
+that ships pointed at a relay (`Config/Local.xcconfig` → `RelayDefaults`) adopts it without
+asking, because the folder needs a file provider configured at both ends and that is the
+friction this exists to remove.
+
+That does not demote what the folder is for. It needs no network, no account and no uptime
+from anyone, it is fully supported, and it is one tap away in Settings; a build with no
+relay configured still starts there. If the relay is down, a device that has already synced
+loses nothing either way: every document it holds is pinned in its own container and opens
+on a plane exactly as before.
 
 ---
 
