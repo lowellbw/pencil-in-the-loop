@@ -80,6 +80,52 @@ final class AppSettingsInkResetTests: XCTestCase {
         XCTAssertEqual(settings.transcriptionLocaleIdentifier, "fr-FR")
     }
 
+    /// **The transport above all.** The reset rewrites the whole blob to stamp
+    /// it, so anything it fails to carry across is silently lost on the launch
+    /// after an upgrade. Losing the transport would put a relay install back on
+    /// folder sync, where it would poll a folder that receives nothing and show
+    /// no error at all — documents would simply stop arriving.
+    func testTheResetKeepsTheRelayTransport() async throws {
+        var stored = AppSettings.initial
+        stored.ink = marker
+        stored.hasCompletedFirstRun = true
+        stored.syncTransport = .server
+        stored.serverBaseURLString = "https://relay-production-49cf.up.railway.app"
+        stored.serverDisplayName = "Pencil Loop relay"
+        stored.inkDefaultsGeneration = nil
+        try write(stored)
+
+        let settings = await AppSettingsStore(suiteName: suiteName).settings
+
+        XCTAssertEqual(settings.ink, .standard, "the ink did reset")
+        XCTAssertEqual(settings.transport, .server, "and the transport did not")
+        XCTAssertEqual(settings.syncTransport, .server)
+        XCTAssertEqual(
+            settings.serverBaseURLString,
+            "https://relay-production-49cf.up.railway.app"
+        )
+        XCTAssertEqual(settings.serverDisplayName, "Pencil Loop relay")
+    }
+
+    /// And the answer to "did you choose this?", for the same reason. Losing it
+    /// would let the shipped relay be adopted over a folder somebody picked on
+    /// purpose, on the launch after an upgrade
+    /// (`AppSettings.transportChosenByUser`).
+    func testTheResetKeepsAStatedTransportChoice() async throws {
+        var stored = AppSettings.initial
+        stored.ink = marker
+        stored.syncTransport = .folder
+        stored.transportChosenByUser = true
+        stored.inkDefaultsGeneration = nil
+        try write(stored)
+
+        let settings = await AppSettingsStore(suiteName: suiteName).settings
+
+        XCTAssertEqual(settings.ink, .standard, "the ink did reset")
+        XCTAssertEqual(settings.transportChosenByUser, true, "and the choice did not")
+        XCTAssertEqual(settings.transport, .folder)
+    }
+
     /// A blob already at this generation is somebody's deliberate choice.
     func testAStampedBlobKeepsItsInk() async throws {
         var stored = AppSettings.initial

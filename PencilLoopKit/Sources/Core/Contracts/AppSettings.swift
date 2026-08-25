@@ -52,6 +52,24 @@ public struct AppSettings: Codable, Sendable, Hashable {
     // Three Optionals, and they are Optional for a reason that is written out
     // in full above `init(from:)`. Read `transport`, never `syncTransport`.
 
+    /// Whether `syncTransport` is a choice the user made in Settings, or nil in
+    /// a blob written before anybody asked.
+    ///
+    /// **Recording an address is not the same as choosing a transport, and
+    /// conflating the two stranded a device.** `RootModel` adopts the relay a
+    /// build ships pointed at, once, for installs that predate it. It used to
+    /// decide "have they already been offered this?" by asking whether
+    /// `serverBaseURLString` was set — and an install that had the address
+    /// recorded while sitting on `.folder` therefore looked like somebody who
+    /// had considered the relay and declined it. It was not offered again, ever,
+    /// and documents stopped arriving with nothing on screen to say why.
+    ///
+    /// So the question is asked directly instead. Nil means nobody has chosen;
+    /// `true` is set only by the two Settings actions that are a choice
+    /// (`SettingsModel.useFolderTransport()`, `SettingsModel.adoptServer(...)`),
+    /// and a `true` here is respected for good.
+    public var transportChosenByUser: Bool?
+
     /// Which transport carries documents, or nil in a settings blob written
     /// before the relay existed — which is every blob on every device that
     /// installed the app before this build.
@@ -83,6 +101,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         sendInkedPagesAsImages: Bool = true,
         hasCompletedFirstRun: Bool = false,
         inkDefaultsGeneration: Int? = InkDefaults.generation,
+        transportChosenByUser: Bool? = nil,
         syncTransport: SyncTransport? = nil,
         serverBaseURLString: String? = nil,
         serverDisplayName: String? = nil
@@ -95,6 +114,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         self.sendInkedPagesAsImages = sendInkedPagesAsImages
         self.hasCompletedFirstRun = hasCompletedFirstRun
         self.inkDefaultsGeneration = inkDefaultsGeneration
+        self.transportChosenByUser = transportChosenByUser
         self.syncTransport = syncTransport
         self.serverBaseURLString = serverBaseURLString
         self.serverDisplayName = serverDisplayName
@@ -147,6 +167,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         case sendInkedPagesAsImages
         case hasCompletedFirstRun
         case inkDefaultsGeneration
+        case transportChosenByUser
         case syncTransport
         case serverBaseURLString
         case serverDisplayName
@@ -194,6 +215,12 @@ public struct AppSettings: Codable, Sendable, Hashable {
             // that is the signal the reset reads — so no `?? generation`
             // default here, which would erase exactly the case it detects.
             inkDefaultsGeneration: try container.decodeIfPresent(Int.self, forKey: .inkDefaultsGeneration),
+            // Nil is the answer for every install that predates the question,
+            // and it is the answer that lets the relay be offered once.
+            transportChosenByUser: try container.decodeIfPresent(
+                Bool.self,
+                forKey: .transportChosenByUser
+            ),
             syncTransport: try container.decodeIfPresent(SyncTransport.self, forKey: .syncTransport),
             serverBaseURLString: try container.decodeIfPresent(String.self, forKey: .serverBaseURLString),
             serverDisplayName: try container.decodeIfPresent(String.self, forKey: .serverDisplayName)

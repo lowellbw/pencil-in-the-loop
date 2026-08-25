@@ -170,7 +170,7 @@ public final class SettingsModel {
                 baseURL: url,
                 token: SyncServerChoice.cleaned(token: token)
             )
-            settings = await environment.settings.settings
+            try await recordTransportChoice()
             _ = try await environment.sync.refresh()
             statusMessage = nil
         } catch {
@@ -191,6 +191,9 @@ public final class SettingsModel {
                 return
             }
             updated.syncTransport = .folder
+            // Said out loud, so the shipped relay is not adopted over the top
+            // of it on the next launch (`AppSettings.transportChosenByUser`).
+            updated.transportChosenByUser = true
             try await environment.settings.update(updated)
             settings = updated
 
@@ -200,6 +203,19 @@ public final class SettingsModel {
         } catch {
             statusMessage = SyncFolderChoice.describe(error)
         }
+    }
+
+    /// Marks the transport now in force as the user's own choice.
+    ///
+    /// Only the two Settings actions call this. The relay a build ships pointed
+    /// at is adopted by `RootModel` without it, on purpose: a default that
+    /// claimed to be a choice could never be improved again
+    /// (`AppSettings.transportChosenByUser`).
+    private func recordTransportChoice() async throws {
+        var updated = await environment.settings.settings
+        updated.transportChosenByUser = true
+        try await environment.settings.update(updated)
+        settings = updated
     }
 
     /// Reports a problem the view saw before the model was involved — a picker

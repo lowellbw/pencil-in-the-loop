@@ -106,11 +106,21 @@ public final class RootModel {
         // screen, and every improvement to the default would otherwise reach
         // only people who have never opened the app.
         //
-        // Fires once: adopting sets `serverBaseURLString`, and this asks for
-        // nil. Somebody who afterwards chooses the folder in Settings keeps
-        // that choice, because the address stays recorded either way.
+        // ─── WHY THIS ASKS ABOUT A CHOICE, NOT AN ADDRESS ────────────────────
+        // It used to ask whether `serverBaseURLString` was nil, on the reasoning
+        // that an address could only be there because the relay had been offered
+        // and considered. That is not true, and a device proved it: the address
+        // was recorded while the transport sat on `.folder`, so this read it as
+        // a decision that had been made and declined to act — permanently.
+        // Documents stopped arriving and nothing on screen could say why, since
+        // from the app's point of view nothing was wrong.
+        //
+        // So it asks the question it actually means. `transportChosenByUser` is
+        // set only by the two Settings actions that are a choice, so nil means
+        // nobody has decided and the shipped default may still speak.
         if settings.hasCompletedFirstRun,
-           settings.serverBaseURLString == nil,
+           settings.transportChosenByUser != true,
+           settings.transport != .server,
            RelayDefaults.isConfigured,
            let baseURL = RelayDefaults.baseURL,
            let token = RelayDefaults.token {
