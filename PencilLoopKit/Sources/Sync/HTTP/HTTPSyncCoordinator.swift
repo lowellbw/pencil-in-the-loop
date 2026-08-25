@@ -54,6 +54,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     private let pinner: RemoteDocumentPinner
     private let cursors: SyncCursorStore
     private let queue: OutboxQueue
+    private let staging: RelayStagingUploader
     private let pollInterval: TimeInterval
 
     private var isStarted = false
@@ -84,6 +85,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         pinner: RemoteDocumentPinner? = nil,
         cursors: SyncCursorStore = SyncCursorStore(),
         queue: OutboxQueue = OutboxQueue(rootURL: HTTPSyncCoordinator.defaultQueueRootURL()),
+        staging: RelayStagingUploader? = nil,
         pollInterval: TimeInterval = 15
     ) {
         self.client = client
@@ -92,6 +94,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         self.pinner = pinner ?? RemoteDocumentPinner(client: client)
         self.cursors = cursors
         self.queue = queue
+        self.staging = staging ?? RelayStagingUploader(client: client)
         self.pollInterval = pollInterval
     }
 
@@ -234,6 +237,15 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
 
     private func scanOnce(fromStart: Bool) async throws -> Int {
         await flushQueue()
+
+        // Anything the share extension left in the App Group, on its way up.
+        // The folder coordinator does this at the same point in its own scan
+        // (`SyncCoordinator.scanOnce`); without it, sharing into the app is a
+        // silent no-op on this transport (`RelayStagingUploader`).
+        //
+        // Before the feed is read, so that something shared a moment ago comes
+        // back down in this same pass rather than the next one.
+        await staging.importAndUpload()
 
         let since = fromStart ? nil : cursors.cursor(forBaseURL: client.baseURL, epoch: nil)
         let page: SyncServerClient.ChangePage
