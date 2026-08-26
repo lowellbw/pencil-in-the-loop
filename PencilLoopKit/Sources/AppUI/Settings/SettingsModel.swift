@@ -125,12 +125,31 @@ public final class SettingsModel {
         do {
             let freed = try await environment.store.purgeArchived()
             storageBytes = try await environment.store.storageBytes()
+            await pruneGroups()
             statusMessage = freed == 0
                 ? "Nothing to remove"
                 : freed.formatted(.byteCount(style: .file)) + " removed"
         } catch {
             statusMessage = SyncFolderChoice.describe(error)
         }
+    }
+
+    /// Drops group assignments for documents the purge has just removed.
+    ///
+    /// **The one place this happens, and it belongs here rather than on the
+    /// Library's load.** `knownFolderNames()` includes archived documents, so
+    /// archiving keeps a group and purging drops it, which is the behaviour the
+    /// two actions promise everywhere else. Pruning against the rows the Library
+    /// has fetched would be wrong in a way that is hard to see: that set is
+    /// filtered by the search text, so it would un-group everything the current
+    /// search did not match.
+    ///
+    /// Silent on failure. An assignment for a document that no longer exists
+    /// draws no section and costs a few dozen bytes, so it is not worth a
+    /// sentence in place of the one saying what was actually freed.
+    private func pruneGroups() async {
+        guard let kept = try? await environment.store.knownFolderNames() else { return }
+        try? await environment.groups.pruneGroups(keeping: kept)
     }
 
     /// Adopts a folder the user picked in Settings, and re-reads what changed.

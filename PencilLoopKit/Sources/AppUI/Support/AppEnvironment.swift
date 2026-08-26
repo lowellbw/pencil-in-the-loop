@@ -86,6 +86,15 @@ public protocol AppEnvironment: Sendable {
     /// Persisted user settings (docs/02-spec.md § S6).
     var settings: any SettingsStoring { get }
 
+    /// Which group each document is filed under (docs/02-spec.md § S1).
+    ///
+    /// The same object as `settings` in the live app — one actor wearing two
+    /// faces, because group assignments and everything else in Settings share
+    /// one blob and must share one writer. Separate here so that a screen which
+    /// files a document is not handed the whole of the user's configuration to
+    /// write one string.
+    var groups: any DocumentGrouping { get }
+
     /// Security-scoped access to the user's sync folder.
     ///
     /// Here because two screens need `prepareFolder(at:)` and there was no
@@ -152,6 +161,7 @@ public struct PreviewEnvironment: AppEnvironment {
     public let bundleBuilder: any ReviewBundleBuilding
     public let returnPathResolver: any ReturnPathResolving
     public let settings: any SettingsStoring
+    public let groups: any DocumentGrouping
     public let folderAccess: any FolderAccessing
 
     /// - Parameters:
@@ -172,7 +182,11 @@ public struct PreviewEnvironment: AppEnvironment {
         self.corrector = PreviewTranscriptCorrector()
         self.bundleBuilder = PreviewReviewBundleBuilder()
         self.returnPathResolver = PreviewReturnPathResolver()
-        self.settings = PreviewSettingsStore(settings: settings)
+        // One store, handed out twice, exactly as the live environment does it —
+        // so a preview that files a document sees the change in `settings` too.
+        let settingsStore = PreviewSettingsStore(settings: settings)
+        self.settings = settingsStore
+        self.groups = settingsStore
         self.folderAccess = PreviewFolderAccess()
     }
 
@@ -445,7 +459,7 @@ public struct PreviewReturnPathResolver: ReturnPathResolving {
 }
 
 /// Settings held in memory for the length of a preview.
-public actor PreviewSettingsStore: SettingsStoring {
+public actor PreviewSettingsStore: SettingsStoring, DocumentGrouping {
 
     public private(set) var settings: AppSettings
 
@@ -456,9 +470,51 @@ public actor PreviewSettingsStore: SettingsStoring {
     public func update(_ settings: AppSettings) throws {
         self.settings = settings
     }
+
+    // MARK: - DocumentGrouping
+
+    public func groups() -> AppSettings.DocumentGroups {
+        settings.groups
+    }
+
+    public func setGroupName(_ name: String?, forFolderName folderName: String) throws {
+        settings.documentGroups = settings.groups.setting(name, forFolderName: folderName)
+    }
+
+    public func adoptGroupName(_ name: String?, forFolderName folderName: String) throws {
+        settings.documentGroups = settings.groups.adopting(name, forFolderName: folderName)
+    }
+
+    public func renameGroup(_ name: String, to newName: String) throws {
+        settings.documentGroups = settings.groups.renaming(name, to: newName)
+    }
+
+    public func pruneGroups(keeping folderNames: Set<String>) throws {
+        settings.documentGroups = settings.groups.pruned(keeping: folderNames)
+    }
 }
 
 // MARK: - Sample data
+
+extension AppSettings {
+
+    /// Settings whose group map files two of `DocumentSummary.previewSamples`
+    /// together and leaves the rest ungrouped.
+    ///
+    /// Here for the same reason one sample is pinned: a group section with
+    /// nothing in it does not draw at all (`LibraryView.groupSectionView`), so
+    /// without this there is nothing to preview. Two in one group and one
+    /// outside it is the smallest arrangement that shows both a group section
+    /// and the Ungrouped residue.
+    public static var previewGrouped: AppSettings {
+        var settings = AppSettings.initial
+        settings.documentGroups = AppSettings.DocumentGroups(assignments: [
+            "2026-08-17-attention-is-all-you-need": "Attention Papers",
+            "2026-08-18-auth-refactor-plan": "Attention Papers"
+        ])
+        return settings
+    }
+}
 
 extension DocumentSummary {
 

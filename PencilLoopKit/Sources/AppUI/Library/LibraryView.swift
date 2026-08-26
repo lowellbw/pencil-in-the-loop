@@ -56,6 +56,15 @@ public struct LibraryView<Detail: View>: View {
     /// button twice. Two taps used to mean two notebooks.
     @State private var isCreatingNote = false
 
+    /// The group being named or renamed, or nil. One piece of state rather than
+    /// a bool and a payload, as `creating` is.
+    @State private var naming: GroupNameSheet.Mode?
+
+    /// Which kind of document the New menu is making, and therefore whether
+    /// the sheet is up at all. One piece of state rather than a bool and a
+    /// kind, which cannot then disagree.
+    @State private var creating: NoteCreationView.Kind?
+
     /// - Parameters:
     ///   - environment: the one route to every dependency, the folder picker's
     ///     `folderAccess` included.
@@ -168,8 +177,14 @@ public struct LibraryView<Detail: View>: View {
     private var sidebar: some View {
         List(selection: $selection) {
             pinnedSection
-            ForEach(DocState.librarySections, id: \.self) { state in
-                sectionView(for: state)
+            if model.grouping == .status {
+                ForEach(DocState.librarySections, id: \.self) { state in
+                    sectionView(for: state)
+                }
+            } else {
+                ForEach(model.sections) { section in
+                    groupSectionView(for: section)
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -183,6 +198,9 @@ public struct LibraryView<Detail: View>: View {
         }
         .safeAreaInset(edge: .bottom) {
             statusLine
+        }
+        .sheet(item: $naming) { mode in
+            GroupNameSheet(mode: mode, model: model)
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -267,6 +285,38 @@ public struct LibraryView<Detail: View>: View {
         }
     }
 
+    /// One group's rows, or the Ungrouped residue.
+    ///
+    /// Absent rather than empty, like every other section here: a group whose
+    /// rows the search filtered out is not a heading worth keeping on screen.
+    ///
+    /// The header carries the rename, which is where Files and Photos put it. An
+    /// Ungrouped header carries nothing, because there is no group there to
+    /// rename.
+    @ViewBuilder private func groupSectionView(for section: LibraryModel.GroupSection) -> some View {
+        if section.rows.isEmpty == false {
+            Section {
+                ForEach(section.rows) { summary in
+                    row(for: summary)
+                }
+            } header: {
+                if let name = section.name {
+                    Text(name)
+                        .contextMenu {
+                            Button {
+                                naming = .rename(current: name)
+                            } label: {
+                                Label("Rename Group…", systemImage: "pencil")
+                            }
+                        }
+                        .accessibilityHint("Touch and hold to rename this group")
+                } else {
+                    Text(section.displayName)
+                }
+            }
+        }
+    }
+
     /// One row, wherever it is drawn.
     ///
     /// The Pinned section and the state sections are the same rows in a
@@ -297,6 +347,55 @@ public struct LibraryView<Detail: View>: View {
                     Label("Archive", systemImage: "archivebox")
                 }
             }
+            .contextMenu {
+                groupMenu(for: summary)
+            }
+    }
+
+    /// Filing one document, from a touch-and-hold.
+    ///
+    /// **Not a third swipe action, because there is no third edge** — pin is on
+    /// the leading one and archive on the trailing — and not a new gesture,
+    /// which docs/01-design-principles.md § 5 rules out. A context menu is what
+    /// Files, Mail and Photos use for exactly this, it is invisible until it is
+    /// asked for so it costs the row no chrome (§ 6), and it is the only one of
+    /// the three that can hold a list of names.
+    ///
+    /// The menu offers every group in the library, not only the ones the current
+    /// search left on screen — see `LibraryModel.groupNames`.
+    @ViewBuilder private func groupMenu(for summary: DocumentSummary) -> some View {
+        Menu {
+            ForEach(model.groupNames, id: \.self) { name in
+                Button {
+                    Task { await self.model.setGroupName(name, forFolderName: summary.folderName) }
+                } label: {
+                    // A checkmark rather than a disabled row: the current group
+                    // is worth naming, and tapping it again costs nothing.
+                    if summary.groupName == name {
+                        Label(name, systemImage: "checkmark")
+                    } else {
+                        Text(name)
+                    }
+                }
+            }
+            if model.groupNames.isEmpty == false {
+                Divider()
+            }
+            Button {
+                naming = .create(folderName: summary.folderName)
+            } label: {
+                Label("New Group…", systemImage: "plus")
+            }
+            if summary.groupName != nil {
+                Button(role: .destructive) {
+                    Task { await self.model.setGroupName(nil, forFolderName: summary.folderName) }
+                } label: {
+                    Label("Remove from Group", systemImage: "minus.circle")
+                }
+            }
+        } label: {
+            Label("Group", systemImage: "folder")
+        }
     }
 
     /// Making a note rather than waiting for a document to arrive.
@@ -342,16 +441,28 @@ public struct LibraryView<Detail: View>: View {
         }
     }
 
+    /// Sort and Group By, in one menu.
+    ///
+    /// Two labelled pickers in the menu the toolbar already has, rather than a
+    /// fourth toolbar item — the column is narrow and a fourth control crowds
+    /// the title out (`newMenu` says the same thing about the third). It is also
+    /// the shape Files and Photos use, which is the test
+    /// docs/01-design-principles.md § 3 sets.
     private var sortMenu: some View {
         Menu {
             Picker("Sort By", selection: $model.sort) {
                 Text("Date Added").tag(LibrarySort.dateAdded)
                 Text("Title").tag(LibrarySort.title)
             }
+            Divider()
+            Picker("Group By", selection: $model.grouping) {
+                Text("Status").tag(LibraryGrouping.status)
+                Text("Group").tag(LibraryGrouping.group)
+            }
         } label: {
             Label("Sort", systemImage: "arrow.up.arrow.down")
         }
-        .accessibilityLabel("Sort")
+        .accessibilityLabel("Sort and Group")
     }
 
     /// "No documents" in secondary label colour, a way to start writing, and
@@ -418,6 +529,18 @@ public struct LibraryView<Detail: View>: View {
 #Preview("Library") {
     LibraryView(
         environment: PreviewEnvironment(summaries: DocumentSummary.previewSamples)
+    ) { summary in
+        Text(summary.title)
+            .font(.body)
+    }
+}
+
+#Preview("Grouped") {
+    LibraryView(
+        environment: PreviewEnvironment(
+            summaries: DocumentSummary.previewSamples,
+            settings: .previewGrouped
+        )
     ) { summary in
         Text(summary.title)
             .font(.body)

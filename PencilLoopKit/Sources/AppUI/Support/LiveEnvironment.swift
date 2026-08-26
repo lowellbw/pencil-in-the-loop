@@ -86,6 +86,11 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
     /// on `SettingsStoring`.
     public let settingsStore: AppSettingsStore
 
+    /// The same object as `settings`, narrowed to the grouping half of what it
+    /// does. One actor rather than two because both halves write the same
+    /// `UserDefaults` blob (`AppSettingsStore`).
+    public var groups: any DocumentGrouping { settingsStore }
+
     /// The folder access, concretely. `SyncCoordinator` takes this type rather
     /// than `any FolderAccessing`: it opens a security scope in one method and
     /// closes it in another, which the protocol's scoped `withAccess` cannot
@@ -151,7 +156,8 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
             folder: folder,
             store: store,
             ingester: DocumentIngestor(),
-            access: syncFolderAccess
+            access: syncFolderAccess,
+            groups: settingsStore
         )
         await gateway.attach(coordinator)
         await gateway.start()
@@ -204,7 +210,8 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
         let coordinator = HTTPSyncCoordinator(
             client: SyncServerClient(baseURL: baseURL, token: token),
             store: store,
-            ingester: DocumentIngestor()
+            ingester: DocumentIngestor(),
+            groups: settingsStore
         )
         await gateway.attach(coordinator)
         await gateway.start()

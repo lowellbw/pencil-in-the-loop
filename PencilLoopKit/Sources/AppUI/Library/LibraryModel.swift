@@ -37,6 +37,13 @@ public final class LibraryModel {
     /// (DTOs.swift § LibraryQuery).
     public var sort: LibrarySort = .dateAdded
 
+    /// Status sections, or one section per group (docs/02-spec.md § S1).
+    ///
+    /// **Not part of `query`, and deliberately absent from `reloadKey`.** Both
+    /// sectionings are built in the same pass over the same fetched rows, so
+    /// switching this is a re-render and costs no round trip to the store.
+    public var grouping: LibraryGrouping = .status
+
     /// False until the first load finishes, so the empty state does not flash
     /// before the rows arrive.
     public private(set) var isLoaded = false
@@ -52,6 +59,19 @@ public final class LibraryModel {
 
     private var grouped: [DocState: [DocumentSummary]] = [:]
     private var pinnedRows: [DocumentSummary] = []
+    private var groupSections: [GroupSection] = []
+
+    /// Every group in use, whether or not the current search left a row in it.
+    ///
+    /// Read from the settings store rather than derived from `rows`, because
+    /// `rows` is filtered by the search text and a Group menu that shrank while
+    /// the user typed would hide the group they were looking for.
+    private var allGroupNames: [String] = []
+
+    /// `folderName` to group name, as of the last load. The rows the store
+    /// returns do not carry this — see `DocumentSummary.groupName`.
+    private var groupsByFolderName: [String: String] = [:]
+
     private let environment: any AppEnvironment
 
     public init(environment: any AppEnvironment) {
@@ -75,6 +95,26 @@ public final class LibraryModel {
         )
     }
 
+    /// One section of the sidebar in `.group` mode.
+    ///
+    /// A nested type because it means nothing outside this model: the view asks
+    /// for `sections` and draws what it is given.
+    public struct GroupSection: Identifiable, Hashable, Sendable {
+
+        /// The group's name, or nil for Ungrouped — which is a place rather
+        /// than a group, and is why this is not just a `String`.
+        public let name: String?
+
+        public let rows: [DocumentSummary]
+
+        /// A name can never collide with the Ungrouped id: a group name with a
+        /// unit separator in it does not survive `DocumentGroups.normalised`.
+        public var id: String { name ?? "\u{1F}ungrouped" }
+
+        /// What the section header says.
+        public var displayName: String { name ?? "Ungrouped" }
+    }
+
     /// The rows of one section, in the order the store returned them.
     ///
     /// Pinned documents are **not** here. They are drawn once, in the Pinned
@@ -93,6 +133,25 @@ public final class LibraryModel {
         pinnedRows
     }
 
+    /// The group sections, alphabetically, with Ungrouped last.
+    ///
+    /// Alphabetically because a name the user chose has no other stable order,
+    /// and Ungrouped last because it is the residue rather than a group. Rows
+    /// *within* every section still obey the sort menu — grouping is a place,
+    /// not a sort, which is the rule the Pinned section already follows
+    /// (docs/02-spec.md § S1).
+    ///
+    /// A group whose every row was filtered out by the search does not appear,
+    /// for the same reason an empty state section does not.
+    public var sections: [GroupSection] {
+        groupSections
+    }
+
+    /// Every group in use, for the row's Group menu. Empty until the first load.
+    public var groupNames: [String] {
+        allGroupNames
+    }
+
     /// The selected row, if the selection still names one.
     public func summary(id: UUID?) -> DocumentSummary? {
         guard let id else { return nil }
@@ -106,6 +165,9 @@ public final class LibraryModel {
     /// than a stale one.
     public func load() async {
         transport = await environment.settings.settings.transport
+        let filed = await environment.groups.groups()
+        groupsByFolderName = filed.assignments
+        allGroupNames = filed.sortedNames
         do {
             let fetched = try await environment.store.summaries(query)
             apply(fetched)
@@ -166,6 +228,49 @@ public final class LibraryModel {
         } catch {
             statusMessage = SyncFolderChoice.describe(error)
         }
+    }
+
+    /// Files a document into a group, or takes it out of one with nil
+    /// (docs/02-spec.md § S1).
+    ///
+    /// Re-sections from the rows already in hand rather than re-reading the
+    /// store, for the same reason `setPinned` does: the assignment is a local
+    /// fact and the list is already correct for the current query, so a round
+    /// trip would only make the row jump a frame later than the finger that
+    /// moved it.
+    ///
+    /// The name the store settles on may not be the name that was asked for — a
+    /// spelling matching a group already in use joins that group under the
+    /// spelling on screen — so the new map is read back rather than assumed.
+    public func setGroupName(_ name: String?, forFolderName folderName: String) async {
+        do {
+            try await environment.groups.setGroupName(name, forFolderName: folderName)
+            await reapplyGroups()
+        } catch {
+            statusMessage = SyncFolderChoice.describe(error)
+        }
+    }
+
+    /// Renames a group, moving every document filed under it.
+    ///
+    /// Renaming onto a name already in use merges the two — see
+    /// `DocumentGrouping.renameGroup(_:to:)`, which explains why that is the
+    /// only coherent answer.
+    public func renameGroup(_ name: String, to newName: String) async {
+        do {
+            try await environment.groups.renameGroup(name, to: newName)
+            await reapplyGroups()
+        } catch {
+            statusMessage = SyncFolderChoice.describe(error)
+        }
+    }
+
+    /// Re-reads the map and re-sections, without re-fetching.
+    private func reapplyGroups() async {
+        let filed = await environment.groups.groups()
+        groupsByFolderName = filed.assignments
+        allGroupNames = filed.sortedNames
+        apply(rows)
     }
 
     // MARK: - Making a document
@@ -246,17 +351,35 @@ public final class LibraryModel {
     /// leave the list like anything else rather than becoming the one archived
     /// document still on screen.
     private func apply(_ fetched: [DocumentSummary]) {
-        rows = fetched
+        let decorated = fetched.map { row -> DocumentSummary in
+            var updated = row
+            updated.groupName = self.groupsByFolderName[row.folderName]
+            return updated
+        }
+        rows = decorated
         var sections: [DocState: [DocumentSummary]] = [:]
         var pinned: [DocumentSummary] = []
-        for summary in fetched where summary.state != .archived {
-            if summary.isPinned {
+        var byGroup: [String: [DocumentSummary]] = [:]
+        var ungrouped: [DocumentSummary] = []
+        for summary in decorated where summary.state != .archived {
+            // The invariant that made Pinned work holds in both modes and for
+            // the same reason: a pinned row is drawn in Pinned and nowhere else.
+            guard summary.isPinned == false else {
                 pinned.append(summary)
+                continue
+            }
+            sections[summary.state, default: []].append(summary)
+            if let name = summary.groupName {
+                byGroup[name, default: []].append(summary)
             } else {
-                sections[summary.state, default: []].append(summary)
+                ungrouped.append(summary)
             }
         }
         grouped = sections
         pinnedRows = pinned
+        let named = byGroup.keys
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            .map { GroupSection(name: $0, rows: byGroup[$0] ?? []) }
+        groupSections = named + (ungrouped.isEmpty ? [] : [GroupSection(name: nil, rows: ungrouped)])
     }
 }
