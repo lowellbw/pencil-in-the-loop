@@ -57,6 +57,9 @@ public enum DocumentContainer {
     /// Where pinned document folders live, one directory per document.
     public static let documentsDirectoryName = "Documents"
 
+    /// Where voice clips wait for a better transcript.
+    public static let clipsDirectoryName = "Clips"
+
     /// `Application Support/PencilLoop`, created if absent.
     ///
     /// Application Support rather than Caches on purpose: Caches is exactly the
@@ -77,6 +80,23 @@ public enum DocumentContainer {
     /// records every path relative to it.
     public static func documentsRoot() -> URL {
         let root = containerRoot().appendingPathComponent(documentsDirectoryName, isDirectory: true)
+        ensureDirectory(root)
+        return root
+    }
+
+    /// `Application Support/PencilLoop/Clips`, created if absent.
+    ///
+    /// One recording per voice comment, kept until a better transcript has been
+    /// made from it (notes/pencil-loop-cloud-dictation.md). The directory is
+    /// also the upgrade queue: a clip and its sidecar being on disk *is* the
+    /// pending work, so the queue survives app kills, reboots and sync gaps
+    /// without a database to keep in step with it.
+    ///
+    /// Application Support rather than Caches for the same reason the documents
+    /// root is: the system may empty Caches, and a clip emptied before its
+    /// upgrade is a comment that never gets better.
+    public static func clipsRoot() -> URL {
+        let root = containerRoot().appendingPathComponent(clipsDirectoryName, isDirectory: true)
         ensureDirectory(root)
         return root
     }

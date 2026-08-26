@@ -12,6 +12,7 @@ import Foundation
 import CoreGraphics
 import Core
 import Annotate
+import Sync
 
 /// One document's comment capture: the gesture, the popover, the recording, the
 /// markers.
@@ -125,6 +126,14 @@ public final class CommentCaptureModel {
         case toggle
     }
     private var streamTask: Task<Void, Never>?
+
+    /// The queue a finished recording is filed in, so a better transcript can
+    /// be made from it later (notes/pencil-loop-cloud-dictation.md).
+    private let clips = VoiceClipStore()
+
+    /// The name the recording in progress is being written under. Renamed to
+    /// the comment's own id once there is one.
+    private var clipRecordingId: UUID?
     private var stopTask: Task<Void, Never>?
     private var prewarmTask: Task<Void, Never>?
     private var termsTask: Task<[String], Never>?
@@ -633,7 +642,15 @@ public final class CommentCaptureModel {
     private func startTranscribing() {
         let transcriber = environment.transcriber
         let contextualTerms = terms
+        // The clip is named for the comment it becomes, and that id does not
+        // exist until the comment is saved — so the recording gets one of its
+        // own and the file is renamed on save. A recording that is never saved
+        // leaves audio with no sidecar, which the queue's sweep tidies.
+        let recordingId = UUID()
+        self.clipRecordingId = recordingId
+        let destination = clips.audioURL(forCommentId: recordingId)
         streamTask?.cancel()
+        Task { await transcriber.setClipDestination(destination) }
         streamTask = Task { [weak self] in
             do {
                 for try await value in transcriber.transcribe(contextualTerms: contextualTerms) {
@@ -699,6 +716,7 @@ public final class CommentCaptureModel {
             )
             do {
                 let saved = try await store.addComment(draft, documentId: identifier)
+                await self.queueClip(forCommentId: saved.id, draft: resolved, source: source)
                 self.comments = Self.inDocumentOrder(self.comments + [saved])
                 CommentHaptics.commentSaved()
                 self.close()
@@ -745,6 +763,40 @@ public final class CommentCaptureModel {
             let extracted = await task.value
             self?.terms = extracted
         }
+    }
+
+    /// Files the recording that became this comment, so it can be upgraded.
+    ///
+    /// **Silent throughout, and one-directional.** The comment is already saved
+    /// by the time this runs; a clip that cannot be filed costs a later
+    /// transcript and never the words on screen. Nothing here is awaited by the
+    /// popover's close.
+    private func queueClip(forCommentId commentId: UUID, draft: String, source: CommentSource) async {
+        guard source == .voice, let recordingId = clipRecordingId else { return }
+        clipRecordingId = nil
+        guard let recorded = await environment.transcriber.finishedClip() else { return }
+
+        let destination = clips.audioURL(forCommentId: commentId)
+        do {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: recorded, to: destination)
+        } catch {
+            // The audio is where the recording put it and cannot be named for
+            // the comment, so nothing can be applied later. Drop it rather than
+            // leave a file nothing will ever collect.
+            try? FileManager.default.removeItem(at: clips.audioURL(forCommentId: recordingId))
+            return
+        }
+
+        clips.enqueue(
+            VoiceClip(
+                commentId: commentId,
+                documentId: documentId,
+                draft: draft,
+                language: await environment.settings.settings.transcriptionLocaleIdentifier,
+                keyterms: await currentTerms()
+            )
+        )
     }
 
     private func currentTerms() async -> [String] {
