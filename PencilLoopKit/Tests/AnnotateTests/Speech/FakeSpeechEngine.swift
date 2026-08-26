@@ -99,6 +99,13 @@ actor FakeSpeechEngine: SpeechTranscribing {
         script.supportedLocales
     }
 
+    /// Recorded so a test can assert a clip was asked for; nothing writes one.
+    private(set) var clipDestination: URL?
+
+    func setClipDestination(_ url: URL?) async { clipDestination = url }
+
+    func finishedClip() async -> URL? { clipDestination }
+
     func stop() async -> String {
         guard isRunning else { return "" }
         isRunning = false

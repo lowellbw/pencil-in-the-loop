@@ -259,7 +259,7 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
         cachedInstalled = true
 
         do {
-            let chunks = try await capture.startWaitingForInput()
+            let chunks = try await capture.startWaitingForInput(clipURL: clipDestination)
 
             let module = makeTranscriber(reportVolatileResults: true)
             transcriber = module
@@ -324,6 +324,21 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
                   let converted = Self.convert(source, to: format, using: converter) else { continue }
             inputContinuation?.yield(AnalyzerInput(buffer: converted))
         }
+    }
+
+
+    /// Where the next recording's audio is also written, or nil.
+    private var clipDestination: URL?
+
+    // MARK: - The clip
+
+    public func setClipDestination(_ url: URL?) async {
+        clipDestination = url
+    }
+
+    public func finishedClip() async -> URL? {
+        clipDestination = nil
+        return await capture.finishClip()
     }
 
     public func stop() async -> String {

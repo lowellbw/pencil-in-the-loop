@@ -389,6 +389,10 @@ public struct PreviewSpeechTranscriber: SpeechTranscribing {
         AsyncThrowingStream { continuation in continuation.finish() }
     }
 
+    public nonisolated func setClipDestination(_ url: URL?) async {}
+
+    public nonisolated func finishedClip() async -> URL? { nil }
+
     public nonisolated func stop() async -> String { "" }
 
     /// Empty: the documented "this engine cannot say" answer, which is what

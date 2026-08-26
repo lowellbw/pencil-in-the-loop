@@ -133,6 +133,14 @@ public actor ContinuousTranscriber: SpeechTranscribing {
 
     /// Ends the recording and returns everything said during it, across however
     /// many times the engine restarted.
+    public func setClipDestination(_ url: URL?) async {
+        await engine.setClipDestination(url)
+    }
+
+    public func finishedClip() async -> URL? {
+        await engine.finishedClip()
+    }
+
     public func stop() async -> String {
         guard isRecording else { return "" }
         isRecording = false

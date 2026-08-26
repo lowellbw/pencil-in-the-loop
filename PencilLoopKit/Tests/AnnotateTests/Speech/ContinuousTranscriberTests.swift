@@ -150,6 +150,10 @@ final class ContinuousTranscriberTests: XCTestCase {
             }
         }
 
+        func setClipDestination(_ url: URL?) async {}
+
+        func finishedClip() async -> URL? { nil }
+
         func stop() async -> String {
             let text = settled
             settled = ""

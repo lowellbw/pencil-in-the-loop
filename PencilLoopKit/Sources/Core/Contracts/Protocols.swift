@@ -191,6 +191,26 @@ public protocol SpeechTranscribing: Sendable {
     /// the engine may finalise a trailing word after the last yield.
     func stop() async -> String
 
+    /// Where to also write the audio of the next recording, or nil to keep
+    /// none (notes/pencil-loop-cloud-dictation.md).
+    ///
+    /// The on-device transcript is a draft, and a better one can only be made
+    /// later from the audio — so this is what makes an upgrade possible at all.
+    /// Set it before `transcribe(contextualTerms:)`; it applies to the next
+    /// recording and is cleared by `finishedClip()`.
+    ///
+    /// **Best-effort, in one direction only.** An engine that cannot write a
+    /// clip still transcribes, and a clip that fails to write costs a later
+    /// upgrade and never the recording in progress. Never throws.
+    func setClipDestination(_ url: URL?) async
+
+    /// The clip written for the recording that just finished, or nil.
+    ///
+    /// Call after `stop()`, so the last buffers are in the file. Nil means
+    /// there is nothing to upgrade from: no destination was set, the write
+    /// failed, or the press was too short to be a comment.
+    func finishedClip() async -> URL?
+
     /// Every language this engine can transcribe, downloaded or not.
     ///
     /// The Settings language picker is the only caller (docs/02-spec.md § S6).

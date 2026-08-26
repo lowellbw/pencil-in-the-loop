@@ -116,6 +116,18 @@ actor MicrophoneCapture {
     private var isTapped = false
     private var continuation: AsyncStream<Chunk>.Continuation?
 
+    /// The second consumer of every buffer: the file the clip is written to,
+    /// so a better transcript can be made from it later
+    /// (notes/pencil-loop-cloud-dictation.md). Nil when nothing asked for one.
+    private var recorder: ClipRecorder?
+
+    /// Drains the recorder's stream. Separate from the engine's so that a slow
+    /// disk cannot stall recognition, and so neither consumer can starve the
+    /// other of buffers.
+    private var recordingTask: Task<Void, Never>?
+
+    private var recordingContinuation: AsyncStream<Chunk>.Continuation?
+
     init() {}
 
     /// The input node's native format. Engines convert from this to whatever
@@ -193,13 +205,14 @@ actor MicrophoneCapture {
     ///   falls back to handwriting, which is what docs/02-spec.md § S3 asks
     ///   for and is never a dead end.
     func startWaitingForInput(
+        clipURL: URL? = nil,
         attempts: Int = 6,
         gap: Duration = .milliseconds(120)
     ) async throws -> AsyncStream<Chunk> {
         var lastError: (any Error)?
         for attempt in 0..<max(1, attempts) {
             do {
-                return try start()
+                return try start(clipURL: clipURL)
             } catch {
                 lastError = error
                 if attempt < attempts - 1 {
@@ -225,7 +238,11 @@ actor MicrophoneCapture {
     /// would pay for them again here — with other audio unducking and re-ducking
     /// between the press and the first word to show for it
     /// (docs/03-architecture.md § Performance targets).
-    func start() throws -> AsyncStream<Chunk> {
+    ///
+    /// - Parameter clipURL: where to also write the audio, or nil to keep none.
+    ///   Writing is best-effort in one direction only: a clip that cannot be
+    ///   written costs a later upgrade and never the recording in progress.
+    func start(clipURL: URL? = nil) throws -> AsyncStream<Chunk> {
         stopCapture()
         try prewarm()
 
@@ -244,6 +261,25 @@ actor MicrophoneCapture {
             )
         }
 
+        // The clip's own stream, drained by a task rather than written here:
+        // the tap block is the render thread and must not touch a file.
+        var clipContinuation: AsyncStream<Chunk>.Continuation?
+        if let clipURL {
+            let recorder = ClipRecorder(url: clipURL)
+            let (clipStream, continuation) = AsyncStream<Chunk>.makeStream(
+                bufferingPolicy: .bufferingNewest(64)
+            )
+            clipContinuation = continuation
+            self.recorder = recorder
+            self.recordingContinuation = continuation
+            self.recordingTask = Task {
+                guard await recorder.begin(format: format) else { return }
+                for await chunk in clipStream {
+                    await recorder.append(chunk.buffer)
+                }
+            }
+        }
+
         let logger = self.logger
         input.installTap(onBus: 0, bufferSize: 2048, format: format) { buffer, _ in
             guard let chunk = Chunk.copying(buffer) else {
@@ -251,6 +287,9 @@ actor MicrophoneCapture {
                 return
             }
             continuation.yield(chunk)
+            // The same copy, handed to both. `Chunk` is only ever read, so one
+            // memcpy still covers the reuse the copy exists to prevent.
+            clipContinuation?.yield(chunk)
         }
         isTapped = true
 
@@ -263,6 +302,31 @@ actor MicrophoneCapture {
             )
         }
         return stream
+    }
+
+    /// Closes the clip and says where it landed.
+    ///
+    /// - Returns: the clip's URL, or nil when there is nothing worth keeping —
+    ///   no clip was asked for, the write failed, or the press was too short to
+    ///   be a comment. Call after `stop()`, so the last buffers are in.
+    func finishClip() async -> URL? {
+        recordingContinuation?.finish()
+        recordingContinuation = nil
+        await recordingTask?.value
+        recordingTask = nil
+        let clip = await recorder?.finish()
+        recorder = nil
+        return clip
+    }
+
+    /// Throws away the clip for a recording nobody kept.
+    func discardClip() async {
+        recordingContinuation?.finish()
+        recordingContinuation = nil
+        await recordingTask?.value
+        recordingTask = nil
+        await recorder?.discard()
+        recorder = nil
     }
 
     /// Stops capture and gives the audio session back. Idempotent, and safe to
@@ -287,6 +351,11 @@ actor MicrophoneCapture {
         }
         continuation?.finish()
         continuation = nil
+        // Not `finishClip()`: this is called from stream teardown and cannot
+        // await. Finishing the continuation lets the drain task run to the end
+        // of the buffers it already has; the caller collects the file.
+        recordingContinuation?.finish()
+        recordingContinuation = nil
     }
 
     /// Deactivates the audio session, letting other audio unduck.

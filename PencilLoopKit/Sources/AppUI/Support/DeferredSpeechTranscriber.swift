@@ -104,6 +104,10 @@ public actor DeferredSpeechTranscriber: SpeechTranscribing {
 
     private var recording: Recording?
 
+    /// Where the next recording's audio is also written. Survives a rebuild of
+    /// the engine, which is why it is held here and not in one.
+    private var clipDestination: URL?
+
     public init(settings: any SettingsStoring) {
         self.settings = settings
         self.makeEngine = { locale in
@@ -192,6 +196,24 @@ public actor DeferredSpeechTranscriber: SpeechTranscribing {
     /// user the comment they had just dictated. With nothing recording it still
     /// stops the built engine, because a pre-warmed one holds the audio session
     /// and leaving it open is how the microphone indicator stays on.
+    /// Held here rather than pushed at a built engine, because the engine for
+    /// the next recording may not exist yet — and when it is rebuilt for a
+    /// language change, the destination has to survive that.
+    public func setClipDestination(_ url: URL?) async {
+        clipDestination = url
+        if let recording { await recording.engine.setClipDestination(url) }
+    }
+
+    /// Asks the engine the running stream resolved, for the same reason `stop()`
+    /// does: the clip belongs to the recording that made it, not to whichever
+    /// engine the field happens to hold now.
+    public func finishedClip() async -> URL? {
+        clipDestination = nil
+        if let recording { return await recording.engine.finishedClip() }
+        guard let build else { return nil }
+        return await build.task.value.finishedClip()
+    }
+
     public func stop() async -> String {
         if let recording { return await recording.engine.stop() }
         guard let build else { return "" }

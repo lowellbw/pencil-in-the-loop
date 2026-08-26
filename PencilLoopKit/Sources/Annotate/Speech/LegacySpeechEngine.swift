@@ -242,7 +242,7 @@ public actor LegacySpeechEngine: SpeechTranscribing {
         self.recentRenewals = []
 
         do {
-            let chunks = try await capture.startWaitingForInput()
+            let chunks = try await capture.startWaitingForInput(clipURL: clipDestination)
             startRecognition()
             pumpTask = Task { await self.pump(chunks) }
         } catch let error as PencilLoopError {
@@ -391,6 +391,21 @@ public actor LegacySpeechEngine: SpeechTranscribing {
     /// partial differs from the final result by punctuation at most; the state
     /// machine falls back to the streamed text if this returns nothing anyway
     /// (VoiceRecordingMachine.settle).
+
+    /// Where the next recording's audio is also written, or nil.
+    private var clipDestination: URL?
+
+    // MARK: - The clip
+
+    public func setClipDestination(_ url: URL?) async {
+        clipDestination = url
+    }
+
+    public func finishedClip() async -> URL? {
+        clipDestination = nil
+        return await capture.finishClip()
+    }
+
     public func stop() async -> String {
         guard streamContinuation != nil || task != nil else { return "" }
 
