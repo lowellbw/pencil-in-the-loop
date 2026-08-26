@@ -513,5 +513,118 @@ class TestCli(ReaderFolderCase):
         self.assertEqual(list(self.inbox.iterdir()), [])
 
 
+class GroupTests(ReaderFolderCase):
+    """Filing a document, and finding out what is already filed where."""
+
+    def send(self, **kwargs):
+        kwargs.setdefault("title", "Auth refactor plan")
+        kwargs.setdefault("markdown", "# Auth refactor plan\n\nBody.\n")
+        kwargs.setdefault("folder", self.folder)
+        kwargs.setdefault("config_path", self.config)
+        return str_mod.send(**kwargs)
+
+    def meta_of(self, result) -> dict:
+        return json.loads((Path(result["path"]) / "meta.json").read_text())
+
+    def test_a_group_lands_in_meta_json_with_its_whitespace_tidied(self):
+        result = self.send(group="  Attention   Papers ")
+        self.assertEqual(self.meta_of(result)["group"], "Attention Papers")
+
+    def test_no_group_writes_no_key_at_all(self):
+        self.assertNotIn("group", self.meta_of(self.send()))
+
+    def test_an_unusable_group_is_refused(self):
+        for value in ("a" * 200, "!!!"):
+            with self.assertRaises(ValueError, msg=value):
+                str_mod.normalise_group(value)
+
+    def test_blank_is_no_group_rather_than_an_error(self):
+        for value in (None, "", "   "):
+            self.assertIsNone(str_mod.normalise_group(value), repr(value))
+
+    def test_listing_folds_variant_spellings_into_one_group(self):
+        self.send(title="Attention Is All You Need", group="Attention Papers", slug="one")
+        self.send(title="FlashAttention", group="attention papers", slug="two")
+        self.send(title="Auth refactor plan", slug="three")
+
+        listed = str_mod.list_groups(self.folder, self.config)
+
+        self.assertEqual([g["name"] for g in listed["groups"]], ["Attention Papers"])
+        self.assertEqual(listed["groups"][0]["documentCount"], 2)
+        self.assertEqual(listed["ungroupedCount"], 1)
+
+    def test_listing_names_the_recent_titles_so_a_subject_can_be_judged(self):
+        self.send(title="Attention Is All You Need", group="Attention Papers", slug="one")
+        self.send(title="FlashAttention", group="Attention Papers", slug="two")
+
+        listed = str_mod.list_groups(self.folder, self.config)
+
+        self.assertEqual(
+            sorted(listed["groups"][0]["recentTitles"]),
+            ["Attention Is All You Need", "FlashAttention"],
+        )
+
+    def test_a_broken_bundle_does_not_hide_every_other_group(self):
+        self.send(title="Attention Is All You Need", group="Attention Papers", slug="one")
+        broken = self.folder / "inbox" / "2026-08-02-broken"
+        broken.mkdir()
+        (broken / "meta.json").write_text("{ not json")
+
+        listed = str_mod.list_groups(self.folder, self.config)
+
+        self.assertEqual([g["name"] for g in listed["groups"]], ["Attention Papers"])
+
+    def test_listing_changes_nothing_on_disk(self):
+        result = self.send(group="Attention Papers")
+        before = visible_entries(self.folder / "inbox")
+
+        str_mod.list_groups(self.folder, self.config)
+
+        self.assertEqual(visible_entries(self.folder / "inbox"), before)
+        self.assertIn("group", self.meta_of(result))
+
+    def test_an_empty_inbox_lists_nothing_rather_than_failing(self):
+        listed = str_mod.list_groups(self.folder, self.config)
+        self.assertEqual(listed["groups"], [])
+        self.assertEqual(listed["ungroupedCount"], 0)
+
+
+class GroupKeyAgreementTests(unittest.TestCase):
+    """One matching rule, three implementations — this is what pins them.
+
+    `integrations/mcp-server/README.md` records that the slug rules are
+    implemented twice and never diffed, and what that cost. The group rule is
+    implemented three times (here, in the MCP server, and in Swift), so it gets
+    the test the slugs never got. The Swift side is asserted in
+    `CoreTests/DocumentGroupsTests`, against this same table of cases.
+    """
+
+    CASES = [
+        ("Attention Papers", "attention papers"),
+        ("attention papers", "attention papers"),
+        ("Attention-Papers", "attention papers"),
+        ("  Attention   Papers  ", "attention papers"),
+        ("Áttention Papers", "attention papers"),
+        ("Q3 Planning", "q3 planning"),
+        ("ML Papers", "ml papers"),
+        ("Machine Learning Papers", "machine learning papers"),
+        ("注意機構の論文", "注意機構の論文"),
+        ("!!!", ""),
+    ]
+
+    def test_the_skill_agrees_with_the_table(self):
+        for name, expected in self.CASES:
+            self.assertEqual(str_mod.group_key(name), expected, name)
+
+    def test_the_mcp_server_agrees_with_the_skill(self):
+        sys.path.insert(0, str(REPO_ROOT / "integrations" / "mcp-server"))
+        try:
+            from pencil_in_the_loop_mcp import core
+        except ImportError:  # pragma: no cover - the MCP package is not installed
+            self.skipTest("the MCP server package is not importable from here")
+        for name, expected in self.CASES:
+            self.assertEqual(core.group_key(name), expected, name)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

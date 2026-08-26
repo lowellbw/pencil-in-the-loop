@@ -48,7 +48,7 @@ Codex reads the same server; point its MCP config at the same command and set
 
 ## Tools
 
-### `send_to_ipad(content, title?, tags?, origin_kind?, session_id?, thread_title?)`
+### `send_to_ipad(content, title?, tags?, group?, origin_kind?, session_id?, thread_title?)`
 
 Writes `inbox/YYYY-MM-DD-<slug>/` containing `source.md` and `meta.json`.
 Returns the bundle id, its path, and which return path was recorded.
@@ -56,11 +56,33 @@ Returns the bundle id, its path, and which return path was recorded.
 `title` defaults to the first H1 in `content`. `origin_kind` and `session_id` are
 auto-detected; pass them only to override.
 
+`group` files the document under a name that sections the iPad's library. Call
+`list_groups` first and pass back a name that already fits: the tool description says so
+too, because a model on the MCP path never reads the skill file.
+
 The tool description carries the authoring guidance from `docs/06`, so the calling
 model follows it without being told again: short paragraphs one idea each, numbered
 or clearly titled sections, no code block wider than ~76 characters, narrow tables or
 lists instead, no nested bullets beyond one level. A document written to be annotated
 is a different document, and margin notes need somewhere to live.
+
+### `list_groups()`
+
+What is already filed where: for each group its name, how many documents are in it, when it
+was last used, and up to three recent titles. Folded from `inbox/*/meta.json`, which is the
+whole history of what has been sent — the iPad copies a document into its own container and
+never deletes the directory it came from — so a scan is not a partial view of it.
+
+Names are folded on `group_key`: case, accents and punctuation ignored, folding rather than
+transliterating so a non-Latin name keeps its own key. The display name is the one the
+group's oldest document used, so a group does not flip spelling because of one careless
+send. An unreadable `meta.json` is skipped rather than hiding every other group.
+
+No arguments, deliberately. It is meant to be called before every send, so an argument
+would be a decision to get wrong on every call; the reply is bounded instead.
+
+Groups the reader created or renamed on the iPad itself are not visible here, and the reply
+says so — this is what has been sent, not everything that exists.
 
 ### `list_reviews()`
 
@@ -183,14 +205,19 @@ Name collisions follow `docs/05`: `<name>`, then `<name>-2`, `<name>-3`.
 ## Known contract gaps
 
 - **`tags` has nowhere to live.** `docs/06` gives `send_to_ipad` a `tags` parameter
-  but the `meta.json` in `docs/05` has no field for them. They are written as a
-  top-level `"tags"` array. If `contracts/schema/meta.schema.json` ends up strict,
-  either the schema or this needs to move.
+  but the `meta.json` example in `docs/05` has no field for them. They are written as
+  a top-level `"tags"` array, which `contracts/schema/meta.schema.json` does declare.
+  Nothing on the iPad reads them — unlike `group`, which is declared in the schema,
+  described in `docs/05` prose, and sections the library.
 - **`pageCount` is omitted.** The server ships markdown; the iPad renders the PDF, so
   page count is not knowable at write time.
 - **Slug rules are implemented twice.** `integrations/cowork-skill` implements the
   same rules independently. They must produce identical names for identical titles
-  and have not yet been diffed against each other.
+  and have not yet been diffed against each other. The group-matching rule is
+  implemented *three* times — here, in the skill, and in Swift — and did get that
+  diff: `GroupKeyAgreementTests` in `scripts/test_send_to_reader.py` and
+  `testTheMatchingRuleAgreesWithTheOneTheSendersUse` in `CoreTests/DocumentGroupsTests`
+  assert the same table of cases.
 - **`manifest.json` is undocumented.** It appears in the `docs/05` tree with no
   schema, so `list_reviews` reads it opportunistically and never depends on it.
 

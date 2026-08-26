@@ -28,6 +28,10 @@ MAX_CONTENT_BYTES = 5 * 1024 * 1024
 MAX_TITLE_CHARS = 200
 MAX_TAGS = 32
 MAX_TAG_CHARS = 64
+# The same number as AppSettings.DocumentGroups.maximumNameCharacters on the
+# iPad, so both ends of the wire agree on what a group name is.
+MAX_GROUP_CHARS = 64
+MAX_GROUPS_REPORTED = 50
 MAX_SLUG_CHARS = 60
 MAX_COLLISION_SUFFIX = 999
 
@@ -152,6 +156,51 @@ def validate_tags(tags: Any) -> list[str]:
         if value not in cleaned:
             cleaned.append(value)
     return cleaned
+
+
+def validate_group(group: Any) -> str | None:
+    """The display name, whitespace tidied, or None for absent-or-blank.
+
+    None is not an error. A document with no group is the common case, and a
+    caller passing ``""`` means "no group" rather than "a group called nothing".
+    """
+    if group is None:
+        return None
+    if not isinstance(group, str):
+        raise ValidationError("group must be a string")
+    value = " ".join(group.split())
+    if not value:
+        return None
+    _reject_control_chars(value, "group")
+    if len(value) > MAX_GROUP_CHARS:
+        raise ValidationError(f"group is longer than {MAX_GROUP_CHARS} characters")
+    if not group_key(value):
+        raise ValidationError(
+            "group must contain a letter or a number, or it cannot be matched"
+        )
+    return value
+
+
+def group_key(name: str) -> str:
+    """The key two group names are compared by. Never written to disk.
+
+    Case, accents and punctuation are ignored, so "Attention Papers",
+    "attention papers" and "Attention-Papers" are one group. "ML Papers" and
+    "Machine Learning Papers" are two, and reconciling *those* is a job for
+    whoever is choosing the name -- see ``list_groups``.
+
+    Deliberately not ``slugify``: that strips to ASCII and falls back to
+    "untitled", which would merge every non-Latin group name into one group.
+    This folds instead, so a name in any script keeps its own key. The rule is
+    the twin of ``AppSettings.DocumentGroups.key(for:)`` on the iPad and is
+    written out in docs/05-file-contracts.md.
+    """
+    decomposed = unicodedata.normalize("NFKD", name)
+    unmarked = "".join(c for c in decomposed if not unicodedata.combining(c))
+    # `\W` plus underscore, so this splits on exactly what the iPad splits on:
+    # anything that is neither a letter nor a number.
+    words = re.split(r"[\W_]+", unmarked, flags=re.UNICODE)
+    return " ".join(word.casefold() for word in words if word)
 
 
 def validate_bundle_id(raw: Any) -> str:
@@ -310,6 +359,7 @@ def build_meta(
     document_id: str | None = None,
     source_format: str = "markdown",
     source_url: str | None = None,
+    group: str | None = None,
 ) -> dict[str, Any]:
     """The ``meta.json`` payload, shaped exactly as docs/05 shows it.
 
@@ -332,6 +382,8 @@ def build_meta(
     }
     if source_url:
         meta["sourceURL"] = source_url
+    if group:
+        meta["group"] = group
     if tags:
         meta["tags"] = tags
     return meta
@@ -410,6 +462,7 @@ def prepare_inbox_bundle(
     content: Any,
     title: Any = None,
     tags: Any = None,
+    group: Any = None,
     origin_kind: str | None = None,
     session_id: str | None = None,
     thread_title: str | None = None,
@@ -430,6 +483,7 @@ def prepare_inbox_bundle(
     body = validate_content(content)
     clean_title = validate_title(title, body)
     clean_tags = validate_tags(tags)
+    clean_group = validate_group(group)
     kind = detect_origin_kind(origin_kind)
     session = detect_session(session_id)
 
@@ -441,6 +495,7 @@ def prepare_inbox_bundle(
         thread_title=thread_title,
         now=now,
         document_id=document_id,
+        group=clean_group,
     )
     base = bundle_name(clean_title, now.date() if now else None)
     return base, meta, _ensure_h1(body, clean_title)
@@ -450,6 +505,7 @@ def prepare_pdf_bundle(
     *,
     title: Any,
     tags: Any = None,
+    group: Any = None,
     origin_kind: str | None = None,
     session_id: str | None = None,
     thread_title: str | None = None,
@@ -476,6 +532,7 @@ def prepare_pdf_bundle(
         raise ValidationError("a PDF needs a title; there is no text to take one from")
     clean_title = validate_title(title, "")
     clean_tags = validate_tags(tags)
+    clean_group = validate_group(group)
     kind = detect_origin_kind(origin_kind)
     session = detect_session(session_id)
 
@@ -489,6 +546,7 @@ def prepare_pdf_bundle(
         document_id=document_id,
         source_format="pdf",
         source_url=source_url,
+        group=clean_group,
     )
     return bundle_name(clean_title, now.date() if now else None), meta
 
@@ -499,6 +557,7 @@ def write_inbox_bundle(
     content: Any,
     title: Any = None,
     tags: Any = None,
+    group: Any = None,
     origin_kind: str | None = None,
     session_id: str | None = None,
     thread_title: str | None = None,
@@ -516,6 +575,7 @@ def write_inbox_bundle(
         content=content,
         title=title,
         tags=tags,
+        group=group,
         origin_kind=origin_kind,
         session_id=session_id,
         thread_title=thread_title,
@@ -542,6 +602,7 @@ def write_inbox_bundle(
         "path": str(final),
         "title": meta["title"],
         "tags": meta.get("tags", []),
+        "group": meta.get("group"),
         "origin": meta["origin"],
         "documentId": meta["id"],
         "createdAt": meta["createdAt"],
@@ -670,6 +731,104 @@ def list_review_bundles(sync_root: Path) -> list[dict[str, Any]]:
         rows.append(summarise_review(entry))
     rows.sort(key=lambda row: (row.get("reviewedAt") or "", row["id"]), reverse=True)
     return rows
+
+
+# ------------------------------------------------------------------- groups
+
+
+def summarise_groups(
+    rows: Iterable[dict[str, Any]],
+    *,
+    recent_titles: int = 3,
+    limit: int = MAX_GROUPS_REPORTED,
+) -> tuple[list[dict[str, Any]], int]:
+    """Fold ``{group, title, createdAt}`` rows into a report. Pure; no I/O.
+
+    Groups are folded on ``group_key``, so variant spellings are one group. The
+    display name is the one the group's *oldest* document used, so a group does
+    not visually flip spelling because of one careless send.
+
+    - Returns: the groups, newest-used first, and the count of ungrouped rows.
+    """
+    folded: dict[str, dict[str, Any]] = {}
+    ungrouped = 0
+    for row in rows:
+        name = row.get("group")
+        if not isinstance(name, str) or not name.strip():
+            ungrouped += 1
+            continue
+        key = group_key(name)
+        if not key:
+            ungrouped += 1
+            continue
+        created = row.get("createdAt") or ""
+        title = row.get("title") or ""
+        entry = folded.setdefault(
+            key,
+            {"name": name, "documentCount": 0, "first": created, "last": created, "titles": []},
+        )
+        entry["documentCount"] += 1
+        if created and created < entry["first"]:
+            entry["first"] = created
+            # The oldest document owns the spelling.
+            entry["name"] = name
+        if created > entry["last"]:
+            entry["last"] = created
+        entry["titles"].append((created, title))
+
+    groups = []
+    for entry in folded.values():
+        titles = [title for _, title in sorted(entry["titles"], reverse=True) if title]
+        groups.append(
+            {
+                "name": entry["name"],
+                "documentCount": entry["documentCount"],
+                "firstSentAt": entry["first"] or None,
+                "lastSentAt": entry["last"] or None,
+                "recentTitles": titles[:recent_titles],
+            }
+        )
+    groups.sort(key=lambda row: (row["lastSentAt"] or "", row["name"]), reverse=True)
+    return groups[:limit], ungrouped
+
+
+def scan_inbox_groups(sync_root: Path) -> tuple[list[dict[str, Any]], int, bool]:
+    """Every group named by an ``inbox/*/meta.json``, folded into a report.
+
+    The inbox is the right place to look because the iPad *copies* a document
+    into its own container and never deletes the directory it came from, so
+    ``inbox/`` is the whole history of what has been sent rather than a queue of
+    what has not yet arrived.
+
+    A missing inbox is not an error, and neither is a bundle whose ``meta.json``
+    will not parse -- it is skipped. Reading changes nothing on disk.
+
+    - Returns: the groups, the ungrouped count, and whether the list was capped.
+    """
+    inbox = Path(sync_root).expanduser() / "inbox"
+    if not inbox.is_dir():
+        return [], 0, False
+    try:
+        entries = sorted(inbox.iterdir())
+    except OSError:
+        return [], 0, False
+    rows: list[dict[str, Any]] = []
+    for entry in entries:
+        if entry.name.startswith(".") or not entry.is_dir():
+            continue
+        meta = _read_json_file(entry / "meta.json")
+        if not isinstance(meta, dict):
+            continue
+        rows.append(
+            {
+                "group": meta.get("group"),
+                "title": meta.get("title") or entry.name,
+                "createdAt": meta.get("createdAt"),
+            }
+        )
+    groups, ungrouped = summarise_groups(rows)
+    total, _ = summarise_groups(rows, limit=len(rows) + 1)
+    return groups, ungrouped, len(total) > len(groups)
 
 
 def read_review(sync_root: Path, raw_id: Any) -> dict[str, Any]:

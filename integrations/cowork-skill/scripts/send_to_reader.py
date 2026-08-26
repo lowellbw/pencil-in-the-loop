@@ -46,8 +46,16 @@ __all__ = [
     "slugify",
     "allocate_bundle_name",
     "build_meta",
+    "normalise_group",
+    "group_key",
+    "list_groups",
     "send",
 ]
+
+# The longest a group name may be. The same number as MAX_GROUP_CHARS in the MCP
+# server and AppSettings.DocumentGroups.maximumNameCharacters on the iPad — three
+# implementations of one rule, so they are pinned to one number on purpose.
+MAX_GROUP_CHARS = 64
 
 DEFAULT_CONFIG_PATH = Path.home() / ".pencil-loop" / "config.json"
 
@@ -202,6 +210,112 @@ def _utc_now_iso() -> str:
     )
 
 
+def normalise_group(name: str | None) -> str | None:
+    """The display name, whitespace tidied, or None for absent-or-blank.
+
+    None is not an error: most documents have no group, and that is the point.
+    """
+    if name is None:
+        return None
+    value = " ".join(str(name).split())
+    if not value:
+        return None
+    if len(value) > MAX_GROUP_CHARS:
+        raise ValueError(f"group is longer than {MAX_GROUP_CHARS} characters")
+    if not group_key(value):
+        raise ValueError("group must contain a letter or a number, or it cannot be matched")
+    return value
+
+
+def group_key(name: str) -> str:
+    """The key two group names are compared by.
+
+    Case, accents and punctuation ignored, so "Attention Papers" and
+    "attention-papers" are one group; "ML Papers" and "Machine Learning Papers"
+    are two. Folding rather than transliterating, so a name in any script keeps
+    its own key — `slugify` above would merge every non-Latin name into one.
+
+    The same rule as the MCP server's `group_key` and the iPad's
+    `AppSettings.DocumentGroups.key(for:)`; it is written out in
+    docs/05-file-contracts.md so the three cannot drift silently.
+    """
+    decomposed = unicodedata.normalize("NFKD", name)
+    unmarked = "".join(c for c in decomposed if not unicodedata.combining(c))
+    words = re.split(r"[\W_]+", unmarked, flags=re.UNICODE)
+    return " ".join(word.casefold() for word in words if word)
+
+
+def list_groups(folder: os.PathLike | str | None = None, config_path=None) -> dict:
+    """What is already filed where, folded from every ``inbox/*/meta.json``.
+
+    The inbox is the whole history of what has been sent, not a queue of what
+    has not yet arrived: the iPad copies a document into its own container and
+    never deletes the directory it came from.
+
+    Reads only. A bundle whose meta.json will not parse is skipped rather than
+    raising — a broken bundle should not hide every other group.
+    """
+    reader_folder = resolve_reader_folder(folder, config_path)
+    problems = validate_reader_folder(reader_folder)
+    if problems:
+        raise ReaderFolderError("Reader folder is not usable: " + "; ".join(problems))
+
+    folded: dict[str, dict] = {}
+    ungrouped = 0
+    inbox = Path(reader_folder) / "inbox"
+    for entry in sorted(inbox.iterdir()):
+        if entry.name.startswith(".") or not entry.is_dir():
+            continue
+        try:
+            meta = json.loads((entry / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(meta, dict):
+            continue
+        name = meta.get("group")
+        key = group_key(name) if isinstance(name, str) else ""
+        if not key:
+            ungrouped += 1
+            continue
+        created = meta.get("createdAt") or ""
+        title = meta.get("title") or entry.name
+        group = folded.setdefault(
+            key, {"name": name, "documentCount": 0, "first": created, "last": created, "titles": []}
+        )
+        group["documentCount"] += 1
+        if created and created < group["first"]:
+            group["first"] = created
+            # The oldest document owns the spelling, so a group does not flip
+            # spelling because of one careless send.
+            group["name"] = name
+        if created > group["last"]:
+            group["last"] = created
+        group["titles"].append((created, title))
+
+    groups = [
+        {
+            "name": g["name"],
+            "documentCount": g["documentCount"],
+            "firstSentAt": g["first"] or None,
+            "lastSentAt": g["last"] or None,
+            "recentTitles": [t for _, t in sorted(g["titles"], reverse=True) if t][:3],
+        }
+        for g in folded.values()
+    ]
+    groups.sort(key=lambda row: (row["lastSentAt"] or "", row["name"]), reverse=True)
+    return {
+        "ok": True,
+        "folder": str(reader_folder),
+        "count": len(groups),
+        "groups": groups,
+        "ungroupedCount": ungrouped,
+        "note": (
+            "Groups created or renamed on the iPad are not listed here; this is "
+            "what has been sent."
+        ),
+    }
+
+
 def build_meta(
     *,
     title: str,
@@ -214,6 +328,7 @@ def build_meta(
     return_path: str | None = None,
     trigger_id: str | None = None,
     page_count: int | None = None,
+    group: str | None = None,
 ) -> dict:
     """Assemble a meta.json body per docs/05-file-contracts.md."""
     if origin_kind not in ORIGIN_KINDS:
@@ -247,8 +362,12 @@ def build_meta(
     if page_count is not None:
         meta["pageCount"] = page_count
 
+    clean_group = normalise_group(group)
+    if clean_group:
+        meta["group"] = clean_group
+
     # Stable, readable key order matching the contract's example.
-    order = ["id", "title", "createdAt", "origin", "sourceFormat", "pageCount"]
+    order = ["id", "title", "createdAt", "origin", "sourceFormat", "group", "pageCount"]
     return {key: meta[key] for key in order if key in meta}
 
 
@@ -357,6 +476,7 @@ def send(
     trigger_id: str | None = None,
     slug: str | None = None,
     date: str | None = None,
+    group: str | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Write one document into `inbox/`. Returns a result dict.
@@ -405,6 +525,7 @@ def send(
         return_path=return_path,
         trigger_id=trigger_id,
         page_count=page_count,
+        group=group,
     )
     files["meta.json"] = (json.dumps(meta, indent=2) + "\n").encode("utf-8")
 
@@ -476,6 +597,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Validate the reader folder and exit; writes nothing",
     )
     parser.add_argument(
+        "--list-groups",
+        action="store_true",
+        help="Print the groups already in use and exit; writes nothing",
+    )
+    parser.add_argument(
+        "--group",
+        metavar="NAME",
+        help=(
+            "File the document under a named group in the iPad's library. "
+            "Reuse a name printed by --list-groups rather than inventing a "
+            "near-duplicate."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Report what would be written without writing it",
@@ -515,6 +650,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0 if not problems else 1
 
+        if args.list_groups:
+            print(json.dumps(list_groups(args.folder, args.config), indent=2))
+            return 0
+
         if not args.title:
             print(json.dumps({"ok": False, "error": "--title is required"}), file=sys.stderr)
             return 2
@@ -549,6 +688,7 @@ def main(argv: list[str] | None = None) -> int:
             trigger_id=args.trigger_id,
             slug=args.slug,
             date=args.date,
+            group=args.group,
             dry_run=args.dry_run,
         )
     except (ReaderFolderError, ValueError, OSError) as exc:

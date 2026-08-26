@@ -168,7 +168,7 @@ class WriteTests(IsolatedEnv):
             (Path(self.write(tags=["spec", "auth"])["path"]) / "meta.json").read_text()
         )
         self.assertEqual(
-            set(meta) - {"tags", "pageCount"},
+            set(meta) - {"tags", "group", "pageCount"},
             {"id", "title", "createdAt", "origin", "sourceFormat"},
         )
         self.assertIsInstance(meta["id"], str)

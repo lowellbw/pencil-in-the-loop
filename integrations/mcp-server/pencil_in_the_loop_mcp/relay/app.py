@@ -185,6 +185,7 @@ def create_app(
                 base, meta = core.prepare_pdf_bundle(
                     title=body.get("title"),
                     tags=body.get("tags"),
+                    group=body.get("group"),
                     origin_kind=body.get("originKind"),
                     session_id=body.get("sessionId"),
                     thread_title=body.get("threadTitle"),
@@ -196,6 +197,7 @@ def create_app(
                     content=body.get("content"),
                     title=body.get("title"),
                     tags=body.get("tags"),
+                    group=body.get("group"),
                     origin_kind=body.get("originKind"),
                     session_id=body.get("sessionId"),
                     thread_title=body.get("threadTitle"),

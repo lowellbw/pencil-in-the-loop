@@ -20,6 +20,7 @@ from .core import (
     list_review_bundles,
     prepare_pdf_bundle,
     read_review,
+    scan_inbox_groups,
     validate_bundle_id,
     write_file,
     write_inbox_bundle,
@@ -50,7 +51,10 @@ server = _Server(
         "Send long documents to the user's iPad reader and read back the "
         "Pencil reviews they return. Everything is plain files in one "
         "synced folder, so these tools work whether or not the iPad is "
-        "awake, online, or has ever run.\n\n" + AUTHORING_GUIDANCE
+        "awake, online, or has ever run.\n\n"
+        "Documents can be filed into named groups, which section the iPad's "
+        "library. Call list_groups before sending and reuse an existing name "
+        "rather than inventing a near-duplicate.\n\n" + AUTHORING_GUIDANCE
     ),
 )
 
@@ -74,6 +78,14 @@ def _sync_root():
         "later or 'on the iPad', or when you have produced a document over "
         "roughly 400 words — a plan, brief, report, research summary, "
         "postmortem or spec.\n\n"
+        "Filing: call list_groups first. If this document belongs to a group "
+        "that already exists, pass that name back exactly as it came — 'ML "
+        "Papers' and 'Machine Learning Papers' are two sections in the user's "
+        "library and one subject in their head. Create a group only when you "
+        "are sending several documents on one subject at once, or starting "
+        "something the user will obviously add to; a one-off document gets no "
+        "group, because a library where everything is grouped has no "
+        "grouping.\n\n"
         "Authoring guidance — follow it, a document written to be annotated "
         "is a different document:\n" + AUTHORING_GUIDANCE
     ),
@@ -82,6 +94,7 @@ def send_to_ipad(
     content: str,
     title: str | None = None,
     tags: list[str] | None = None,
+    group: str | None = None,
     origin_kind: str | None = None,
     session_id: str | None = None,
     thread_title: str | None = None,
@@ -92,6 +105,12 @@ def send_to_ipad(
         content: The document, as markdown. Required.
         title: Human title. Defaults to the first H1 in ``content``.
         tags: Optional short labels, e.g. ``["spec", "auth"]``.
+        group: Optional collection this document is filed under, e.g.
+            ``"Attention Papers"``. Documents sharing a name are shown together
+            under one heading in the iPad's library, and a document belongs to
+            at most one. Reuse a name from ``list_groups`` rather than inventing
+            a near-duplicate. Advisory: if the user has already filed this
+            document by hand on the iPad, their choice stands.
         origin_kind: ``claude-code`` or ``codex``. Auto-detected if omitted.
         session_id: This conversation's id, if you know one. **Always pass it
             when you have it.** A hosted server has no environment to sniff it
@@ -110,6 +129,7 @@ def send_to_ipad(
             content=content,
             title=title,
             tags=tags,
+            group=group,
             origin_kind=origin_kind,
             session_id=session_id,
             thread_title=thread_title,
@@ -125,7 +145,8 @@ def send_to_ipad(
             "ok": True,
             "returnPath": return_type,
             "message": (
-                f"On the iPad: {result['title']}. "
+                f"On the iPad: {result['title']}"
+                + (f", in {result['group']}. " if result.get("group") else ". ")
                 + (
                     "The review will come back to this session."
                     if return_type != "none"
@@ -136,6 +157,48 @@ def send_to_ipad(
         }
     )
     return result
+
+
+@server.tool(
+    name="list_groups",
+    description=(
+        "List the groups documents on the iPad are already filed under — the "
+        "name, how many documents are in it, when it was last used, and the "
+        "titles of its most recent few. Call this before send_to_ipad and "
+        "reuse a name that already fits rather than inventing a "
+        "near-duplicate: 'ML Papers' beside 'Machine Learning Papers' is one "
+        "subject split across two sections the user has to merge by hand. The "
+        "recent titles are there so you can tell an 'ML Papers' full of "
+        "architecture papers from one full of hiring notes, which the name "
+        "alone will not.\n\n"
+        "An empty list is normal, not an error. Groups the user created or "
+        "renamed on the iPad itself are not visible here — this reports what "
+        "has been sent."
+    ),
+)
+def list_groups() -> dict[str, Any]:
+    """Fold ``inbox/*/meta.json`` into what has been filed where.
+
+    No arguments on purpose. This is meant to be called before every send, so
+    every argument would be a decision to get wrong on every call; the reply is
+    bounded instead.
+    """
+    try:
+        groups, ungrouped, truncated = scan_inbox_groups(_sync_root())
+    except OSError as exc:
+        return {"ok": False, "error": f"could not read the sync folder: {exc}"}
+
+    return {
+        "ok": True,
+        "count": len(groups),
+        "groups": groups,
+        "ungroupedCount": ungrouped,
+        "truncated": truncated,
+        "note": (
+            "Groups created or renamed on the iPad are not listed here; this "
+            "is what has been sent."
+        ),
+    }
 
 
 @server.tool(
@@ -205,6 +268,7 @@ def send_pdf_to_ipad(
     url: str,
     title: str,
     tags: list[str] | None = None,
+    group: str | None = None,
     origin_kind: str | None = None,
     session_id: str | None = None,
     thread_title: str | None = None,
@@ -216,6 +280,8 @@ def send_pdf_to_ipad(
         title: required — a PDF carries no markdown to take a title from, and
             an untitled document is one nobody finds again.
         tags: optional short labels.
+        group: optional collection to file this under. Reuse a name from
+            ``list_groups`` rather than inventing a near-duplicate.
         origin_kind: ``claude-code`` or ``codex``. Auto-detected if omitted.
         session_id: this conversation's id, if you know one.
         thread_title: what this conversation is about, in a few words.
@@ -231,6 +297,7 @@ def send_pdf_to_ipad(
         base, meta = prepare_pdf_bundle(
             title=title,
             tags=tags,
+            group=group,
             origin_kind=origin_kind,
             session_id=session_id,
             thread_title=thread_title,

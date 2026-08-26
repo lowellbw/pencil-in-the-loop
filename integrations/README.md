@@ -35,7 +35,7 @@ default, needs nothing installed), or a poke-only scheduled task for the watcher
 
 ### `mcp-server/` — Claude Code
 
-An MCP server exposing `send_to_ipad`, `list_reviews` and `get_review`. Same layout, same
+An MCP server exposing `send_to_ipad`, `list_groups`, `list_reviews` and `get_review`. Same layout, same
 bundle formats, `origin.kind = "claude-code"` and the session id from the hook payload.
 Run locally over stdio against a folder it is convenience, not transport — nothing breaks
 when it isn't running, because the files are still just files. The relay hosts the same

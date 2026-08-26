@@ -105,16 +105,69 @@ main way this skill fails:
 > I couldn't send that to the iPad: `/path` has no `inbox/` folder, so it isn't the
 > folder the reader app is watching. Which folder should I use?
 
-## Step 3 — Write the document
+## Step 3 — Put it with its kind
+
+A library of forty loose documents is a library nobody opens. Groups are how the iPad's
+sidebar gets sections: a group is nothing but a name written into `meta.json`, and
+everything sharing that name is shown together under one heading.
+
+The whole value of that is in the reuse, so find out what already exists before you decide
+anything:
+
+```bash
+python3 scripts/send_to_reader.py --list-groups
+```
+
+That prints each group's name, how many documents are in it, when it was last used, and
+the titles of its most recent few — enough to tell an "ML Papers" full of architecture
+papers from an "ML Papers" full of hiring notes, which is a distinction the name alone will
+not make.
+
+**If this document's subject belongs to a group that is already there, pass that group's
+name exactly as printed.** Copy it, character for character. Do not improve the
+capitalisation, do not expand the abbreviation, do not make it plural. "ML Papers" and
+"Machine Learning Papers" are two sections in the user's library and one subject in their
+head, and the second one exists only because something decided the first was badly named.
+
+**Create a new group only when nothing there matches**, and name it for the subject rather
+than the occasion: "Attention Papers", not "Papers asked for on Tuesday". A group name is
+read months later, next to twenty others.
+
+**Do not ask which group to use.** The same reasoning as everywhere else in this skill: a
+wrong guess costs the user one long-press to fix, and asking costs them an interruption on
+every single send.
+
+### When not to group at all
+
+**A one-off document gets no group.** If the subject matches nothing that already exists,
+and you have no reason to think a second document on it is coming, leave `--group` off.
+
+This is the rule that keeps the feature working. A group holding one document is not a
+group, it is a document with a longer name; a library where everything has one is a library
+whose sections carry no information, and the user is back to scrolling a flat list.
+Grouping earns its place by being the exception.
+
+So: reuse a group freely — that is what they are for — but create one only when you can
+name the second document that will go in it. Five papers on one subject in one sitting is
+exactly that case, and it is the case this exists for. A single plan, brief or postmortem
+usually is not.
+
+Groups the user created or renamed on the iPad itself are not in that list — it reports
+what has been sent — so treat it as what is known, not as everything that exists.
+
+## Step 4 — Write the document
 
 ```bash
 python3 scripts/send_to_reader.py \
   --title "Auth refactor plan" \
   --source /path/to/plan.md \
+  --group "Attention Papers" \
   --session-id "<this Cowork session's id>" \
   --thread-title "<this conversation's title>" \
   --return-path checkin
 ```
+
+Leave `--group` off for a document that belongs in no group, which is most of them.
 
 Use `--stdin` instead of `--source` to pipe the markdown in. Add `--dry-run` to see the
 folder name and `meta.json` that would be written, without writing them.
@@ -141,12 +194,13 @@ given — in which case pass it to `--source` and the script copies it in as
 Folder names are `YYYY-MM-DD-<slug>`; slugs are lowercase, hyphenated, ASCII; a second
 document with the same slug on the same day becomes `-2`, then `-3`.
 
-`meta.json` records `origin.kind = "cowork"`, this session's id, the thread title, and
-the return path chosen in step 4. That is how the review knows where to come back to.
-Pass the session id and thread title if you can get them — a document without them is
-still perfectly readable, but the review will have to be delivered by hand.
+`meta.json` records `origin.kind = "cowork"`, this session's id, the thread title, the
+group when there is one, and the return path chosen in step 5. That is how the review
+knows where to come back to. Pass the session id and thread title if you can get them — a
+document without them is still perfectly readable, but the review will have to be
+delivered by hand.
 
-## Step 4 — Set up the return path
+## Step 5 — Set up the return path
 
 The review has to get back to this conversation. Two routes. Record whichever you used in
 `meta.json` via `--return-path`, and use the same value for the whole document.
@@ -186,7 +240,7 @@ Pass `--return-path none`. The user can always open the thread and say "read my 
 the app's Sent screen has a Copy button for exactly that. Say so in your one line, so
 they know it is on them.
 
-## Step 5 — Say one line
+## Step 6 — Say one line
 
 One line, at the end of your normal reply. Not a section, not a summary.
 
@@ -206,3 +260,7 @@ read it."
    Use `checkin` unless you know the watcher is installed.
 4. **A document written for a screen.** It still arrives, it is just harder to annotate.
    Step 1 is the fix.
+5. **A near-duplicate group.** "ML Papers" beside "Machine Learning Papers" splits one
+   subject across two sections, and the user has to notice and merge them by hand. Step 3
+   lists what already exists for exactly this reason: the list is cheap and inventing a
+   name is not.

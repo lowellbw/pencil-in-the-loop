@@ -96,6 +96,25 @@ class SendDocumentTests(RelayApiTestCase):
         self.assertTrue((directory / "source.md").is_file())
         self.assertTrue((directory / "meta.json").is_file())
 
+    def test_a_group_is_carried_into_the_written_meta_json(self) -> None:
+        response = self.send(group="  Attention   Papers ")
+        self.assertEqual(response.status_code, 201)
+
+        directory = self.root / "inbox" / response.json()["folderName"]
+        meta = json.loads((directory / "meta.json").read_text())
+        self.assertEqual(
+            meta["group"],
+            "Attention Papers",
+            "The relay stores the bytes; the group rides inside meta.json like everything else.",
+        )
+
+    def test_a_bad_group_is_refused_and_writes_nothing(self) -> None:
+        response = self.send(group="a" * 200)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "invalid_input")
+        self.assertFalse((self.root / "inbox").exists())
+
     def today_plan(self) -> str:
         from datetime import date
 
