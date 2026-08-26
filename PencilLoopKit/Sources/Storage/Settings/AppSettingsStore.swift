@@ -37,7 +37,7 @@ import Core
 /// Reads never throw — settings that will not decode fall back to
 /// `AppSettings.initial`, which lands the user on the folder picker, which is
 /// the correct recovery.
-public actor AppSettingsStore: SettingsStoring {
+public actor AppSettingsStore: SettingsStoring, DocumentGrouping {
 
     private static let log = Logger(subsystem: "co.pencil-loop.storage", category: "settings")
 
@@ -184,6 +184,78 @@ public actor AppSettingsStore: SettingsStoring {
         guard stored.hasCompletedFirstRun == false else { return }
         var next = stored
         next.hasCompletedFirstRun = true
+        try update(next)
+    }
+
+    // MARK: - Group storage
+    //
+    // `DocumentGrouping`. Every one of these is a read-modify-write of the same
+    // blob every other mutator above touches, which is why they live in this
+    // actor rather than in a store of their own: two actors over one
+    // `UserDefaults` key would lose a write whenever a group assignment raced a
+    // change made in Settings. For the same reason nothing outside may do
+    // `let current = await store.settings; …; try await store.update(modified)`
+    // — that is the lost update this section exists to prevent, and it is why
+    // `renameGroup` is a method here instead of three lines in `LibraryModel`.
+
+    /// Every assignment the app holds (docs/02-spec.md § S1).
+    public func groups() -> AppSettings.DocumentGroups {
+        stored.groups
+    }
+
+    /// Files a document under `name`, or clears its group when `name` is nil.
+    ///
+    /// - Throws: `PencilLoopError.storeWriteFailed` when the settings will not
+    ///   encode. Nothing is changed in that case.
+    public func setGroupName(_ name: String?, forFolderName folderName: String) throws {
+        let next = stored.groups.setting(name, forFolderName: folderName)
+        try replaceGroups(with: next)
+    }
+
+    /// Files a document under `name` only when it has no group already.
+    ///
+    /// What a sender's `meta.json` gets, so it can never move or un-group a
+    /// document the user has filed by hand.
+    ///
+    /// - Throws: `PencilLoopError.storeWriteFailed` when the settings will not
+    ///   encode. Nothing is changed in that case.
+    public func adoptGroupName(_ name: String?, forFolderName folderName: String) throws {
+        let next = stored.groups.adopting(name, forFolderName: folderName)
+        try replaceGroups(with: next)
+    }
+
+    /// Renames a group, moving every document filed under it in one write.
+    ///
+    /// A rename of any number of documents is one value-type transform, one
+    /// encode and one write, so it cannot half-apply.
+    ///
+    /// - Throws: `PencilLoopError.storeWriteFailed` when `newName` is empty or
+    ///   unusable, or when the settings will not encode.
+    public func renameGroup(_ name: String, to newName: String) throws {
+        guard AppSettings.DocumentGroups.normalised(newName) != nil else {
+            throw PencilLoopError.storeWriteFailed(reason: "A group needs a name.")
+        }
+        let next = stored.groups.renaming(name, to: newName)
+        try replaceGroups(with: next)
+    }
+
+    /// Drops assignments for documents the library no longer holds.
+    ///
+    /// - Throws: `PencilLoopError.storeWriteFailed` when the settings will not
+    ///   encode. Nothing is changed in that case.
+    public func pruneGroups(keeping folderNames: Set<String>) throws {
+        let next = stored.groups.pruned(keeping: folderNames)
+        try replaceGroups(with: next)
+    }
+
+    /// The one write shared by all four, coalesced so that a no-op assignment
+    /// does not rewrite the blob — a double tap on a menu item should not cost a
+    /// write, and re-adopting a group on every re-scan of an unchanged inbox
+    /// should cost nothing at all.
+    private func replaceGroups(with groups: AppSettings.DocumentGroups) throws {
+        guard groups != stored.groups else { return }
+        var next = stored
+        next.documentGroups = groups
         try update(next)
     }
 
