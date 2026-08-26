@@ -527,6 +527,24 @@ public protocol DocumentStoring: Actor {
     /// - Throws: `.documentNotFound` when the id is unknown.
     func setPinned(_ pinned: Bool, documentId: UUID) throws
 
+    /// Puts the Pinned section in exactly this order, top first
+    /// (docs/02-spec.md § S1).
+    ///
+    /// **Rewrites `pinnedAt` rather than storing a separate rank.** The pin
+    /// moment was already there and already unique per document, so ordering by
+    /// it costs no new column and therefore no schema migration; a reorder
+    /// simply re-stamps the moments to match the order given. The cost is that
+    /// "when was this pinned" stops being true after the first drag, which is a
+    /// question nothing asks.
+    ///
+    /// Ids that are not pinned, or not known, are ignored rather than throwing:
+    /// the list comes from a view that may be a moment out of date, and a
+    /// document un-pinned on another screen must not fail the drag.
+    ///
+    /// - Throws: `.storeWriteFailed` when the write fails. Order is unchanged
+    ///   in that case.
+    func reorderPinned(_ documentIds: [UUID]) throws
+
     /// Persisted on scroll, restored on open. Frequent — implementations should
     /// coalesce.
     func setLastReadPage(_ pageIndex: Int, documentId: UUID) throws
@@ -732,6 +750,19 @@ public protocol DocumentGrouping: Actor {
     ///
     /// - Throws: `.storeWriteFailed` when the new name is empty or unusable.
     func renameGroup(_ name: String, to newName: String) throws
+
+    /// Draws the group sections in exactly this order, first to last
+    /// (docs/02-spec.md § S1).
+    ///
+    /// Groups the reader has never placed keep coming after the placed ones,
+    /// alphabetically, so a group made tomorrow appears somewhere predictable
+    /// rather than at a position nobody chose. A name that is not in use is
+    /// still recorded: emptying a group and filling it again should put it back
+    /// where it was put.
+    ///
+    /// - Throws: `.storeWriteFailed` when the settings will not encode. The
+    ///   order is unchanged in that case.
+    func reorderGroups(_ names: [String]) throws
 
     /// Drops assignments for documents the library no longer holds.
     ///

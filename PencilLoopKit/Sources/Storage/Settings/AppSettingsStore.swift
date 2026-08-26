@@ -239,6 +239,14 @@ public actor AppSettingsStore: SettingsStoring, DocumentGrouping {
         try replaceGroups(with: next)
     }
 
+    /// Draws the group sections in exactly this order.
+    ///
+    /// - Throws: `PencilLoopError.storeWriteFailed` when the settings will not
+    ///   encode. The order is unchanged in that case.
+    public func reorderGroups(_ names: [String]) throws {
+        try replaceGroups(with: stored.groups.reordering(names))
+    }
+
     /// Drops assignments for documents the library no longer holds.
     ///
     /// - Throws: `PencilLoopError.storeWriteFailed` when the settings will not

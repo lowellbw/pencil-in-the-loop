@@ -204,6 +204,75 @@ final class DocumentGroupsTests: XCTestCase {
         )
     }
 
+    // MARK: - Section order
+
+    func testGroupsNobodyHasPlacedAreAlphabetical() {
+        let filed = Groups()
+            .setting("Zoning", forFolderName: "a")
+            .setting("Attention Papers", forFolderName: "b")
+
+        XCTAssertEqual(filed.orderedNames, ["Attention Papers", "Zoning"])
+    }
+
+    func testAPlacedGroupComesBeforeTheAlphabet() {
+        let filed = Groups()
+            .setting("Zoning", forFolderName: "a")
+            .setting("Attention Papers", forFolderName: "b")
+            .reordering(["Zoning"])
+
+        XCTAssertEqual(
+            filed.orderedNames,
+            ["Zoning", "Attention Papers"],
+            "A group somebody dragged outranks one nobody has touched."
+        )
+    }
+
+    func testTheOrderSurvivesARename() {
+        let filed = Groups()
+            .setting("Attention Papers", forFolderName: "a")
+            .setting("Zoning", forFolderName: "b")
+            .reordering(["Zoning", "Attention Papers"])
+            .renaming("Zoning", to: "Planning")
+
+        XCTAssertEqual(
+            filed.orderedNames,
+            ["Planning", "Attention Papers"],
+            "The order is stored as keys, so renaming a group does not send it back to the alphabet."
+        )
+    }
+
+    func testAPlaceIsKeptForAGroupThatIsEmptiedAndFilledAgain() {
+        let placed = Groups()
+            .setting("Zoning", forFolderName: "a")
+            .setting("Attention Papers", forFolderName: "b")
+            .reordering(["Zoning", "Attention Papers"])
+
+        let emptied = placed.setting(nil, forFolderName: "a")
+        XCTAssertEqual(emptied.orderedNames, ["Attention Papers"], "an empty group is not a group")
+
+        let refilled = emptied.setting("Zoning", forFolderName: "c")
+        XCTAssertEqual(
+            refilled.orderedNames,
+            ["Zoning", "Attention Papers"],
+            "and it comes back where it was put, not where the alphabet would put it."
+        )
+    }
+
+    func testReorderingAnUnusableNameChangesNothing() {
+        let filed = Groups().setting("Attention Papers", forFolderName: "a")
+
+        XCTAssertEqual(filed.reordering(["!!!"]).orderedNames, ["Attention Papers"])
+    }
+
+    func testAnOrderWrittenInAShapeThisBuildCannotReadIsIgnored() throws {
+        let json = Data(#"{"assignments": {"a": "Zoning"}, "order": 7}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(AppSettings.DocumentGroups.self, from: json)
+
+        XCTAssertEqual(decoded.assignments, ["a": "Zoning"], "a bad order costs the arrangement only")
+        XCTAssertEqual(decoded.order, [])
+    }
+
     // MARK: - Pruning
 
     func testPruningDropsOnlyDocumentsTheLibraryNoLongerHolds() {

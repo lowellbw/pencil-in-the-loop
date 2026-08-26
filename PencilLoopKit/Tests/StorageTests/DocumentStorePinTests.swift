@@ -120,4 +120,87 @@ final class DocumentStorePinTests: XCTestCase {
         XCTAssertEqual(after.title, "Auth refactor plan v2", "the document did update")
         XCTAssertTrue(after.isPinned, "and it stayed pinned")
     }
+
+    // MARK: - The order the reader dragged it into
+
+    /// Three pinned documents, in the order the store returns them.
+    private func threePinned() async throws -> (DocumentStore, [UUID]) {
+        let store = try StorageTestFactory.store()
+        var ids: [UUID] = []
+        for index in 0..<3 {
+            let ingested = StorageTestFactory.ingested(
+                title: "Document \(index)",
+                folderName: "2026-08-18-document-\(index)"
+            )
+            _ = try await store.upsert(ingested)
+            try await store.setPinned(true, documentId: ingested.id)
+            ids.append(ingested.id)
+        }
+        return (store, ids)
+    }
+
+    private func pinnedOrder(in store: DocumentStore) async throws -> [UUID] {
+        let rows = try await store.summaries(LibraryQuery.all)
+        return rows
+            .filter(\.isPinned)
+            .sorted { ($0.pinnedAt ?? .distantPast) > ($1.pinnedAt ?? .distantPast) }
+            .map(\.id)
+    }
+
+    func testReorderingPutsThePinnedSectionInExactlyThatOrder() async throws {
+        let (store, ids) = try await threePinned()
+        let wanted = [ids[2], ids[0], ids[1]]
+
+        try await store.reorderPinned(wanted)
+
+        let order = try await pinnedOrder(in: store)
+        XCTAssertEqual(order, wanted)
+    }
+
+    func testReorderingIsStoredAsTheMomentsThemselves() async throws {
+        let (store, ids) = try await threePinned()
+
+        try await store.reorderPinned([ids[2], ids[0], ids[1]])
+
+        // Descending, and far enough apart that the second-precision the
+        // contract encoder persists cannot collapse two of them together.
+        // Bound before unwrapping, for the reason `summary(_:in:)` gives.
+        let topStamp = try await store.pinnedAt(documentId: ids[2])
+        let nextStamp = try await store.pinnedAt(documentId: ids[0])
+        let first = try XCTUnwrap(topStamp)
+        let second = try XCTUnwrap(nextStamp)
+        XCTAssertGreaterThanOrEqual(first.timeIntervalSince(second), 1)
+    }
+
+    func testAnUnpinnedIdInTheOrderIsSkippedRatherThanPinning() async throws {
+        let (store, ids) = try await threePinned()
+        try await store.setPinned(false, documentId: ids[1])
+
+        try await store.reorderPinned(ids)
+
+        let after = try await summary(ids[1], in: store)
+        XCTAssertFalse(
+            after.isPinned,
+            "The order comes from a view that may be a moment stale; it must not re-pin what was un-pinned."
+        )
+    }
+
+    func testAnUnknownIdInTheOrderDoesNotThrow() async throws {
+        let (store, ids) = try await threePinned()
+
+        try await store.reorderPinned([UUID()] + ids)
+
+        let order = try await pinnedOrder(in: store)
+        XCTAssertEqual(order, ids)
+    }
+
+    func testReorderingDoesNotDisturbReadingState() async throws {
+        let (store, ids) = try await threePinned()
+        try await store.setState(.read, documentId: ids[0])
+
+        try await store.reorderPinned([ids[2], ids[1], ids[0]])
+
+        let after = try await summary(ids[0], in: store)
+        XCTAssertEqual(after.state, .read, "Order is a place, like pinning itself.")
+    }
 }

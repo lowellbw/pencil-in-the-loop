@@ -167,7 +167,7 @@ public final class LibraryModel {
         transport = await environment.settings.settings.transport
         let filed = await environment.groups.groups()
         groupsByFolderName = filed.assignments
-        allGroupNames = filed.sortedNames
+        allGroupNames = filed.orderedNames
         do {
             let fetched = try await environment.store.summaries(query)
             apply(fetched)
@@ -222,7 +222,7 @@ public final class LibraryModel {
             apply(rows.map { row in
                 guard row.id == summary.id else { return row }
                 var updated = row
-                updated.isPinned = pinned
+                updated.pinnedAt = pinned ? Date() : nil
                 return updated
             })
         } catch {
@@ -265,11 +265,69 @@ public final class LibraryModel {
         }
     }
 
+    /// Drag to reorder the Pinned section.
+    ///
+    /// Applies the new order locally before writing it, so the row lands under
+    /// the finger that dropped it rather than a round trip later — the same
+    /// bargain `setPinned` strikes, and the reason the store is told the whole
+    /// order rather than one move.
+    public func movePinned(fromOffsets source: IndexSet, toOffset destination: Int) async {
+        var reordered = pinnedRows
+        reordered.move(fromOffsets: source, toOffset: destination)
+        let ids = reordered.map(\.id)
+
+        // Stamp the rows in hand the way the store is about to stamp them —
+        // newest first, a second apart — rather than re-reading afterwards. The
+        // reasoning is `setPinned`'s: the order is a local fact and a round trip
+        // would only make the row land a frame after the finger that dropped it.
+        // Mirroring the rule rather than just reassigning `pinnedRows` matters
+        // because every later re-section sorts on these dates, so the two have
+        // to agree or the next reload of an unrelated row would undo the drag.
+        let now = Date()
+        var stamps: [UUID: Date] = [:]
+        for (offset, id) in ids.enumerated() {
+            stamps[id] = now.addingTimeInterval(TimeInterval(-offset))
+        }
+        apply(rows.map { row in
+            guard let stamp = stamps[row.id] else { return row }
+            var updated = row
+            updated.pinnedAt = stamp
+            return updated
+        })
+
+        do {
+            try await environment.store.reorderPinned(ids)
+        } catch {
+            statusMessage = SyncFolderChoice.describe(error)
+            // The write is the thing that lasts, so if it failed the list has to
+            // go back to what is actually stored rather than keep a drag nobody
+            // recorded.
+            await load()
+        }
+    }
+
+    /// Draws the group sections in this order, first to last.
+    ///
+    /// Takes the whole order rather than one move, because the sheet that calls
+    /// it collects the drags locally and writes once on Done — reordering four
+    /// groups should be one settings write, not four.
+    ///
+    /// Ungrouped is not in the list and does not move: it is the residue rather
+    /// than a group, and it stays last.
+    public func moveGroups(to names: [String]) async {
+        do {
+            try await environment.groups.reorderGroups(names)
+            await reapplyGroups()
+        } catch {
+            statusMessage = SyncFolderChoice.describe(error)
+        }
+    }
+
     /// Re-reads the map and re-sections, without re-fetching.
     private func reapplyGroups() async {
         let filed = await environment.groups.groups()
         groupsByFolderName = filed.assignments
-        allGroupNames = filed.sortedNames
+        allGroupNames = filed.orderedNames
         apply(rows)
     }
 
@@ -376,9 +434,16 @@ public final class LibraryModel {
             }
         }
         grouped = sections
-        pinnedRows = pinned
-        let named = byGroup.keys
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        // Pinned is the one section the sort menu does not reach: it is in the
+        // order the reader dragged it into, which is stored as the pin moments
+        // themselves, newest first (docs/02-spec.md § S1).
+        pinnedRows = pinned.sorted { left, right in
+            (left.pinnedAt ?? .distantPast) > (right.pinnedAt ?? .distantPast)
+        }
+        // `allGroupNames` is already in the reader's order, so filtering it is
+        // cheaper than sorting the keys and keeps one source of order.
+        let named = allGroupNames
+            .filter { byGroup[$0]?.isEmpty == false }
             .map { GroupSection(name: $0, rows: byGroup[$0] ?? []) }
         groupSections = named + (ungrouped.isEmpty ? [] : [GroupSection(name: nil, rows: ungrouped)])
     }

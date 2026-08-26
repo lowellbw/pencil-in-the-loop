@@ -78,9 +78,20 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
     /// been read, and un-pinning would have had to guess.
     ///
     /// The store holds the moment it was pinned rather than a flag — see
-    /// `Document.pinnedAt` — but nothing in the UI needs the date, so what
-    /// crosses the boundary is the answer to the only question a row asks.
-    public var isPinned: Bool
+    /// `Document.pinnedAt` — and the moment now crosses the boundary too,
+    /// because the Pinned section is hand-ordered and that order *is* the
+    /// moments.
+    /// **Now the pin *order* as well as the fact of it.** The Pinned section is
+    /// hand-ordered, so the moment a document was pinned is what that order is
+    /// stored as: newest first, and a reorder rewrites the moments rather than
+    /// adding a column (`DocumentStoring.reorderPinned(_:)`). `Document.pinnedAt`
+    /// anticipated this — "the moment is there if the Pinned section ever wants
+    /// its own order" — and it turned out to want one.
+    public var pinnedAt: Date?
+
+    /// Whether this document sits in Pinned. Derived, so the flag and the order
+    /// cannot disagree about whether a document is pinned.
+    public var isPinned: Bool { pinnedAt != nil }
 
     /// Why the last attempt to refresh this document failed, when it failed and
     /// the document is still readable. Nil when the last attempt succeeded.
@@ -127,7 +138,7 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
         commentCount: Int,
         hasInk: Bool,
         folderName: String,
-        isPinned: Bool = false,
+        pinnedAt: Date? = nil,
         refreshFailureReason: String? = nil,
         groupName: String? = nil
     ) {
@@ -141,7 +152,7 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
         self.commentCount = commentCount
         self.hasInk = hasInk
         self.folderName = folderName
-        self.isPinned = isPinned
+        self.pinnedAt = pinnedAt
         self.refreshFailureReason = refreshFailureReason
         self.groupName = groupName
     }

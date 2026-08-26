@@ -287,8 +287,18 @@ extension AppSettings {
         /// written.
         public private(set) var assignments: [String: String]
 
-        public init(assignments: [String: String] = [:]) {
+        /// The order the sidebar draws the groups in, as `key(for:)` values.
+        ///
+        /// **Keys rather than display names, so a rename does not lose the
+        /// place.** A group the reader has never dragged is not in here at all;
+        /// `orderedNames` puts those after the ones that are, alphabetically, so
+        /// a new group appears somewhere predictable rather than at a position
+        /// nobody chose.
+        public private(set) var order: [String]
+
+        public init(assignments: [String: String] = [:], order: [String] = []) {
             self.assignments = assignments
+            self.order = order
         }
 
         /// Nothing filed. A fresh install, and what an unreadable blob degrades
@@ -357,7 +367,7 @@ extension AppSettings {
             assignments[folderName]
         }
 
-        /// Every group in use, ordered the way the sidebar draws them.
+        /// Every group in use, alphabetically.
         ///
         /// One entry per group, not per spelling: if a hand-edited blob has both
         /// "Attention Papers" and "attention papers", they are one group and the
@@ -368,6 +378,46 @@ extension AppSettings {
                 firstSpellings[DocumentGroups.key(for: name)] = name
             }
             return firstSpellings.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        }
+
+        /// Every group in use, in the order the sidebar draws them: the ones the
+        /// reader has placed, in that order, then everything else alphabetically.
+        ///
+        /// A group named in `order` but no longer used simply does not appear —
+        /// the order is a preference about groups, not a list of them, so it
+        /// costs nothing to keep a stale entry and everything to have pruning it
+        /// lose a place the reader chose.
+        public var orderedNames: [String] {
+            var remaining: [String: String] = [:]
+            for name in sortedNames {
+                remaining[DocumentGroups.key(for: name)] = name
+            }
+            var placed: [String] = []
+            for key in order {
+                guard let name = remaining.removeValue(forKey: key) else { continue }
+                placed.append(name)
+            }
+            let rest = remaining.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            return placed + rest
+        }
+
+        /// Draws the groups in exactly this order, first to last.
+        ///
+        /// Names that are not in use are still recorded: dragging a group and
+        /// then emptying it and filling it again should put it back where it was
+        /// put, not back in the alphabet.
+        public func reordering(_ names: [String]) -> DocumentGroups {
+            var keys: [String] = []
+            for name in names {
+                let key = DocumentGroups.key(for: name)
+                guard key.isEmpty == false, keys.contains(key) == false else { continue }
+                keys.append(key)
+            }
+            // Anything previously placed and not named this time keeps its
+            // relative place at the end, so reordering a filtered view of the
+            // groups does not silently discard the rest of the arrangement.
+            let carried = order.filter { keys.contains($0) == false }
+            return DocumentGroups(assignments: assignments, order: keys + carried)
         }
 
         // MARK: - Writing
@@ -384,7 +434,7 @@ extension AppSettings {
             } else {
                 next.removeValue(forKey: folderName)
             }
-            return DocumentGroups(assignments: next)
+            return DocumentGroups(assignments: next, order: order)
         }
 
         /// Files a document under `name` **only when it has no group already**,
@@ -417,7 +467,18 @@ extension AppSettings {
             for (folderName, current) in assignments where DocumentGroups.key(for: current) == wanted {
                 next[folderName] = target
             }
-            return DocumentGroups(assignments: next)
+            // The order is keyed, and a rename changes the key — so it has to be
+            // carried across, or renaming a group silently sends it back to the
+            // alphabet. A rename that merges collapses two entries into one,
+            // which is why this dedupes rather than mapping in place.
+            let targetKey = DocumentGroups.key(for: target)
+            var nextOrder: [String] = []
+            for key in order {
+                let carried = key == wanted ? targetKey : key
+                guard nextOrder.contains(carried) == false else { continue }
+                nextOrder.append(carried)
+            }
+            return DocumentGroups(assignments: next, order: nextOrder)
         }
 
         /// Drops assignments for documents the library no longer holds.
@@ -425,7 +486,7 @@ extension AppSettings {
         /// Pass `DocumentStoring.knownFolderNames()`, which includes archived
         /// documents: archiving must not lose a group, and purging must.
         public func pruned(keeping folderNames: Set<String>) -> DocumentGroups {
-            DocumentGroups(assignments: assignments.filter { folderNames.contains($0.key) })
+            DocumentGroups(assignments: assignments.filter { folderNames.contains($0.key) }, order: order)
         }
 
         private func existingSpelling(matching name: String) -> String? {
@@ -437,6 +498,7 @@ extension AppSettings {
 
         private enum CodingKeys: String, CodingKey {
             case assignments
+            case order
         }
 
         /// Decodes a group map written by *any* build, including one that had
@@ -459,7 +521,10 @@ extension AppSettings {
                 self.init()
                 return
             }
-            self.init(assignments: assignments)
+            // Same two locks as `assignments`: an unreadable order costs the
+            // arrangement, never the sync folder.
+            let order = (try? container.decodeIfPresent([String].self, forKey: .order)) ?? []
+            self.init(assignments: assignments, order: order)
         }
     }
 }

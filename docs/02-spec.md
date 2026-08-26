@@ -29,9 +29,7 @@ appear at all when nothing is pinned. A pinned document is drawn there and *only
 never twice — but it keeps its reading state: pinning something Unread does not mark it
 read, annotating a pinned document still moves it to Reviewing underneath, and un-pinning
 returns it to whichever section it had reached. Pinning is therefore a place, not a state,
-and it is stored as one (`Document.pinnedAt`). The Pinned section obeys the same sort as
-every other section — a Sort control that visibly does not apply to the top of the list
-would be worse than any pin order it could impose. Pinning is not destructive and needs no
+and it is stored as one (`Document.pinnedAt`). Pinning is not destructive and needs no
 confirmation; the same swipe un-does it.
 
 A **New Note** button in the toolbar makes a notebook rather than waiting for a document
@@ -41,11 +39,34 @@ no title, open on page one. It arrives as an ordinary document with
 empty state offers the same one tap: with an empty library and no network it is the only
 useful thing there is to do.
 
+A pinned row is drawn on a **tinted background** — orange, which is already what pinning is
+coloured here, so the swipe and its result say the same thing. Deliberately not the accent
+colour: a `List` draws selection in the accent, and a pinned row painted that way would be
+indistinguishable from the document you have open. For the same reason the tint is dropped
+while a row is selected, rather than two washes making a third colour that means nothing.
+
+**The Pinned section is hand-ordered, and this reverses an earlier decision.** It used to
+obey the sort menu, on the grounds that a Sort control which visibly did not apply to the
+top of the list would be worse than any pin order it could impose. That was wrong about
+what the section is for: Pinned is the shelf you arrange, and half a dozen documents you
+chose by hand have an order in your head that neither date nor title recovers. Sort still
+governs every other section, and the argument it was defending — that a control should not
+appear to do nothing — is answered by the Pinned section being visibly a different kind of
+thing, which the tint now makes plain. Drag a pinned row to move it.
+
+The order is stored as the pin moments themselves, re-stamped on each drag
+(`DocumentStoring.reorderPinned(_:)`), so it cost no new column and therefore no schema
+migration. What it costs instead is that "when was this pinned" stops being true after the
+first drag — a question nothing asks. A newly pinned document lands at the top, which is
+where a new pin belongs.
+
 **Group by** sits under Sort in the same toolbar menu, because two labelled pickers in the
 menu that is already there beat a fourth control on a column this narrow. **Status** is the
 default and is the sectioning above, unchanged. **Group** replaces the three state sections
-with one section per group, alphabetically, and an **Ungrouped** section last — last
-because it is the residue rather than a group, so it does not join the alphabet. Pinned
+with one section per group and an **Ungrouped** section last — last because it is the
+residue rather than a group, so it never joins the ordering. Groups the reader has placed
+come first, in that order; every other group follows alphabetically, so one made tomorrow
+appears somewhere predictable rather than at a position nobody chose. Pinned
 stays on top in both modes and a pinned document is still drawn there and only there, which
 is the invariant the second sectioning had to be built around rather than beside.
 
@@ -62,8 +83,22 @@ accents and punctuation ignored and shown as first written, so filing something 
 (docs/05-file-contracts.md). Renaming onto a name already in use merges the two, which is
 the only coherent answer when a group is identified by its name.
 
-Filing is a **touch and hold** on the row — a Group submenu listing every group in the
-library, "New Group…", and "Remove from Group". Not a third swipe action, because there is
+A document can also be filed by **dragging it onto a group's heading**, and un-filed by
+dropping it on **Ungrouped** — the heading is the target because a `Section` is not a view
+and has nothing to attach a drop to. Pinned rows are not draggable that way: in Pinned a
+drag reorders the section, and one row cannot mean both at once, so a pinned document is
+filed from its menu instead.
+
+Group **sections** are reordered from a sheet rather than by dragging their headings, and
+not for want of trying: a `List` reorders rows within a `ForEach`, and a section is not a
+row, so there is no in-place gesture to attach it to. "Reorder Groups…" is in the Sort menu
+in Group mode and in every group heading's own menu. The order is stored against the group
+*key*, so renaming a group keeps its place, and a group emptied and filled again comes back
+where it was put rather than back in the alphabet.
+
+Filing is also a **touch and hold** on the row — a Group submenu listing every group in the
+library, "New Group…", and "Remove from Group". That menu offers every group rather than
+the ones the current search left on screen, or it would hide the one being searched past. Not a third swipe action, because there is
 no third edge and neither of the two can hold a list of names; not a new gesture, which
 docs/01-design-principles.md § 5 rules out. Renaming is a touch and hold on the group's own
 section header, which is where Files and Photos put it. A row shows no group of its own in

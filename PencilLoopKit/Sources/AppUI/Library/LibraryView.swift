@@ -60,6 +60,9 @@ public struct LibraryView<Detail: View>: View {
     /// a bool and a payload, as `creating` is.
     @State private var naming: GroupNameSheet.Mode?
 
+    /// True while the group-order sheet is up.
+    @State private var isReorderingGroups = false
+
     /// Which kind of document the New menu is making, and therefore whether
     /// the sheet is up at all. One piece of state rather than a bool and a
     /// kind, which cannot then disagree.
@@ -202,6 +205,9 @@ public struct LibraryView<Detail: View>: View {
         .sheet(item: $naming) { mode in
             GroupNameSheet(mode: mode, model: model)
         }
+        .sheet(isPresented: $isReorderingGroups) {
+            GroupOrderSheet(model: model)
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 newNoteButton
@@ -268,7 +274,10 @@ public struct LibraryView<Detail: View>: View {
         if summaries.isEmpty == false {
             Section("Pinned") {
                 ForEach(summaries) { summary in
-                    row(for: summary)
+                    row(for: summary, isFilingTarget: false)
+                }
+                .onMove { source, destination in
+                    Task { await self.model.movePinned(fromOffsets: source, toOffset: destination) }
                 }
             }
         }
@@ -279,7 +288,7 @@ public struct LibraryView<Detail: View>: View {
         if summaries.isEmpty == false {
             Section(state.displayName) {
                 ForEach(summaries) { summary in
-                    row(for: summary)
+                    row(for: summary, isFilingTarget: true)
                 }
             }
         }
@@ -297,24 +306,49 @@ public struct LibraryView<Detail: View>: View {
         if section.rows.isEmpty == false {
             Section {
                 ForEach(section.rows) { summary in
-                    row(for: summary)
+                    row(for: summary, isFilingTarget: true)
                 }
             } header: {
-                if let name = section.name {
-                    Text(name)
-                        .contextMenu {
-                            Button {
-                                naming = .rename(current: name)
-                            } label: {
-                                Label("Rename Group…", systemImage: "pencil")
-                            }
-                        }
-                        .accessibilityHint("Touch and hold to rename this group")
-                } else {
-                    Text(section.displayName)
-                }
+                groupHeader(for: section)
             }
         }
+    }
+
+    /// A group's heading: the drop target that files a document into it, and
+    /// where renaming and reordering live.
+    ///
+    /// The heading is the drop target rather than the section, because a
+    /// `Section` is not a view and has nothing to attach a destination to. The
+    /// **Ungrouped** heading is a target too — dropping there takes a document
+    /// out of its group, which is the only way to say that by dragging.
+    @ViewBuilder private func groupHeader(for section: LibraryModel.GroupSection) -> some View {
+        Text(section.displayName)
+            .dropDestination(for: String.self) { folderNames, _ in
+                guard let folderName = folderNames.first, folderName.isEmpty == false else {
+                    return false
+                }
+                Task { await self.model.setGroupName(section.name, forFolderName: folderName) }
+                return true
+            }
+            .contextMenu {
+                if let name = section.name {
+                    Button {
+                        naming = .rename(current: name)
+                    } label: {
+                        Label("Rename Group…", systemImage: "pencil")
+                    }
+                }
+                Button {
+                    isReorderingGroups = true
+                } label: {
+                    Label("Reorder Groups…", systemImage: "arrow.up.arrow.down")
+                }
+            }
+            .accessibilityHint(
+                section.name == nil
+                    ? "Drop a document here to take it out of its group"
+                    : "Drop a document here to file it in this group. Touch and hold to rename or reorder."
+            )
     }
 
     /// One row, wherever it is drawn.
@@ -324,10 +358,15 @@ public struct LibraryView<Detail: View>: View {
     /// leading edge and archiving on the trailing, in both. A pinned row that
     /// could not be un-pinned by the gesture that pinned it would be a
     /// one-way door.
-    private func row(for summary: DocumentSummary) -> some View {
+    private func row(for summary: DocumentSummary, isFilingTarget: Bool) -> some View {
         LibraryRow(summary: summary)
             .tag(summary.id)
             .selectionDisabled(summary.isLocal == false)
+            .listRowBackground(pinnedTint(for: summary))
+            // Draggable only outside Pinned. In Pinned the drag reorders the
+            // section, and one row cannot mean both at once; a pinned row is
+            // filed from its context menu instead.
+            .modifier(FilingDragModifier(folderName: summary.folderName, isEnabled: isFilingTarget))
             .swipeActions(edge: .leading) {
                 Button {
                     Task { await self.model.setPinned(summary.isPinned == false, summary) }
@@ -350,6 +389,49 @@ public struct LibraryView<Detail: View>: View {
             .contextMenu {
                 groupMenu(for: summary)
             }
+    }
+
+    /// The wash behind a pinned row, or nil for every other row.
+    ///
+    /// Orange because that is already what pinning is coloured here — it is the
+    /// swipe action's tint — so the gesture and its result say the same thing.
+    /// Deliberately *not* the accent colour: a `List` draws selection in the
+    /// accent, and a pinned row painted the same way would be indistinguishable
+    /// from the row you have open.
+    ///
+    /// Nil while the row is selected, for the same reason: the selection
+    /// highlight is the more urgent of the two facts, and two washes over each
+    /// other are a third colour that means nothing.
+    private func pinnedTint(for summary: DocumentSummary) -> Color? {
+        guard summary.isPinned, selection != summary.id else { return nil }
+        return Color.orange.opacity(LibraryView.pinnedTintOpacity)
+    }
+
+    /// Strong enough to read at a glance against the grouped grey, light enough
+    /// that label text keeps its contrast in both appearances.
+    ///
+    /// Computed rather than stored because `LibraryView` is generic over its
+    /// detail view, and a generic type cannot hold a static stored property.
+    private static var pinnedTintOpacity: Double { 0.25 }
+
+    /// Makes a row draggable, or leaves it exactly as it was.
+    ///
+    /// A `ViewModifier` rather than an `if` around `.draggable`, because the two
+    /// branches of an `if` in a `ViewBuilder` are different types and the row
+    /// would lose its identity when the branch changed — which in a `List` means
+    /// losing the selection and any in-flight swipe.
+    private struct FilingDragModifier: ViewModifier {
+
+        let folderName: String
+        let isEnabled: Bool
+
+        func body(content: Content) -> some View {
+            if isEnabled {
+                content.draggable(folderName)
+            } else {
+                content
+            }
+        }
     }
 
     /// Filing one document, from a touch-and-hold.
@@ -458,6 +540,17 @@ public struct LibraryView<Detail: View>: View {
             Picker("Group By", selection: $model.grouping) {
                 Text("Status").tag(LibraryGrouping.status)
                 Text("Group").tag(LibraryGrouping.group)
+            }
+            // Only in Group mode, and only with something to order. A control
+            // that visibly cannot apply is worse than one that is absent
+            // (docs/01-design-principles.md § 6).
+            if model.grouping == .group && model.groupNames.count > 1 {
+                Divider()
+                Button {
+                    isReorderingGroups = true
+                } label: {
+                    Label("Reorder Groups…", systemImage: "arrow.up.arrow.down")
+                }
             }
         } label: {
             Label("Sort", systemImage: "arrow.up.arrow.down")

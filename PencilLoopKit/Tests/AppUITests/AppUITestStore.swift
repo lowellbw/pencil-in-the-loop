@@ -24,6 +24,8 @@ actor AppUITestStore: DocumentStoring {
         case state(DocState, documentId: UUID)
         case pinned(Bool, documentId: UUID)
         case title(String, documentId: UUID)
+
+        case pinnedOrder([UUID])
     }
 
     /// Every write, in the order it arrived.
@@ -112,6 +114,9 @@ actor AppUITestStore: DocumentStoring {
 
     func setTitle(_ title: String, documentId: UUID) throws {
         writes.append(.title(title, documentId: documentId))
+
+    func reorderPinned(_ documentIds: [UUID]) throws {
+        writes.append(.pinnedOrder(documentIds))
     }
 
     func setLastReadPage(_ pageIndex: Int, documentId: UUID) throws {}

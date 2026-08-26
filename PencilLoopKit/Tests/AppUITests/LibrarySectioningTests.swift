@@ -28,7 +28,7 @@ final class LibrarySectioningTests: XCTestCase {
         _ ordinal: Int,
         title: String,
         state: DocState = .unread,
-        isPinned: Bool = false
+        pinnedAt: Date? = nil
     ) -> DocumentSummary {
         DocumentSummary(
             id: AppUITestSamples.id(ordinal),
@@ -41,16 +41,17 @@ final class LibrarySectioningTests: XCTestCase {
             commentCount: 0,
             hasInk: false,
             folderName: "folder-\(ordinal)",
-            isPinned: isPinned
+            pinnedAt: pinnedAt
         )
     }
 
     private func model(
         _ summaries: [DocumentSummary],
-        filed: [String: String] = [:]
+        filed: [String: String] = [:],
+        order: [String] = []
     ) -> LibraryModel {
         var settings = AppSettings.initial
-        settings.documentGroups = AppSettings.DocumentGroups(assignments: filed)
+        settings.documentGroups = AppSettings.DocumentGroups(assignments: filed, order: order)
         return LibraryModel(
             environment: PreviewEnvironment(summaries: summaries, settings: settings)
         )
@@ -159,7 +160,7 @@ final class LibrarySectioningTests: XCTestCase {
     func testAPinnedDocumentIsDrawnInPinnedAndInNoGroupSection() async {
         let model = model(
             [
-                summary(1, title: "Attention Is All You Need", isPinned: true),
+                summary(1, title: "Attention Is All You Need", pinnedAt: Date(timeIntervalSince1970: 1_787_100_000)),
                 summary(2, title: "FlashAttention")
             ],
             filed: [
@@ -277,5 +278,113 @@ final class LibrarySectioningTests: XCTestCase {
             ["Ungrouped"],
             "A group nothing is in is not a group, so its heading goes with it."
         )
+    }
+
+    // MARK: - The order the reader chose
+
+    private func pinned(_ ordinal: Int, title: String, at seconds: TimeInterval) -> DocumentSummary {
+        summary(ordinal, title: title, pinnedAt: Date(timeIntervalSince1970: seconds))
+    }
+
+    func testThePinnedSectionIsNewestPinnedFirst() async {
+        let model = model([
+            pinned(1, title: "First pinned", at: 1_787_000_100),
+            pinned(2, title: "Pinned later", at: 1_787_000_300),
+            pinned(3, title: "Pinned in between", at: 1_787_000_200)
+        ])
+
+        await model.load()
+
+        XCTAssertEqual(
+            model.pinned.map(\.title),
+            ["Pinned later", "Pinned in between", "First pinned"],
+            "Pinned is the one section the sort menu does not reach — it is the order the reader dragged."
+        )
+    }
+
+    func testThePinnedOrderIgnoresTheSortMenu() async {
+        let model = model([
+            pinned(1, title: "Aardvark", at: 1_787_000_100),
+            pinned(2, title: "Zebra", at: 1_787_000_300)
+        ])
+        model.sort = .title
+
+        await model.load()
+
+        XCTAssertEqual(
+            model.pinned.map(\.title),
+            ["Zebra", "Aardvark"],
+            "A hand order that a sort could overrule would not be a hand order."
+        )
+    }
+
+    func testDraggingAPinnedRowMovesItAndKeepsItThere() async {
+        let model = model([
+            pinned(1, title: "Top", at: 1_787_000_300),
+            pinned(2, title: "Middle", at: 1_787_000_200),
+            pinned(3, title: "Bottom", at: 1_787_000_100)
+        ])
+        await model.load()
+
+        await model.movePinned(fromOffsets: IndexSet(integer: 2), toOffset: 0)
+
+        XCTAssertEqual(model.pinned.map(\.title), ["Bottom", "Top", "Middle"])
+    }
+
+    func testGroupSectionsFollowTheOrderTheReaderPutThemIn() async {
+        let model = model(
+            [summary(1, title: "One"), summary(2, title: "Two"), summary(3, title: "Three")],
+            filed: [
+                "folder-1": "Attention Papers",
+                "folder-2": "Q3 Planning",
+                "folder-3": "Zoning"
+            ],
+            order: ["zoning", "q3 planning"]
+        )
+
+        await model.load()
+
+        XCTAssertEqual(
+            model.sections.map(\.displayName),
+            ["Zoning", "Q3 Planning", "Attention Papers"],
+            "Placed groups first, in that order; anything nobody has moved keeps to the alphabet after them."
+        )
+    }
+
+    func testUngroupedStaysLastWhateverTheGroupOrderSays() async {
+        let model = model(
+            [summary(1, title: "One"), summary(2, title: "Two")],
+            filed: ["folder-1": "Zoning"],
+            order: ["zoning"]
+        )
+
+        await model.load()
+
+        XCTAssertEqual(model.sections.map(\.displayName), ["Zoning", "Ungrouped"])
+    }
+
+    func testReorderingTheGroupsMovesTheSections() async {
+        let model = model(
+            [summary(1, title: "One"), summary(2, title: "Two")],
+            filed: ["folder-1": "Attention Papers", "folder-2": "Q3 Planning"]
+        )
+        await model.load()
+        XCTAssertEqual(model.sections.map(\.displayName), ["Attention Papers", "Q3 Planning"])
+
+        await model.moveGroups(to: ["Q3 Planning", "Attention Papers"])
+
+        XCTAssertEqual(model.sections.map(\.displayName), ["Q3 Planning", "Attention Papers"])
+    }
+
+    func testTheGroupMenuOffersTheSameOrderTheSidebarDraws() async {
+        let model = model(
+            [summary(1, title: "One"), summary(2, title: "Two")],
+            filed: ["folder-1": "Attention Papers", "folder-2": "Q3 Planning"],
+            order: ["q3 planning"]
+        )
+
+        await model.load()
+
+        XCTAssertEqual(model.groupNames, ["Q3 Planning", "Attention Papers"])
     }
 }

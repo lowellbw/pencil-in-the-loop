@@ -279,14 +279,42 @@ public actor DocumentStore: DocumentStoring {
         try commit()
     }
 
+    /// Puts the Pinned section in exactly this order, top first.
+    ///
+    /// The order is stored as the pin moments themselves, one second apart,
+    /// counting back from now — so the sort that reads them (`pinnedAt`
+    /// descending) yields the order given, and a document pinned afterwards
+    /// lands at the top where a new pin belongs.
+    ///
+    /// Seconds rather than fractions because `ContractCoding` dates are
+    /// second-precision and a gap smaller than the precision that persists them
+    /// is a gap that can collapse. A hundred pinned documents reach a hundred
+    /// seconds into the past, which no one will notice and nothing reads.
+    ///
+    /// Unknown or un-pinned ids are skipped rather than throwing: the list comes
+    /// from a view that may be a moment stale, and a document un-pinned on
+    /// another screen must not fail the drag that moved a different one.
+    public func reorderPinned(_ documentIds: [UUID]) throws {
+        let now = Date()
+        var moved = false
+        for (offset, documentId) in documentIds.enumerated() {
+            guard let row = try documentRow(id: documentId), row.pinnedAt != nil else { continue }
+            let wanted = now.addingTimeInterval(TimeInterval(-offset))
+            guard row.pinnedAt != wanted else { continue }
+            row.pinnedAt = wanted
+            moved = true
+        }
+        guard moved else { return }
+        try commit()
+    }
+
     /// When a document was pinned, or nil when it is not pinned.
     ///
-    /// Internal to Storage: `DocumentSummary.isPinned` is the whole of what the
-    /// UI needs, and putting a date on the contract that no view reads would be
-    /// a `Core/Contracts` change earning nothing (STYLE.md § 1). It is here so
-    /// the tests can tell "still pinned" from "pinned again", which is the
-    /// difference `setPinned(_:documentId:)`'s coalescing turns on and which
-    /// `isPinned` cannot show.
+    /// It is here so the tests can tell "still pinned" from "pinned again",
+    /// which is the difference `setPinned(_:documentId:)`'s coalescing turns on.
+    /// `DocumentSummary.pinnedAt` now carries the same value to the UI, which
+    /// needs it to draw the Pinned section in the order the reader dragged it
+    /// into.
     func pinnedAt(documentId: UUID) throws -> Date? {
         try documentRow(id: documentId)?.pinnedAt
     }

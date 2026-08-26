@@ -272,6 +272,8 @@ public actor PreviewDocumentStore: DocumentStoring {
 
     public func setPinned(_ pinned: Bool, documentId: UUID) throws {}
 
+    public func reorderPinned(_ documentIds: [UUID]) throws {}
+
     public func setLastReadPage(_ pageIndex: Int, documentId: UUID) throws {}
 
     public func setLocalState(_ state: DocumentLocalState, documentId: UUID) throws {}
@@ -489,6 +491,10 @@ public actor PreviewSettingsStore: SettingsStoring, DocumentGrouping {
         settings.documentGroups = settings.groups.renaming(name, to: newName)
     }
 
+    public func reorderGroups(_ names: [String]) throws {
+        settings.documentGroups = settings.groups.reordering(names)
+    }
+
     public func pruneGroups(keeping folderNames: Set<String>) throws {
         settings.documentGroups = settings.groups.pruned(keeping: folderNames)
     }
@@ -535,7 +541,7 @@ extension DocumentSummary {
                 commentCount: 1,
                 hasInk: false,
                 folderName: "2026-08-14-retrieval-eval-harness",
-                isPinned: true
+                pinnedAt: Date(timeIntervalSince1970: 1_786_600_000)
             ),
             DocumentSummary(
                 id: UUID(uuidString: "F7A1C0DE-0000-4000-8000-000000000001") ?? UUID(),

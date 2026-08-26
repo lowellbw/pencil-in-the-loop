@@ -436,7 +436,7 @@ extension Document {
             commentCount: commentCount,
             hasInk: inkedPageCount > 0,
             folderName: folderName,
-            isPinned: pinnedAt != nil,
+            pinnedAt: pinnedAt,
             refreshFailureReason: summaryRefreshFailureReason
         )
     }
