@@ -679,6 +679,70 @@ public protocol SettingsStoring: Actor {
     func update(_ settings: AppSettings) throws
 }
 
+/// Which group each document is filed under (docs/02-spec.md § S1).
+///
+/// **A second face on the settings store, not a second store.** Every method
+/// here is a read-modify-write of the one blob `SettingsStoring` owns, so a
+/// separate actor over the same key would silently lose a write whenever a
+/// group assignment raced a change made in Settings. The conformer is
+/// `AppSettingsStore`, which already serialises exactly this way, and the
+/// protocol is narrow so that Sync can be handed the capability without being
+/// handed the whole of the user's configuration to write one string.
+///
+/// It lives here rather than on `DocumentStoring` because the library store does
+/// not hold groups and should not claim to — see `AppSettings.DocumentGroups`
+/// for why they are kept outside it.
+///
+/// **On failure:** the three mutating members throw
+/// `PencilLoopError.storeWriteFailed` when the settings will not encode, and
+/// leave the in-memory value untouched. `groups()` never throws — settings that
+/// cannot be read answer `.empty`, which is indistinguishable from a device
+/// where nothing has been filed, and that is the correct recovery.
+public protocol DocumentGrouping: Actor {
+
+    /// Every assignment the app holds.
+    ///
+    /// Empty on a fresh install and after an unreadable settings blob — never
+    /// nil, never an error.
+    func groups() -> AppSettings.DocumentGroups
+
+    /// Files a document under `name`, or clears its group when `name` is nil.
+    ///
+    /// The on-device action, so it always wins: this is what the row's Group
+    /// menu calls, and it may move a document a sender filed. A name matching a
+    /// group already in use joins that group under the spelling already on
+    /// screen. Idempotent.
+    func setGroupName(_ name: String?, forFolderName folderName: String) throws
+
+    /// Files a document under `name` **only when it has no group already**, and
+    /// does nothing at all when `name` is nil.
+    ///
+    /// What a sender's `meta.json` gets (docs/05-file-contracts.md). It may
+    /// propose a group for a document arriving for the first time; it may never
+    /// move one the user has filed by hand, and it can never un-group anything.
+    /// Without that distinction every re-send would drag a document back into
+    /// the sender's group.
+    func adoptGroupName(_ name: String?, forFolderName folderName: String) throws
+
+    /// Renames a group, moving every document filed under it in one write.
+    ///
+    /// Renaming onto a name already in use **merges** the two, which is the only
+    /// coherent answer when a group is identified by its name. Renaming a name
+    /// nothing is filed under is a no-op rather than an error.
+    ///
+    /// - Throws: `.storeWriteFailed` when the new name is empty or unusable.
+    func renameGroup(_ name: String, to newName: String) throws
+
+    /// Drops assignments for documents the library no longer holds.
+    ///
+    /// Pass `DocumentStoring.knownFolderNames()`, which includes archived
+    /// documents: archiving must not lose a group, and purging must. Call it
+    /// after a purge and nowhere else — in particular never against the rows the
+    /// Library has fetched, because those are filtered by the search text and
+    /// pruning against them would un-group everything that did not match.
+    func pruneGroups(keeping folderNames: Set<String>) throws
+}
+
 // MARK: - Export
 
 /// Decides how a review gets back to its conversation.

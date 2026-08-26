@@ -66,6 +66,22 @@ public struct DocumentMetadata: Codable, Sendable, Hashable {
     /// and nothing in ingest branches on it today.
     public var sourceURL: URL?
 
+    /// The group the sending tool proposes this document be filed under, or nil
+    /// when it proposes none (docs/05-file-contracts.md).
+    ///
+    /// Groups are identified by this string and nothing else — there is no
+    /// registry and no id, so a name used for the first time starts a group and
+    /// a name nothing uses stops being one. Names are compared with case,
+    /// accents and punctuation ignored and displayed as first written; the rule
+    /// lives in `AppSettings.DocumentGroups`.
+    ///
+    /// **Advisory.** The app adopts it for a document it has not seen before and
+    /// never overrides a group the user chose on the device, so a re-send cannot
+    /// move a document the reader has filed by hand.
+    ///
+    /// Optional and additive: most documents do not have one, by design.
+    public var group: String?
+
     public init(
         id: String? = nil,
         title: String? = nil,
@@ -73,7 +89,8 @@ public struct DocumentMetadata: Codable, Sendable, Hashable {
         origin: Origin? = nil,
         sourceFormat: SourceFormat? = nil,
         pageCount: Int? = nil,
-        sourceURL: URL? = nil
+        sourceURL: URL? = nil,
+        group: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -82,6 +99,7 @@ public struct DocumentMetadata: Codable, Sendable, Hashable {
         self.sourceFormat = sourceFormat
         self.pageCount = pageCount
         self.sourceURL = sourceURL
+        self.group = group
     }
 
     /// The value used when `meta.json` is missing entirely.
@@ -105,6 +123,7 @@ public struct DocumentMetadata: Codable, Sendable, Hashable {
         case sourceFormat
         case pageCount
         case sourceURL
+        case group
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -116,6 +135,7 @@ public struct DocumentMetadata: Codable, Sendable, Hashable {
         try container.encodeIfPresent(sourceFormat, forKey: .sourceFormat)
         try container.encodeIfPresent(pageCount, forKey: .pageCount)
         try container.encodeIfPresent(sourceURL?.absoluteString, forKey: .sourceURL)
+        try container.encodeIfPresent(group, forKey: .group)
     }
 
     /// Never throws for a document that is valid JSON. A top level that is not
@@ -133,6 +153,7 @@ public struct DocumentMetadata: Codable, Sendable, Hashable {
         self.sourceFormat = try? container.decodeIfPresent(SourceFormat.self, forKey: .sourceFormat)
         self.pageCount = try? container.decodeIfPresent(Int.self, forKey: .pageCount)
         self.sourceURL = DocumentMetadata.lenientURL(container, .sourceURL)
+        self.group = try? container.decodeIfPresent(String.self, forKey: .group)
     }
 
     /// A URL from its string form. Anything that is not a parseable absolute

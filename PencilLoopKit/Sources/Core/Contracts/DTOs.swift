@@ -98,6 +98,24 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
     /// otherwise say the same thing twice in two different voices.
     public var refreshFailureReason: String?
 
+    /// The group this document is filed under, or nil for Ungrouped
+    /// (docs/02-spec.md § S1).
+    ///
+    /// **Not populated by `DocumentStoring`, and it is the only field here that
+    /// isn't.** Group membership lives outside the library store — see
+    /// `AppSettings.DocumentGroups`, which says why — so a summary straight from
+    /// the store always has nil here. `LibraryModel.apply(_:)` fills it in from
+    /// the map after the fetch, and it is the only thing that does. Nil
+    /// therefore means "no group" to a view and "not asked yet" to nobody: any
+    /// code reading a summary it did not get from `LibraryModel` should not be
+    /// reading this.
+    ///
+    /// Orthogonal to `state` and to `isPinned`, in the same way and for the same
+    /// reasons those two are orthogonal to each other. Grouping a document does
+    /// not mark it read, and a pinned document is drawn in Pinned rather than in
+    /// its group — a place, not a state.
+    public var groupName: String?
+
     public init(
         id: UUID,
         title: String,
@@ -110,7 +128,8 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
         hasInk: Bool,
         folderName: String,
         isPinned: Bool = false,
-        refreshFailureReason: String? = nil
+        refreshFailureReason: String? = nil,
+        groupName: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -124,6 +143,7 @@ public struct DocumentSummary: Sendable, Hashable, Identifiable {
         self.folderName = folderName
         self.isPinned = isPinned
         self.refreshFailureReason = refreshFailureReason
+        self.groupName = groupName
     }
 }
 
@@ -181,6 +201,23 @@ public struct LibraryQuery: Sendable, Hashable {
 public enum LibrarySort: String, Sendable, Codable, CaseIterable, Hashable {
     case dateAdded
     case title
+}
+
+/// Which sections the Library sidebar splits into, below Pinned.
+///
+/// **Not part of `LibraryQuery`, deliberately.** Grouping changes where rows are
+/// drawn, never which rows are fetched or in what order — so it stays out of
+/// `LibraryModel.reloadKey` and switching it costs no round trip to the store.
+/// Rows inside every section obey the sort menu in both modes, which is the rule
+/// the Pinned section already follows (docs/02-spec.md § S1).
+public enum LibraryGrouping: String, Sendable, Codable, CaseIterable, Hashable {
+
+    /// Reviewing, Unread, Read. The default, and what the Library has always
+    /// done.
+    case status
+
+    /// One section per group, then Ungrouped.
+    case group
 }
 
 // MARK: - Reader
@@ -501,6 +538,16 @@ public struct IngestedDocument: Sendable, Hashable {
     /// When we ingested it. This is what the Library sorts by.
     public var addedAt: Date
 
+    /// The group `meta.json` proposes for this document, or nil when it names
+    /// none (docs/05-file-contracts.md).
+    ///
+    /// **A proposal, not an instruction.** It is applied through
+    /// `DocumentGrouping.adoptGroupName(_:forFolderName:)`, which files a
+    /// document arriving for the first time and never moves one the user has
+    /// already filed by hand. A re-sent document carrying no group therefore
+    /// cannot empty the section the user put it in.
+    public var groupName: String?
+
     public init(
         id: UUID,
         externalId: String? = nil,
@@ -515,7 +562,8 @@ public struct IngestedDocument: Sendable, Hashable {
         pageCount: Int,
         extractedText: String,
         createdAt: Date,
-        addedAt: Date
+        addedAt: Date,
+        groupName: String? = nil
     ) {
         self.id = id
         self.externalId = externalId
@@ -531,6 +579,7 @@ public struct IngestedDocument: Sendable, Hashable {
         self.extractedText = extractedText
         self.createdAt = createdAt
         self.addedAt = addedAt
+        self.groupName = groupName
     }
 }
 

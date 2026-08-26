@@ -92,6 +92,17 @@ public struct AppSettings: Codable, Sendable, Hashable {
     /// falls back to the host from `serverBaseURL`.
     public var serverDisplayName: String?
 
+    // MARK: - Grouping
+
+    /// Which group each document is filed under, or nil in a blob written
+    /// before groups existed — which is every blob on every device that
+    /// installed the app before this build.
+    ///
+    /// **Read `groups`, never this.** Optional for the same reason
+    /// `syncTransport` is, and nil and empty mean the same thing to every
+    /// caller: nothing has been filed.
+    public var documentGroups: DocumentGroups?
+
     public init(
         syncFolderBookmark: Data? = nil,
         syncFolderDisplayName: String? = nil,
@@ -104,7 +115,8 @@ public struct AppSettings: Codable, Sendable, Hashable {
         transportChosenByUser: Bool? = nil,
         syncTransport: SyncTransport? = nil,
         serverBaseURLString: String? = nil,
-        serverDisplayName: String? = nil
+        serverDisplayName: String? = nil,
+        documentGroups: DocumentGroups? = nil
     ) {
         self.syncFolderBookmark = syncFolderBookmark
         self.syncFolderDisplayName = syncFolderDisplayName
@@ -118,6 +130,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         self.syncTransport = syncTransport
         self.serverBaseURLString = serverBaseURLString
         self.serverDisplayName = serverDisplayName
+        self.documentGroups = documentGroups
     }
 
     /// A fresh install.
@@ -140,6 +153,15 @@ public struct AppSettings: Codable, Sendable, Hashable {
     /// blob a future build writes a transport this build has never heard of.
     public var transport: SyncTransport {
         syncTransport ?? .folder
+    }
+
+    /// The groups in force.
+    ///
+    /// **When `documentGroups` is absent or unreadable:** empty. A blob that
+    /// predates grouping reads as nothing filed rather than as a failure, and
+    /// so does one a future build wrote in a shape this build cannot read.
+    public var groups: DocumentGroups {
+        documentGroups ?? .empty
     }
 
     /// `serverBaseURLString`, parsed.
@@ -171,6 +193,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         case syncTransport
         case serverBaseURLString
         case serverDisplayName
+        case documentGroups
     }
 
     /// Decodes settings written by *any* build of this app, including one that
@@ -223,10 +246,224 @@ public struct AppSettings: Codable, Sendable, Hashable {
             ),
             syncTransport: try container.decodeIfPresent(SyncTransport.self, forKey: .syncTransport),
             serverBaseURLString: try container.decodeIfPresent(String.self, forKey: .serverBaseURLString),
-            serverDisplayName: try container.decodeIfPresent(String.self, forKey: .serverDisplayName)
+            serverDisplayName: try container.decodeIfPresent(String.self, forKey: .serverDisplayName),
+            // `try?` on top of the rule above, because this is the one field
+            // holding a collection: a `documentGroups` of the wrong shape is the
+            // likeliest malformed value in the blob, and the box above says what
+            // a throw here would cost. `DocumentGroups.init(from:)` cannot throw
+            // either; this is the second of the two locks.
+            documentGroups: try? container.decodeIfPresent(DocumentGroups.self, forKey: .documentGroups)
         )
     }
 }
+
+// MARK: - Grouping
+
+extension AppSettings {
+
+    /// Which group each document has been filed under, keyed by the document's
+    /// `folderName` (docs/02-spec.md § S1).
+    ///
+    /// **A map in the settings blob rather than a column on `Document`.** An
+    /// attribute on the library store would have cost a `LibrarySchemaV2` and a
+    /// migration of a store holding somebody's annotations — read
+    /// `Storage/Schema/LibraryMigrationPlan.swift`, which prices that — to buy
+    /// one nullable string. Nothing needs a group to be queryable: the sidebar
+    /// re-sections rows it has already fetched, exactly as it does for pinning.
+    /// The honest cost is that document state now lives in two places, and the
+    /// seam is `LibraryModel.apply(_:)`, which is the only thing that fills
+    /// `DocumentSummary.groupName` in.
+    ///
+    /// **Keyed by `folderName`, not by the document's `UUID`.** `folderName` is
+    /// what a re-sent document keeps — `DocumentStoring.upsert` matches on it —
+    /// so a document that arrives twice stays where it was filed.
+    ///
+    /// A group has no existence apart from the documents in it. A name nothing
+    /// is filed under is not a group, so there is no registry, nothing to
+    /// create and nothing to delete.
+    public struct DocumentGroups: Codable, Sendable, Hashable {
+
+        /// `folderName` to the group's display name, spelled as it was first
+        /// written.
+        public private(set) var assignments: [String: String]
+
+        public init(assignments: [String: String] = [:]) {
+            self.assignments = assignments
+        }
+
+        /// Nothing filed. A fresh install, and what an unreadable blob degrades
+        /// to.
+        public static let empty = DocumentGroups()
+
+        /// The longest a group name may be.
+        ///
+        /// A section header on an iPad sidebar truncates well before this; the
+        /// cap is here so that a pasted paragraph cannot become a group. The
+        /// same number as the MCP server's `MAX_GROUP_CHARS`, so both ends of
+        /// the wire agree on what a name is.
+        public static let maximumNameCharacters = 64
+
+        // MARK: - Names
+
+        /// A name with its whitespace tidied, or nil for anything that is not a
+        /// usable name.
+        ///
+        /// **Nil is not an error.** Every caller reads it as "no group": a blank
+        /// text field, a name of nothing but spaces, and an absent `meta.json`
+        /// key all mean the same thing, and treating one of them as a failure
+        /// would make an empty field throw.
+        ///
+        /// An over-long name is shortened rather than refused. A sender that
+        /// ignores the documented cap should cost the user a truncated section
+        /// heading, which is visible and fixable, rather than a document that
+        /// silently arrives ungrouped with nothing on screen to explain it.
+        public static func normalised(_ name: String?) -> String? {
+            guard let name else { return nil }
+            let collapsed = name.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+            guard collapsed.isEmpty == false else { return nil }
+            let hasControlCharacter = collapsed.unicodeScalars.contains { scalar in
+                CharacterSet.controlCharacters.contains(scalar)
+            }
+            guard hasControlCharacter == false else { return nil }
+            guard collapsed.count > DocumentGroups.maximumNameCharacters else { return collapsed }
+            return String(collapsed.prefix(DocumentGroups.maximumNameCharacters))
+        }
+
+        /// The key two names are compared by: case, accents and punctuation
+        /// ignored, so "Attention Papers", "attention papers" and
+        /// "Attention-Papers" are one group.
+        ///
+        /// It folds rather than transliterating, so a name in a script with no
+        /// ASCII form keeps its own key instead of collapsing into one group
+        /// with every other such name.
+        ///
+        /// **Never written into `meta.json`.** It is derivable, and a derived
+        /// field in a public contract is a field that goes stale the day the
+        /// rule changes (docs/05-file-contracts.md).
+        static func key(for name: String) -> String {
+            let folded = name.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: nil
+            )
+            return folded
+                .split { $0.isLetter == false && $0.isNumber == false }
+                .joined(separator: " ")
+        }
+
+        // MARK: - Reading
+
+        /// The group this document is filed under, or nil for Ungrouped.
+        public func name(forFolderName folderName: String) -> String? {
+            assignments[folderName]
+        }
+
+        /// Every group in use, ordered the way the sidebar draws them.
+        ///
+        /// One entry per group, not per spelling: if a hand-edited blob has both
+        /// "Attention Papers" and "attention papers", they are one group and the
+        /// list says so once.
+        public var sortedNames: [String] {
+            var firstSpellings: [String: String] = [:]
+            for name in assignments.values where firstSpellings[DocumentGroups.key(for: name)] == nil {
+                firstSpellings[DocumentGroups.key(for: name)] = name
+            }
+            return firstSpellings.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        }
+
+        // MARK: - Writing
+
+        /// Files a document under `name`, or clears its group when `name` is nil.
+        ///
+        /// A name matching a group already in use joins that group under the
+        /// spelling already on screen, so typing "attention papers" does not
+        /// open a second section beside "Attention Papers".
+        public func setting(_ name: String?, forFolderName folderName: String) -> DocumentGroups {
+            var next = assignments
+            if let wanted = DocumentGroups.normalised(name) {
+                next[folderName] = existingSpelling(matching: wanted) ?? wanted
+            } else {
+                next.removeValue(forKey: folderName)
+            }
+            return DocumentGroups(assignments: next)
+        }
+
+        /// Files a document under `name` **only when it has no group already**,
+        /// and does nothing at all when `name` is nil.
+        ///
+        /// This is what a sender's `meta.json` gets. It may propose a group for
+        /// a document arriving for the first time; it may never move one the
+        /// user has filed by hand, and it can never un-group anything — a
+        /// re-sent document with no `group` key must not empty the section the
+        /// user put it in (docs/06-integrations.md).
+        public func adopting(_ name: String?, forFolderName folderName: String) -> DocumentGroups {
+            guard assignments[folderName] == nil else { return self }
+            guard DocumentGroups.normalised(name) != nil else { return self }
+            return setting(name, forFolderName: folderName)
+        }
+
+        /// Renames a group, moving every document filed under it.
+        ///
+        /// Renaming onto a name already in use **merges** the two, which is the
+        /// only coherent answer when a group *is* its name: there is no second
+        /// identity for the two of them to disagree about.
+        ///
+        /// A name nothing is filed under is not an error — there is simply
+        /// nothing to move — and a new name that normalises to nothing leaves
+        /// everything where it is rather than un-grouping it.
+        public func renaming(_ name: String, to newName: String) -> DocumentGroups {
+            guard let target = DocumentGroups.normalised(newName) else { return self }
+            let wanted = DocumentGroups.key(for: name)
+            var next = assignments
+            for (folderName, current) in assignments where DocumentGroups.key(for: current) == wanted {
+                next[folderName] = target
+            }
+            return DocumentGroups(assignments: next)
+        }
+
+        /// Drops assignments for documents the library no longer holds.
+        ///
+        /// Pass `DocumentStoring.knownFolderNames()`, which includes archived
+        /// documents: archiving must not lose a group, and purging must.
+        public func pruned(keeping folderNames: Set<String>) -> DocumentGroups {
+            DocumentGroups(assignments: assignments.filter { folderNames.contains($0.key) })
+        }
+
+        private func existingSpelling(matching name: String) -> String? {
+            let wanted = DocumentGroups.key(for: name)
+            return assignments.values.sorted().first { DocumentGroups.key(for: $0) == wanted }
+        }
+
+        // MARK: - Codable
+
+        private enum CodingKeys: String, CodingKey {
+            case assignments
+        }
+
+        /// Decodes a group map written by *any* build, including one that had
+        /// never heard of the field.
+        ///
+        /// **Never throws, and that is the whole point.** `AppSettingsStore.load`
+        /// answers a decode failure with `AppSettings.initial` — no bookmark,
+        /// and the user is back on the first-run picker having lost the folder
+        /// they chose. `decodeIfPresent` throws on a *type* mismatch and not
+        /// only on an absent key, so a `documentGroups` written in a shape this
+        /// build cannot read would cost the user their sync folder rather than
+        /// their groups. Anything unusable reads as `.empty` instead.
+        public init(from decoder: Decoder) throws {
+            // `try?` flattens, so an absent key and an unreadable one both land
+            // in the same place — which is what this wants: either way there is
+            // nothing filed.
+            guard let container = try? decoder.container(keyedBy: CodingKeys.self),
+                  let assignments = try? container.decodeIfPresent([String: String].self, forKey: .assignments)
+            else {
+                self.init()
+                return
+            }
+            self.init(assignments: assignments)
+        }
+    }
+}
+
 
 /// Which transport carries documents to and from this iPad.
 ///
