@@ -377,7 +377,7 @@ public struct LibraryView<Detail: View>: View {
                         ? Label("Unpin", systemImage: "pin.slash")
                         : Label("Pin", systemImage: "pin")
                 }
-                .tint(.orange)
+                .tint(LibraryView.pinnedColour)
             }
             .swipeActions(edge: .trailing) {
                 Button {
@@ -393,8 +393,10 @@ public struct LibraryView<Detail: View>: View {
 
     /// The wash behind a pinned row, or nil for every other row.
     ///
-    /// Orange because that is already what pinning is coloured here — it is the
-    /// swipe action's tint — so the gesture and its result say the same thing.
+    /// Green is the motif for pinning, and it is the same green the pin swipe
+    /// is tinted with, so the gesture and its result say the same thing. Change
+    /// one and change the other.
+    ///
     /// Deliberately *not* the accent colour: a `List` draws selection in the
     /// accent, and a pinned row painted the same way would be indistinguishable
     /// from the row you have open.
@@ -404,15 +406,19 @@ public struct LibraryView<Detail: View>: View {
     /// other are a third colour that means nothing.
     private func pinnedTint(for summary: DocumentSummary) -> Color? {
         guard summary.isPinned, selection != summary.id else { return nil }
-        return Color.orange.opacity(LibraryView.pinnedTintOpacity)
+        return LibraryView.pinnedColour.opacity(LibraryView.pinnedTintOpacity)
     }
 
-    /// Strong enough to read at a glance against the grouped grey, light enough
-    /// that label text keeps its contrast in both appearances.
+    /// The one colour that means "pinned" — the row wash and the swipe.
     ///
     /// Computed rather than stored because `LibraryView` is generic over its
     /// detail view, and a generic type cannot hold a static stored property.
-    private static var pinnedTintOpacity: Double { 0.25 }
+    private static var pinnedColour: Color { .green }
+
+    /// A wash rather than a fill. Light enough that the row still reads as a row
+    /// and label text keeps its contrast in both appearances; enough to pick the
+    /// shelf out of the grouped grey at a glance, which is all it has to do.
+    private static var pinnedTintOpacity: Double { 0.14 }
 
     /// Makes a row draggable, or leaves it exactly as it was.
     ///

@@ -39,11 +39,14 @@ no title, open on page one. It arrives as an ordinary document with
 empty state offers the same one tap: with an empty library and no network it is the only
 useful thing there is to do.
 
-A pinned row is drawn on a **tinted background** — orange, which is already what pinning is
-coloured here, so the swipe and its result say the same thing. Deliberately not the accent
-colour: a `List` draws selection in the accent, and a pinned row painted that way would be
-indistinguishable from the document you have open. For the same reason the tint is dropped
-while a row is selected, rather than two washes making a third colour that means nothing.
+A pinned row is drawn on a **very light green wash**, and green is the motif for pinning
+throughout — the same green tints the pin swipe, so the gesture and its result say the same
+thing. A wash rather than a fill: enough to pick the shelf out of the grouped grey at a
+glance, which is all it has to do, and light enough that the row still reads as a row with
+its label contrast intact in both appearances. Deliberately not the accent colour: a `List`
+draws selection in the accent, and a pinned row painted that way would be indistinguishable
+from the document you have open. For the same reason the tint is dropped while a row is
+selected, rather than two washes making a third colour that means nothing.
 
 **The Pinned section is hand-ordered, and this reverses an earlier decision.** It used to
 obey the sort menu, on the grounds that a Sort control which visibly did not apply to the
