@@ -56,6 +56,11 @@ public actor SyncCoordinator: SyncCoordinating {
     /// keeps outside the protocol. Anything narrower should use `withAccess`.
     private let access: SyncFolderAccess
 
+    /// Where a document's proposed group is filed, or nil when nothing is
+    /// listening. Optional because a coordinator built for a test has no
+    /// settings store and does not need one.
+    private let groups: (any DocumentGrouping)?
+
     private var isStarted = false
     private var activeScan: Task<Int, Error>?
     private var watchTask: Task<Void, Never>?
@@ -83,6 +88,8 @@ public actor SyncCoordinator: SyncCoordinating {
     ///   - stagingImporter: the share extension's App Group hand-off.
     ///   - queue: where a review waits when the folder is unreachable.
     ///   - access: security-scoped access to `folder`.
+    ///   - groups: where `meta.json`'s proposed group is filed. Nil ingests
+    ///     documents without ever filing one.
     ///   - importsAppGroupStaging: off in tests that have no App Group.
     public init(
         folder: SyncFolder,
@@ -96,6 +103,7 @@ public actor SyncCoordinator: SyncCoordinating {
         stagingImporter: AppGroupStagingImporter = AppGroupStagingImporter(),
         queue: OutboxQueue = OutboxQueue(),
         access: SyncFolderAccess = SyncFolderAccess(),
+        groups: (any DocumentGrouping)? = nil,
         importsAppGroupStaging: Bool = true
     ) {
         self.folder = folder
@@ -108,6 +116,7 @@ public actor SyncCoordinator: SyncCoordinating {
         self.pinner = pinner
         self.stagingImporter = stagingImporter
         self.queue = queue
+        self.groups = groups
         self.access = access
         self.importsAppGroupStaging = importsAppGroupStaging
     }
@@ -271,8 +280,21 @@ public actor SyncCoordinator: SyncCoordinating {
         let pinned = try await pinner.pin(item)
         let document = try await ingester.ingest(pinned)
         let summary = try await store.upsert(document)
+        await adoptGroup(for: document)
         emit(.ingested(documentId: summary.id, title: summary.title))
         return summary.id
+    }
+
+    /// Files a newly ingested document under the group its `meta.json` proposed.
+    ///
+    /// **Never throws, deliberately.** A group is a convenience about where a
+    /// row is drawn; a document that could not be filed is still a document that
+    /// arrived, and failing the ingest over it would trade something the user
+    /// needs for something they merely like. `adoptGroupName` also leaves alone
+    /// anything the user has already filed by hand, so a re-scan of an unchanged
+    /// inbox cannot move a document back.
+    private func adoptGroup(for document: IngestedDocument) async {
+        try? await groups?.adoptGroupName(document.groupName, forFolderName: document.folderName)
     }
 
     // MARK: - Scanning
@@ -368,6 +390,7 @@ public actor SyncCoordinator: SyncCoordinating {
             let pinned = try await pinner.pin(item)
             let document = try await ingester.ingest(pinned)
             let summary = try await store.upsert(document)
+            await adoptGroup(for: document)
             emit(.ingested(documentId: summary.id, title: summary.title))
             return true
         } catch {

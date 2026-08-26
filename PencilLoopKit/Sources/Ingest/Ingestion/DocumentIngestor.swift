@@ -160,7 +160,10 @@ public struct DocumentIngestor: DocumentIngesting {
             pageCount: extractor.pageCount(measured: outcome.pageCount, claimed: metadata.pageCount),
             extractedText: outcome.extractedText,
             createdAt: metadata.createdAt ?? item.modifiedAt,
-            addedAt: clock()
+            addedAt: clock(),
+            // Carried, not applied. Whoever stores this document decides whether
+            // the proposal is taken — see `DocumentGrouping.adoptGroupName`.
+            groupName: AppSettings.DocumentGroups.normalised(metadata.group)
         )
     }
 

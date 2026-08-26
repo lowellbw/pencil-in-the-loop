@@ -57,6 +57,11 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     private let staging: RelayStagingUploader
     private let pollInterval: TimeInterval
 
+    /// Where a document's proposed group is filed, or nil when nothing is
+    /// listening. Optional because a coordinator built for a test has no
+    /// settings store and does not need one.
+    private let groups: (any DocumentGrouping)?
+
     private var isStarted = false
     private var activeScan: Task<Int, Error>?
     private var pollTask: Task<Void, Never>?
@@ -78,6 +83,8 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     ///     transport's. A review queued while on one transport must never flush
     ///     to the other — that would deliver it to a destination the user did
     ///     not choose.
+    ///   - groups: where `meta.json`'s proposed group is filed. Nil ingests
+    ///     documents without ever filing one.
     public init(
         client: SyncServerClient,
         store: any DocumentStoring,
@@ -86,6 +93,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         cursors: SyncCursorStore = SyncCursorStore(),
         queue: OutboxQueue = OutboxQueue(rootURL: HTTPSyncCoordinator.defaultQueueRootURL()),
         staging: RelayStagingUploader? = nil,
+        groups: (any DocumentGrouping)? = nil,
         pollInterval: TimeInterval = 15
     ) {
         self.client = client
@@ -95,6 +103,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         self.cursors = cursors
         self.queue = queue
         self.staging = staging ?? RelayStagingUploader(client: client)
+        self.groups = groups
         self.pollInterval = pollInterval
     }
 
@@ -330,6 +339,9 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
             let item = try await pinner.pin(document)
             let ingested = try await ingester.ingest(item)
             try await store.upsert(ingested)
+            // Never throws: see the same call in SyncCoordinator. A group that
+            // could not be filed must not cost the document that arrived.
+            try? await groups?.adoptGroupName(ingested.groupName, forFolderName: ingested.folderName)
             emit(.ingested(documentId: ingested.id, title: ingested.title))
             return true
         } catch {
