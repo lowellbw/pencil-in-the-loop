@@ -169,6 +169,31 @@ resists chrome, and a swipe covers the common case.
 Library search covers document text already, but there is no in-reader find.
 PDFKit provides it nearly free.
 
+### B11 · The device publishes its group list back
+A sender can see every group it has written, because `inbox/` is the whole
+history of what was sent. It cannot see a group the reader made on the iPad, and
+— worse — cannot see a rename. So `list_groups` keeps offering the old name, the
+sender keeps filing under it, and one collection quietly becomes two sections.
+Creating a near-duplicate is the visible failure; splitting an existing group is
+the expensive one.
+
+The fix is small and fits the existing shape: the app writes `groups.json` at the
+sync root — beside `inbox/` and `outbox/` rather than inside either, because it
+is shared state and not a directional queue — whole-file, through the hidden
+sibling and one rename that everything else here uses. `PUT /v1/groups` carries
+the identical object over the relay and stores it at the same path, so
+`GET /v1/export.tar` moves it between transports for free, the way `meta.json`
+already does. `list_groups` unions it over the scan, keeping the counts and
+titles it knows and taking the published spelling for the name, because a rename
+on the device is the reader's most recent word about what a group is called.
+
+Deferred rather than dropped. Everything the sender filed is already
+discoverable, the sections themselves work regardless, and the reply says what it
+cannot see instead of letting silence read as completeness. Two iPads writing one
+file is last-write-wins, and a lost group *name* is a lost hint rather than lost
+data; if that ever matters it becomes `groups/<deviceId>.json` and a union on
+read, which is not worth building first.
+
 ---
 
 ## Rejected, with reasons
