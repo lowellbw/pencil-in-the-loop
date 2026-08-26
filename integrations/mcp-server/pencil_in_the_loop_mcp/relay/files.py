@@ -17,6 +17,7 @@ import hashlib
 import os
 import re
 import shutil
+import uuid
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -29,6 +30,11 @@ from .. import core
 DOCUMENT_FILES = frozenset(
     {"meta.json", "source.md", "document.pdf", "sourcemap.json"}
 )
+
+# Where declared-but-not-yet-uploaded voice clips wait. Dot-prefixed so every
+# scanner in this codebase already skips it: a clip is not a document and must
+# never appear in the change feed.
+CLIPS_DIRECTORY = ".clips"
 
 # The review bundle. `ink/page-NN.png` is the only nested path in the contract.
 REVIEW_FILES = frozenset({"review.md", "review.json", "manifest.json", "reply.md"})
@@ -50,6 +56,23 @@ CHUNK_BYTES = 1024 * 1024
 
 class FileRejected(ValueError):
     """A name or size that must never reach the sync root."""
+
+
+def clip_id(raw: Any) -> str:
+    """A clip's id: a UUID, and nothing that could be a path.
+
+    Deliberately stricter than `bundle_id`. A clip id is minted by the app and
+    is always a UUID, so anything else is a caller doing something unexpected
+    rather than a name that merely needs tidying — and this one is interpolated
+    straight into a filename.
+    """
+    if not isinstance(raw, str):
+        raise core.ValidationError("clipId must be a string")
+    try:
+        parsed = uuid.UUID(raw.strip())
+    except (ValueError, AttributeError) as error:
+        raise core.ValidationError("clipId must be a UUID") from error
+    return str(parsed).upper()
 
 
 def validate_document_file(name: Any) -> str:

@@ -42,9 +42,11 @@ from starlette.responses import (
     Response,
     StreamingResponse,
 )
+from starlette.concurrency import run_in_threadpool
 from starlette.routing import Mount, Route
 
 from .. import core
+from .. import transcribe
 from . import files as relay_files
 from .db import Index
 
@@ -336,6 +338,86 @@ def create_app(
             {"complete": not missing, "missingFiles": missing, "sha256": digest}
         )
 
+    # ------------------------------------------------------------ clips
+    #
+    # A voice comment is transcribed on the iPad first, so there is always text
+    # (notes/pencil-loop-cloud-dictation.md). These two routes exist to make a
+    # better one from the same audio, using a model that can be told what the
+    # document is about. Everything here is an upgrade: every failure path
+    # leaves the iPad's draft standing, which is why none of them is loud.
+    #
+    # Declare-then-upload, like documents, and for a different reason: the
+    # keyterm list is up to a hundred phrases and does not belong in a URL.
+
+    async def post_clip(request: Request) -> Response:
+        body = await _json_body(request)
+        try:
+            clip_id = relay_files.clip_id(body.get("clipId"))
+        except core.ValidationError as error:
+            raise ApiError(400, "bad_clip_id", str(error)) from error
+
+        keyterms = body.get("keyterms") or []
+        if not isinstance(keyterms, list):
+            raise ApiError(400, "invalid_input", "keyterms must be a list of strings.")
+        language = body.get("language") or "en-GB"
+        if not isinstance(language, str):
+            raise ApiError(400, "invalid_input", "language must be a string.")
+
+        clips = root / relay_files.CLIPS_DIRECTORY
+        clips.mkdir(parents=True, exist_ok=True)
+        core.write_file(
+            clips / f"{clip_id}.json",
+            json.dumps(
+                {"clipId": clip_id, "language": language, "keyterms": keyterms},
+                ensure_ascii=False,
+            ),
+        )
+        return JSONResponse({"clipId": clip_id}, status_code=201)
+
+    async def put_clip_audio(request: Request) -> Response:
+        try:
+            clip_id = relay_files.clip_id(request.path_params["clipId"])
+        except core.ValidationError as error:
+            raise ApiError(400, "bad_clip_id", str(error)) from error
+
+        clips = root / relay_files.CLIPS_DIRECTORY
+        declared = clips / f"{clip_id}.json"
+        if not declared.is_file():
+            raise ApiError(404, "not_found", f"No clip declared as {clip_id}.")
+
+        length = _declared_length(request.headers, transcribe.MAX_AUDIO_BYTES, "The clip")
+        _check_room(root, length)
+        audio = await request.body()
+        if len(audio) != length:
+            raise ApiError(
+                400,
+                "short_body",
+                f"the clip declared {length} bytes, received {len(audio)}.",
+            )
+
+        meta = core.read_json_file(declared) or {}
+
+        # Blocking, on purpose, and safe: Starlette runs the provider call in a
+        # worker thread, the iPad is draining a background queue and is not
+        # waiting on a person, and one request per comment is not a load. It
+        # also means no job store and nothing to poll.
+        try:
+            result = await run_in_threadpool(
+                transcribe.transcribe,
+                audio,
+                keyterms=meta.get("keyterms") or [],
+                language=meta.get("language") or "en-GB",
+            )
+        except transcribe.TranscriptionUnconfigured as error:
+            declared.unlink(missing_ok=True)
+            raise ApiError(501, "not_configured", str(error)) from error
+        except transcribe.TranscriptionError as error:
+            # Left declared so a retry can re-upload without re-declaring.
+            raise ApiError(502, "provider_failed", str(error)) from error
+
+        declared.unlink(missing_ok=True)
+        return JSONResponse({"ok": True, **result.as_dict()})
+
     def get_changes(request: Request) -> Response:
         try:
             since = int(request.query_params.get("since", "0"))
@@ -617,6 +699,8 @@ def create_app(
         Route("/v1/export.tar", export_tar, methods=["GET"]),
         Route("/v1/changes", get_changes, methods=["GET"]),
         Route("/v1/documents", post_document, methods=["POST"]),
+        Route("/v1/clips", post_clip, methods=["POST"]),
+        Route("/v1/clips/{clipId}/audio", put_clip_audio, methods=["PUT"]),
         Route("/v1/documents/{folderName}", delete_document, methods=["DELETE"]),
         Route(
             "/v1/documents/{folderName}/files/{name}",

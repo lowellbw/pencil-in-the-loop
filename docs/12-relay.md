@@ -100,6 +100,8 @@ Everything under `/v1` requires the device token. `/healthz` requires nothing.
 | `GET` | `/healthz` | Liveness, epoch, cursor, free bytes. No auth. |
 | `POST` | `/v1/documents` | Send a document. `{content, title?, tags?, group?, documentId?, expectedFiles?}` |
 | `PUT` | `/v1/documents/{folder}/files/{name}` | Upload one declared file. |
+| `POST` | `/v1/clips` | Declare a voice clip. `{clipId, language?, keyterms?}` |
+| `PUT` | `/v1/clips/{clipId}/audio` | Upload the audio; returns the transcript. |
 | `GET` | `/v1/documents/{folder}/files/{name}` | Bytes, with `ETag: "<sha256>"`. |
 | `DELETE` | `/v1/documents/{folder}` | Remove it. Becomes a tombstone in the feed. |
 | `GET` | `/v1/changes?since=<seq>` | **The only feed a device needs.** |
@@ -152,6 +154,45 @@ against what the feed advertised.
 An unfamiliar `epoch` means the index was rebuilt: reset the cursor to zero and re-list.
 
 ---
+
+
+## 4a · Clips — a better transcript for a voice comment
+
+A voice comment is transcribed on the iPad and saved immediately, so there is
+always text and dictation works with no signal. These two routes exist to make a
+*better* transcript from the same audio, using a model that can be told what the
+document is about (`notes/pencil-loop-cloud-dictation.md`).
+
+Declare, then upload, like documents — and for a different reason: the keyterm
+list runs to a hundred phrases and does not belong in a URL. Declaring twice is
+harmless, and a failed upload leaves the declaration in place so a retry does not
+have to send the document's vocabulary again.
+
+```
+POST /v1/clips            {"clipId": "<UUID>", "language": "en-GB",
+                           "keyterms": ["Ofgem", "RIIO-3", …]}
+PUT  /v1/clips/{id}/audio  <FLAC bytes>
+  → {"ok": true, "text": "…", "model": "gpt-4o-transcribe", "provider": "openai"}
+```
+
+The clip waits in `.clips/` — dot-prefixed, so every scanner here already skips
+it. **A clip is not a document and never appears in the change feed.** It is
+deleted the moment it has been transcribed, whether or not the text was any good.
+
+The provider is chosen by the environment: `PENCIL_STT_PROVIDER` when set,
+otherwise whichever of `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY` or
+`OPENAI_API_KEY` is present, in that order. `PENCIL_STT_MODEL` overrides the
+default model. **The key lives here and never reaches the iPad** — which is the
+main reason the relay does this rather than the device.
+
+Status codes carry the distinction the device acts on: `501 not_configured`
+means no key is set and retrying will not help; `502 provider_failed` means try
+again later. Both leave the iPad's draft standing, which is true of every failure
+path in this feature.
+
+The provider call is a blocking request handled in a worker thread. That is
+deliberate: the iPad is draining a background queue and nobody is waiting on it,
+so one request per comment buys a design with no job store and nothing to poll.
 
 ## 5 · Idempotency
 

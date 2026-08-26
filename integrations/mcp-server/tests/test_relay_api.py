@@ -635,5 +635,126 @@ class OpsTests(RelayApiTestCase):
         self.assertIsNotNone(feed["documents"][0]["deletedAt"])
 
 
+
+@unittest.skipIf(TestClient is None, "starlette is not installed")
+class ClipTests(RelayApiTestCase):
+    """Upgrading a voice comment's transcript.
+
+    Everything here is an upgrade over text the iPad already has, so the
+    behaviour that matters most is what happens when it does not work: the
+    draft must survive every failure path, and a retry must not need the
+    keyterms sent again.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        from pencil_in_the_loop_mcp import transcribe
+
+        self.transcribe = transcribe
+        self.calls: list[dict] = []
+        self._real = transcribe.transcribe
+
+        def fake(audio, *, keyterms=None, language="en-GB", timeout=None):
+            self.calls.append(
+                {"audio": audio, "keyterms": keyterms, "language": language}
+            )
+            return transcribe.Transcript(
+                text="Ofgem's RIIO-3 framework doesn't cover this.",
+                model="nova-3",
+                provider="deepgram",
+            )
+
+        transcribe.transcribe = fake
+        self.addCleanup(setattr, transcribe, "transcribe", self._real)
+
+    CLIP = "6C4F8E2A-0000-4000-8000-000000000001"
+
+    def declare(self, clip_id=None, **extra):
+        payload = {"clipId": clip_id or self.CLIP, **extra}
+        return self.client.post("/v1/clips", json=payload, headers=self.auth)
+
+    def upload(self, clip_id=None, audio=b"fLaC-not-really"):
+        return self.client.put(
+            f"/v1/clips/{clip_id or self.CLIP}/audio",
+            content=audio,
+            headers={**self.auth, "Content-Type": "audio/flac"},
+        )
+
+    def test_a_clip_is_declared_then_uploaded_and_comes_back_as_text(self) -> None:
+        self.assertEqual(self.declare(keyterms=["Ofgem", "RIIO-3"]).status_code, 201)
+
+        response = self.upload()
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["text"], "Ofgem's RIIO-3 framework doesn't cover this.")
+        self.assertEqual(body["provider"], "deepgram")
+
+    def test_the_documents_own_words_reach_the_provider(self) -> None:
+        self.declare(keyterms=["Ofgem", "RIIO-3"], language="en-GB")
+
+        self.upload()
+
+        self.assertEqual(self.calls[0]["keyterms"], ["Ofgem", "RIIO-3"])
+        self.assertEqual(
+            self.calls[0]["language"],
+            "en-GB",
+            "Telling the model what the document is about is the whole point of the feature.",
+        )
+
+    def test_uploading_a_clip_nobody_declared_is_a_404(self) -> None:
+        self.assertEqual(self.upload().status_code, 404)
+
+    def test_a_clip_id_that_is_not_a_uuid_is_refused(self) -> None:
+        self.assertEqual(self.declare(clip_id="../../etc/passwd").status_code, 400)
+
+    def test_clips_need_the_device_token(self) -> None:
+        self.assertEqual(self.client.post("/v1/clips", json={"clipId": self.CLIP}).status_code, 401)
+        self.assertEqual(
+            self.client.put(f"/v1/clips/{self.CLIP}/audio", content=b"x").status_code, 401
+        )
+
+    def test_no_provider_key_says_so_rather_than_failing_quietly(self) -> None:
+        def unconfigured(audio, **kwargs):
+            raise self.transcribe.TranscriptionUnconfigured("DEEPGRAM_API_KEY is not set")
+
+        self.transcribe.transcribe = unconfigured
+        self.declare()
+
+        response = self.upload()
+
+        self.assertEqual(response.status_code, 501)
+        self.assertEqual(response.json()["error"], "not_configured")
+
+    def test_a_provider_failure_keeps_the_declaration_so_a_retry_is_cheap(self) -> None:
+        def failing(audio, **kwargs):
+            raise self.transcribe.TranscriptionError("provider unreachable")
+
+        self.transcribe.transcribe = failing
+        self.declare(keyterms=["Ofgem"])
+
+        self.assertEqual(self.upload().status_code, 502)
+
+        # The keyterms were sent once and must not have to be sent again.
+        self.transcribe.transcribe = lambda audio, **kw: self.transcribe.Transcript(
+            text="second time", model="nova-3", provider="deepgram"
+        )
+        retry = self.upload()
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(retry.json()["text"], "second time")
+
+    def test_a_clip_never_appears_in_the_change_feed(self) -> None:
+        self.declare()
+        self.upload()
+
+        feed = self.client.get("/v1/changes?since=0", headers=self.auth).json()
+
+        self.assertEqual(
+            feed.get("documents", []),
+            [],
+            "A clip is not a document; the feed is what the iPad pulls documents from.",
+        )
+
 if __name__ == "__main__":
     unittest.main()

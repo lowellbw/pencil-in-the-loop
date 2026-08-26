@@ -207,11 +207,13 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
     /// app where a concrete type from another module is named, and having both
     /// coordinators constructed here is what keeps that true.
     private func attachServerCoordinator(baseURL: URL, token: String) async {
+        let client = SyncServerClient(baseURL: baseURL, token: token)
         let coordinator = HTTPSyncCoordinator(
-            client: SyncServerClient(baseURL: baseURL, token: token),
+            client: client,
             store: store,
             ingester: DocumentIngestor(),
-            groups: settingsStore
+            groups: settingsStore,
+            upgrades: TranscriptUpgradeQueue(client: client, store: store)
         )
         await gateway.attach(coordinator)
         await gateway.start()

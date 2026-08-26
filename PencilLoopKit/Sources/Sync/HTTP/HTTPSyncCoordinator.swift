@@ -62,6 +62,13 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     /// settings store and does not need one.
     private let groups: (any DocumentGrouping)?
 
+    /// Voice comments waiting for a better transcript
+    /// (notes/pencil-loop-cloud-dictation.md). Drained after a scan, on the
+    /// poll this coordinator already runs — the upgrade is a background sync
+    /// like any other, and giving it a timer of its own would be a second
+    /// schedule to reason about.
+    private let upgrades: TranscriptUpgradeQueue?
+
     private var isStarted = false
     private var activeScan: Task<Int, Error>?
     private var pollTask: Task<Void, Never>?
@@ -94,6 +101,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         queue: OutboxQueue = OutboxQueue(rootURL: HTTPSyncCoordinator.defaultQueueRootURL()),
         staging: RelayStagingUploader? = nil,
         groups: (any DocumentGrouping)? = nil,
+        upgrades: TranscriptUpgradeQueue? = nil,
         pollInterval: TimeInterval = 15
     ) {
         self.client = client
@@ -104,6 +112,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         self.queue = queue
         self.staging = staging ?? RelayStagingUploader(client: client)
         self.groups = groups
+        self.upgrades = upgrades
         self.pollInterval = pollInterval
     }
 
@@ -246,6 +255,13 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
 
     private func scanOnce(fromStart: Bool) async throws -> Int {
         await flushQueue()
+
+        // Voice comments waiting on a better transcript. Before the feed for
+        // the same reason staging is: a comment dictated a moment ago should
+        // improve in this pass rather than the next one. It never throws, so it
+        // cannot stop documents arriving — an upgrade is the least important
+        // thing this method does.
+        await upgrades?.drain()
 
         // Anything the share extension left in the App Group, on its way up.
         // The folder coordinator does this at the same point in its own scan
