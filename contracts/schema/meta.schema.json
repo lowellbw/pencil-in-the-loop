@@ -39,6 +39,12 @@
       "items": { "type": "string" },
       "description": "Free-form labels from the writing tool — the MCP server's send_to_ipad passes these through. Carried with the document and shown in the library; nothing in the app branches on them."
     },
+    "group": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "A name that sections the library on the iPad. Groups have no ids — the name is the identity, compared with case, accents and punctuation ignored and displayed as first written (see docs/05-file-contracts.md). A document belongs to at most one. Advisory: the app files a document it has not seen before and never overrides a group the reader chose on the device, so a re-send cannot move something they filed by hand. Optional, and absent from most documents by design."
+    },
     "origin": { "$ref": "#/$defs/origin" }
   },
   "$defs": {

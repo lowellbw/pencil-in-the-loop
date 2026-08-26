@@ -20,9 +20,9 @@ No account, no login, no onboarding carousel. Second run goes straight to the li
 - Trailing: offline state (downloaded / syncing) as a subtle dot, not a badge
 
 Behaviours: search across document text *and* recognised handwriting; sort by date added
-or title; swipe left to archive; swipe right to pin or un-pin; pull to force a folder
-re-scan. Tapping a row opens the reader in the detail column, and the sidebar collapses so
-the document has the screen.
+or title; group by status or by group; swipe left to archive; swipe right to pin or un-pin;
+touch and hold a row to file it; pull to force a folder re-scan. Tapping a row opens the
+reader in the detail column, and the sidebar collapses so the document has the screen.
 
 **Pinned** holds whatever the user has put there, above everything else, and does not
 appear at all when nothing is pinned. A pinned document is drawn there and *only* there —
@@ -40,6 +40,56 @@ no title, open on page one. It arrives as an ordinary document with
 `origin.kind = "note"`, so everything downstream treats it as it treats any other. The
 empty state offers the same one tap: with an empty library and no network it is the only
 useful thing there is to do.
+
+**Group by** sits under Sort in the same toolbar menu, because two labelled pickers in the
+menu that is already there beat a fourth control on a column this narrow. **Status** is the
+default and is the sectioning above, unchanged. **Group** replaces the three state sections
+with one section per group, alphabetically, and an **Ungrouped** section last — last
+because it is the residue rather than a group, so it does not join the alphabet. Pinned
+stays on top in both modes and a pinned document is still drawn there and only there, which
+is the invariant the second sectioning had to be built around rather than beside.
+
+Switching the picker re-draws rows already fetched. It is not part of `LibraryQuery` and
+not part of the reload key: grouping changes where a row is drawn, never which rows are
+read or in what order, and rows inside every section still obey the sort menu — the same
+rule Pinned follows, for the same reason.
+
+A document belongs to **at most one group**, and a group is nothing but its name. There is
+no registry: naming a group creates it, and a group whose last document leaves stops
+existing, so there is nothing to create and nothing to delete. Names are matched with case,
+accents and punctuation ignored and shown as first written, so filing something under
+"attention papers" joins "Attention Papers" rather than opening a second section beside it
+(docs/05-file-contracts.md). Renaming onto a name already in use merges the two, which is
+the only coherent answer when a group is identified by its name.
+
+Filing is a **touch and hold** on the row — a Group submenu listing every group in the
+library, "New Group…", and "Remove from Group". Not a third swipe action, because there is
+no third edge and neither of the two can hold a list of names; not a new gesture, which
+docs/01-design-principles.md § 5 rules out. Renaming is a touch and hold on the group's own
+section header, which is where Files and Photos put it. A row shows no group of its own in
+either mode: in Group mode the heading above it already says so, and in Status mode the
+three-part subtitle is not worth diluting for it — the same restraint that draws no pin on
+a pinned row.
+
+A sender may propose a group in `meta.json`, which is how five papers on one subject arrive
+in one section. That proposal files a document arriving for the first time and never
+overrides a group the reader chose here, so a re-send cannot move something they filed by
+hand.
+
+Group membership is kept **outside the library store**, keyed by folder name
+(`AppSettings.DocumentGroups`). An attribute on `Document` would have cost a
+`LibrarySchemaV2` and a migration of a store holding somebody's annotations to buy one
+nullable string, and nothing needs a group to be queryable — the sidebar re-sections rows
+it has already fetched. The cost is that document state now lives in two places, and it is
+paid deliberately.
+
+A **New** menu in the toolbar makes a document rather than waiting for one
+(`11-backlog.md` § B1): a blank notebook — plain, lined or grid paper, eight pages to
+start — or a document typed as markdown and rendered by the same path as anything sent.
+Both arrive as ordinary documents with `origin.kind = "note"`, so everything downstream
+treats them as it treats any other. Creating one selects it, which opens the reader on
+page one. The empty state offers a notebook too: with an empty library and no network it
+is the only useful thing there is to do.
 
 The three questions that used to stand in front of it — title, ruling, page count — are
 all answered better from the page than before it, so that is where they are now

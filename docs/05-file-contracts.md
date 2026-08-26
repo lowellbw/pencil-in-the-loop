@@ -63,8 +63,8 @@ UUID alongside, so a sender is free to use its own identifier scheme without the
 rejecting it.
 
 Unknown keys are ignored, never rejected — external tools add their own. Several already
-do: the MCP server writes a top-level `tags` array and records extra detail under
-`origin.returnPath` alongside the fields above. The canonical home for the session id is
+do: the MCP server writes a top-level `tags` array and a top-level `group`, and records
+extra detail under `origin.returnPath` alongside the fields above. The canonical home for the session id is
 `origin.sessionId`; a copy under `returnPath` is tolerated and ignored.
 
 Two fields commonly get written by the wrong side:
@@ -74,12 +74,36 @@ Two fields commonly get written by the wrong side:
 | `pageCount` | the ingesting app | A markdown sender cannot know it — pagination happens when the iPad renders the PDF. Optional in a sender's `meta.json`, advisory when present, and the rendered PDF is authoritative. |
 | `returnPath.triggerId` | the sender | Allowed on **any** return-path type, not just `poke`. `checkin` also creates a scheduled task, and the Mac-side watcher wants its id to deduplicate. |
 
-One more optional field, absent from the example above because most documents do not have
-one:
+Two more optional fields, absent from the example above because most documents do not have
+either:
 
 | Field | Written by | Notes |
 |---|---|---|
 | `sourceURL` | the sender | Absolute URL the document came from on the web. The share extension writes it for a shared link: it does no network work, so it stages a placeholder `source.md` and records the address for the app to fetch and render later. Any sender may write it; nothing in ingest branches on it today, and a reader that does not know the key ignores it. |
+| `group` | the sender | A name that sections the library on the iPad. A document belongs to at most one, and there is no registry: a name used for the first time starts a group and a name nothing uses stops being one. At most 64 characters. Advisory — see below. |
+
+**A group is its name.** There is no id, which is what lets a sender file five papers under
+"Attention Papers" without knowing anything about the reader's library. Two documents are
+in the same group when their names agree after NFKD decomposition, removal of combining
+marks, replacement of every character that is neither a letter nor a number with a space,
+case folding, and collapsing runs of whitespace. So "Attention Papers", "attention papers"
+and "Attention-Papers" are one group. "ML Papers" and "Machine Learning Papers" are two,
+and reconciling *those* is the job of whoever is choosing the name, not of the comparison —
+which is why the MCP server offers `list_groups` before a send.
+
+The comparison folds rather than transliterating, deliberately: a rule that strips to ASCII
+would give every name with no ASCII form the same key and merge them all into one group.
+
+The name is displayed as first written. No normalised key is written into `meta.json` — it
+is derivable, and a derived field in a public contract is a field that goes stale the day
+the rule changes. It is implemented three times (`AppSettings.DocumentGroups.key(for:)`,
+the MCP server's `core.group_key`, the skill's `send_to_reader.group_key`) and the three are
+pinned to one table of cases by tests on both sides.
+
+**`group` is advisory, and this is the part a sender must get right.** The app files a
+document it has not seen before and never overrides a group the reader chose on the device.
+So a re-send cannot move a document the reader filed by hand, and a re-send carrying no
+`group` cannot empty the section they put it in.
 
 `returnPath` is one route per document, not a list of candidates. `checkin` is the v1
 default; `poke` is used only when the sender knows the Mac watcher is installed. If a

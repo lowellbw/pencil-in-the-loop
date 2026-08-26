@@ -98,7 +98,7 @@ Everything under `/v1` requires the device token. `/healthz` requires nothing.
 | Method | Path | |
 |---|---|---|
 | `GET` | `/healthz` | Liveness, epoch, cursor, free bytes. No auth. |
-| `POST` | `/v1/documents` | Send a document. `{content, title?, tags?, documentId?, expectedFiles?}` |
+| `POST` | `/v1/documents` | Send a document. `{content, title?, tags?, group?, documentId?, expectedFiles?}` |
 | `PUT` | `/v1/documents/{folder}/files/{name}` | Upload one declared file. |
 | `GET` | `/v1/documents/{folder}/files/{name}` | Bytes, with `ETag: "<sha256>"`. |
 | `DELETE` | `/v1/documents/{folder}` | Remove it. Becomes a tombstone in the feed. |

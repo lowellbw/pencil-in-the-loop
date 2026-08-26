@@ -105,8 +105,21 @@ review sheet's Sent screen offers "Copy review" for exactly this.
 
 ## Claude Code
 
-An MCP server exposing `send_to_ipad(content, title, tags)`, `list_reviews()` and
-`get_review(id)`. Run locally it writes and reads the same folder, and there it is
+An MCP server exposing `send_to_ipad(content, title, tags, group)`, `list_groups()`,
+`list_reviews()` and `get_review(id)`.
+
+`group` files a document under a name that sections the iPad's library, which is what
+makes it possible to send five papers on one subject and have them arrive together
+(docs/02-spec.md § S1). `list_groups()` reports what is already filed where — the name, the
+count, when it was last used and a few recent titles — so a model reuses a group that fits
+rather than inventing "Machine Learning Papers" beside an existing "ML Papers". It folds
+`inbox/*/meta.json`, which is the whole history of what has been sent because the iPad
+copies a document into its own container and never deletes the directory it came from. It
+does not see groups the reader created or renamed on the device, and says so in its reply.
+
+A group is a proposal, never an instruction: the app files a document arriving for the
+first time and never overrides a group the reader chose, so a re-send cannot move something
+they filed by hand. Run locally it writes and reads the same folder, and there it is
 convenience, not transport: nothing breaks when it is not running, because the files are
 still just files.
 
