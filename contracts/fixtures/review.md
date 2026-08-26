@@ -16,7 +16,7 @@ Rework phase 2 with the shadow read, then re-scope the estimate.
 No dual-write window means we can't roll back after cutover — I want a shadow read
 for at least a day.
 
-*voice, transcribed on device*
+*voice, transcribed*
 
 ### 2 — page 2
 

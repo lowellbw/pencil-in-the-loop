@@ -81,7 +81,7 @@ final class ReviewMarkdownWriterTests: XCTestCase {
 
     func testEachCommentCarriesItsSourceLine() {
         let rendered = Self.render()
-        XCTAssertTrue(rendered.contains("*voice, transcribed on device*"))
+        XCTAssertTrue(rendered.contains("*voice, transcribed*"))
         XCTAssertTrue(rendered.contains("*handwriting, recognised*"))
     }
 
@@ -277,7 +277,7 @@ final class ReviewMarkdownWriterTests: XCTestCase {
             ]
         )
         XCTAssertFalse(rendered.contains("approximate"))
-        XCTAssertTrue(rendered.contains("*voice, transcribed on device*"))
+        XCTAssertTrue(rendered.contains("*voice, transcribed*"))
     }
 
     // MARK: - Wrapping

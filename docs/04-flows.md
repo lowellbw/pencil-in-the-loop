@@ -156,7 +156,10 @@ annotatable, with the thread context carried forward.
 Every step above except the first sync and the outbox write works with no connection.
 
 - Documents already downloaded open instantly.
-- Ink, voice transcription and handwriting recognition are all on-device.
+- Ink, voice transcription and handwriting recognition are all on-device. A voice comment
+  queues its recording for a better transcript when there is a network, and keeps the
+  on-device one when there is not — the comment is saved either way, before the queue is
+  touched (`notes/pencil-loop-cloud-dictation.md`).
 - The bundle is written locally and syncs whenever the connection returns; the Sent
   screen says "will send when online" rather than failing.
 - Search covers cached text and recognised ink, offline.

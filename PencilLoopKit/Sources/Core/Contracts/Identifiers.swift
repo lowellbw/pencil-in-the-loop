@@ -60,9 +60,19 @@ public enum CommentSource: String, Codable, Sendable, CaseIterable, Hashable {
 
     /// The attribution line used in `review.md`, without the surrounding
     /// asterisks. Frozen so the exported prose is stable across releases.
+    ///
+    /// **`.voice` no longer claims where it was transcribed, and that is a
+    /// correction rather than a loss.** It used to say "transcribed on device",
+    /// which stopped being reliably true when a queued recording could be
+    /// re-transcribed by a better model afterwards
+    /// (notes/pencil-loop-cloud-dictation.md). A line in an exported review is
+    /// a claim to whoever reads it, `review.md` is a public contract
+    /// (CLAUDE.md non-negotiable 3), and a vaguer true statement beats a
+    /// specific false one. It still says how the words came to exist, which is
+    /// what a reader of the review actually needs from it.
     public var attribution: String {
         switch self {
-        case .voice: return "voice, transcribed on device"
+        case .voice: return "voice, transcribed"
         case .handwriting: return "handwriting, recognised"
         case .typed: return "typed"
         }

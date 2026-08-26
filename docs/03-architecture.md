@@ -185,7 +185,15 @@ Never emit a line number as the primary anchor. Include it as a hint only.
 
 `SpeechAnalyzer` with `SpeechTranscriber`. Language assets download once via the system
 asset catalog — trigger this on first run, in the background, and surface a one-line
-Settings row if it hasn't completed. After that, no network.
+Settings row if it hasn't completed. After that, dictation itself needs no network: the
+transcript is made on device and the comment is saved before anything else happens.
+
+**A queued upgrade may then improve it** (`notes/pencil-loop-cloud-dictation.md`). The
+recording is kept, sent to a model that can be told the document's own vocabulary, and the
+better text replaces the draft — unless the reader edited it meanwhile, in which case what
+they wrote stands. That is a background sync rather than part of dictation: it never
+blocks, it is invisible when it fails, and after a day of failing the on-device text simply
+is the transcript. CLAUDE.md non-negotiable 1 was narrowed to say so.
 
 **Jargon:** `SpeechAnalyzer` has no vocabulary-biasing API. Post-process instead — build a
 term list from the document (identifiers, capitalised nouns, code spans, title words) and

@@ -16,8 +16,22 @@ Full spec in `docs/`. Read `docs/07-build-plan.md` to find the current milestone
 
 ## Non-negotiables
 
-1. **Offline first.** Reading and annotating never touch the network. No feature on those
-   paths may show a spinner waiting on a request.
+1. **Offline first.** Reading and annotating never *wait* on the network. No feature on
+   those paths may show a spinner waiting on a request, and everything on them must work
+   with no signal at all.
+
+   **Amended, August 2026, and narrowed rather than dropped.** This used to say those paths
+   never *touch* the network, and cloud dictation is the thing that made the difference
+   matter. A voice comment is still transcribed on device and saved immediately, so it works
+   on a train and nothing is ever waited on; afterwards, the recording is queued and a model
+   that can be told what the document is about makes a better transcript from it. Every
+   failure path keeps the on-device text, so the network is never load-bearing.
+
+   The same distinction `docs/11-backlog.md` § B12 drew for the relay, for the same reason:
+   the objection was narrower than the sentence carrying it. What was worth protecting was
+   never "no packets" — it was that the app keeps working when the network does not, and
+   that nobody is ever left watching a spinner to read or annotate. Both still hold. A
+   feature that *blocks* either path on a request still does not ship.
 2. **Always local.** Documents are downloaded in full and pinned into the app container
    on arrival. Never left living in a file provider, never evicted.
 3. **The files are the API.** `meta.json`, `review.json` and `manifest.json` *are* the
