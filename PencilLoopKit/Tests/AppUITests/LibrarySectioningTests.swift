@@ -387,4 +387,41 @@ final class LibrarySectioningTests: XCTestCase {
 
         XCTAssertEqual(model.groupNames, ["Q3 Planning", "Attention Papers"])
     }
+
+    // MARK: - Colour
+
+    func testAGroupKeepsItsColourAcrossLaunches() {
+        // Derived from the name, not stored — and not from `hashValue`, which
+        // Swift seeds randomly per process, so a group would change colour
+        // every time the app started.
+        let first = GroupPalette.colour(for: "Attention Papers")
+        let again = GroupPalette.colour(for: "Attention Papers")
+
+        XCTAssertEqual(first, again)
+    }
+
+    func testTwoSpellingsOfOneGroupAreOneColour() {
+        XCTAssertEqual(
+            GroupPalette.colour(for: "Attention Papers"),
+            GroupPalette.colour(for: "attention-papers")
+        )
+    }
+
+    func testDifferentGroupsUsuallyLookDifferent() {
+        let names = ["AI taxation", "AI evals", "AI text detection", "Q3 Planning"]
+        let colours = Set(names.map { GroupPalette.colour(for: $0).description })
+
+        XCTAssertEqual(
+            colours.count,
+            names.count,
+            "Ten colours and four groups should not collide; if this fails the hash is not spreading."
+        )
+    }
+
+    func testGreenIsLeftAloneBecauseItMeansPinned() {
+        XCTAssertFalse(
+            GroupPalette.colours.contains(.green),
+            "Pinned is green; a group painted green would say the wrong thing."
+        )
+    }
 }

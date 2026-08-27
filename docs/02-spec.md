@@ -92,6 +92,19 @@ and has nothing to attach a drop to. Pinned rows are not draggable that way: in 
 drag reorders the section, and one row cannot mean both at once, so a pinned document is
 filed from its menu instead.
 
+Each group is drawn in **its own colour** — a dot beside the heading, and a wash behind its
+rows lighter than the pinned one. A dot rather than a coloured heading: section headings are
+small caps in secondary grey and read as furniture, and a coloured one reads as a warning.
+It is the shape Reminders and Calendar use for the same job. Ungrouped has no dot, because
+it is not a group.
+
+The colour comes from the name rather than being stored or chosen. A colour nobody picked
+is one nobody has to maintain — no picker, no settings field, no migration — and a group a
+sender created looks the same on every device that sees it. Renaming a group changes its
+colour, which is the visible cost of that and is self-explanatory in a way a stored-but-
+stale colour would not be. Green is never used, because green means pinned, and the accent
+is never used, because a `List` draws selection in it.
+
 Group **sections** are reordered from a sheet rather than by dragging their headings, and
 not for want of trying: a `List` reorders rows within a `ForEach`, and a section is not a
 row, so there is no in-place gesture to attach it to. "Reorder Groups…" is in the Sort menu

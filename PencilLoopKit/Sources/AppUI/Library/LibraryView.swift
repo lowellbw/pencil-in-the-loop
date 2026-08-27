@@ -306,7 +306,7 @@ public struct LibraryView<Detail: View>: View {
         if section.rows.isEmpty == false {
             Section {
                 ForEach(section.rows) { summary in
-                    row(for: summary, isFilingTarget: true)
+                    row(for: summary, isFilingTarget: true, tint: section.name.map(GroupPalette.colour(for:)))
                 }
             } header: {
                 groupHeader(for: section)
@@ -322,7 +322,20 @@ public struct LibraryView<Detail: View>: View {
     /// **Ungrouped** heading is a target too — dropping there takes a document
     /// out of its group, which is the only way to say that by dragging.
     @ViewBuilder private func groupHeader(for section: LibraryModel.GroupSection) -> some View {
-        Text(section.displayName)
+        Label {
+            Text(section.displayName)
+        } icon: {
+            // A dot rather than colouring the heading itself. Section headings
+            // are small caps in secondary grey and read as furniture; a
+            // coloured one reads as a warning. This is the shape Reminders and
+            // Calendar use for the same job, and Ungrouped has no dot because
+            // it is not a group.
+            if let name = section.name {
+                Image(systemName: "circle.fill")
+                    .foregroundStyle(GroupPalette.colour(for: name))
+                    .font(.caption2)
+            }
+        }
             .dropDestination(for: String.self) { folderNames, _ in
                 guard let folderName = folderNames.first, folderName.isEmpty == false else {
                     return false
@@ -358,11 +371,11 @@ public struct LibraryView<Detail: View>: View {
     /// leading edge and archiving on the trailing, in both. A pinned row that
     /// could not be un-pinned by the gesture that pinned it would be a
     /// one-way door.
-    private func row(for summary: DocumentSummary, isFilingTarget: Bool) -> some View {
+    private func row(for summary: DocumentSummary, isFilingTarget: Bool, tint: Color? = nil) -> some View {
         LibraryRow(summary: summary)
             .tag(summary.id)
             .selectionDisabled(summary.isLocal == false)
-            .listRowBackground(pinnedTint(for: summary))
+            .listRowBackground(background(for: summary, tint: tint))
             // Draggable only outside Pinned. In Pinned the drag reorders the
             // section, and one row cannot mean both at once; a pinned row is
             // filed from its context menu instead.
@@ -391,22 +404,29 @@ public struct LibraryView<Detail: View>: View {
             }
     }
 
-    /// The wash behind a pinned row, or nil for every other row.
+    /// The wash behind a row: green for pinned, its group's colour inside a
+    /// group section, and nothing anywhere else.
     ///
-    /// Green is the motif for pinning, and it is the same green the pin swipe
-    /// is tinted with, so the gesture and its result say the same thing. Change
+    /// **The two can never collide**, which is what makes one function safe: a
+    /// pinned row is drawn in Pinned and nowhere else, so a row is either the
+    /// pinned one or in a group, never both.
+    ///
+    /// Green is the motif for pinning and is the same green the pin swipe is
+    /// tinted with, so the gesture and its result say the same thing. Change
     /// one and change the other.
     ///
-    /// Deliberately *not* the accent colour: a `List` draws selection in the
-    /// accent, and a pinned row painted the same way would be indistinguishable
-    /// from the row you have open.
-    ///
-    /// Nil while the row is selected, for the same reason: the selection
-    /// highlight is the more urgent of the two facts, and two washes over each
-    /// other are a third colour that means nothing.
-    private func pinnedTint(for summary: DocumentSummary) -> Color? {
-        guard summary.isPinned, selection != summary.id else { return nil }
-        return LibraryView.pinnedColour.opacity(LibraryView.pinnedTintOpacity)
+    /// Deliberately never the accent colour: a `List` draws selection in the
+    /// accent, and a row painted that way would be indistinguishable from the
+    /// document you have open. Nil while the row is selected for the same
+    /// reason — the selection is the more urgent of the two facts, and two
+    /// washes over each other are a third colour that means nothing.
+    private func background(for summary: DocumentSummary, tint: Color?) -> Color? {
+        guard selection != summary.id else { return nil }
+        if summary.isPinned {
+            return LibraryView.pinnedColour.opacity(LibraryView.pinnedTintOpacity)
+        }
+        guard let tint else { return nil }
+        return tint.opacity(LibraryView.groupTintOpacity)
     }
 
     /// The one colour that means "pinned" — the row wash and the swipe.
@@ -419,6 +439,13 @@ public struct LibraryView<Detail: View>: View {
     /// and label text keeps its contrast in both appearances; enough to pick the
     /// shelf out of the grouped grey at a glance, which is all it has to do.
     private static var pinnedTintOpacity: Double { 0.14 }
+
+    /// Lighter than the pinned wash, and deliberately so. Pinned is a shelf you
+    /// put things on and should be the loudest thing in the sidebar; a group is
+    /// just where a document lives, and there may be six of them on screen at
+    /// once. Enough to see the blocks, not enough to make a list of documents
+    /// look like a chart.
+    private static var groupTintOpacity: Double { 0.09 }
 
     /// Makes a row draggable, or leaves it exactly as it was.
     ///

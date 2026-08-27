@@ -350,7 +350,7 @@ extension AppSettings {
         /// **Never written into `meta.json`.** It is derivable, and a derived
         /// field in a public contract is a field that goes stale the day the
         /// rule changes (docs/05-file-contracts.md).
-        static func key(for name: String) -> String {
+        public static func matchingKey(for name: String) -> String {
             let folded = name.folding(
                 options: [.caseInsensitive, .diacriticInsensitive],
                 locale: nil
@@ -374,8 +374,8 @@ extension AppSettings {
         /// list says so once.
         public var sortedNames: [String] {
             var firstSpellings: [String: String] = [:]
-            for name in assignments.values where firstSpellings[DocumentGroups.key(for: name)] == nil {
-                firstSpellings[DocumentGroups.key(for: name)] = name
+            for name in assignments.values where firstSpellings[DocumentGroups.matchingKey(for: name)] == nil {
+                firstSpellings[DocumentGroups.matchingKey(for: name)] = name
             }
             return firstSpellings.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         }
@@ -390,7 +390,7 @@ extension AppSettings {
         public var orderedNames: [String] {
             var remaining: [String: String] = [:]
             for name in sortedNames {
-                remaining[DocumentGroups.key(for: name)] = name
+                remaining[DocumentGroups.matchingKey(for: name)] = name
             }
             var placed: [String] = []
             for key in order {
@@ -409,7 +409,7 @@ extension AppSettings {
         public func reordering(_ names: [String]) -> DocumentGroups {
             var keys: [String] = []
             for name in names {
-                let key = DocumentGroups.key(for: name)
+                let key = DocumentGroups.matchingKey(for: name)
                 guard key.isEmpty == false, keys.contains(key) == false else { continue }
                 keys.append(key)
             }
@@ -462,16 +462,16 @@ extension AppSettings {
         /// everything where it is rather than un-grouping it.
         public func renaming(_ name: String, to newName: String) -> DocumentGroups {
             guard let target = DocumentGroups.normalised(newName) else { return self }
-            let wanted = DocumentGroups.key(for: name)
+            let wanted = DocumentGroups.matchingKey(for: name)
             var next = assignments
-            for (folderName, current) in assignments where DocumentGroups.key(for: current) == wanted {
+            for (folderName, current) in assignments where DocumentGroups.matchingKey(for: current) == wanted {
                 next[folderName] = target
             }
             // The order is keyed, and a rename changes the key — so it has to be
             // carried across, or renaming a group silently sends it back to the
             // alphabet. A rename that merges collapses two entries into one,
             // which is why this dedupes rather than mapping in place.
-            let targetKey = DocumentGroups.key(for: target)
+            let targetKey = DocumentGroups.matchingKey(for: target)
             var nextOrder: [String] = []
             for key in order {
                 let carried = key == wanted ? targetKey : key
@@ -490,8 +490,8 @@ extension AppSettings {
         }
 
         private func existingSpelling(matching name: String) -> String? {
-            let wanted = DocumentGroups.key(for: name)
-            return assignments.values.sorted().first { DocumentGroups.key(for: $0) == wanted }
+            let wanted = DocumentGroups.matchingKey(for: name)
+            return assignments.values.sorted().first { DocumentGroups.matchingKey(for: $0) == wanted }
         }
 
         // MARK: - Codable

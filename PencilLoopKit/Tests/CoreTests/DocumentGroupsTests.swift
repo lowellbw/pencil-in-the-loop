@@ -14,10 +14,7 @@
 
 import Foundation
 import XCTest
-// `@testable` for `DocumentGroups.key(for:)`, which is internal: the matching
-// rule is this type's own business, and only the test that pins it against the
-// senders' copies needs to see it.
-@testable import Core
+import Core
 
 final class DocumentGroupsTests: XCTestCase {
 
@@ -120,7 +117,7 @@ final class DocumentGroupsTests: XCTestCase {
         ]
 
         for (name, expected) in cases {
-            XCTAssertEqual(Groups.key(for: name), expected, name)
+            XCTAssertEqual(Groups.matchingKey(for: name), expected, name)
         }
     }
 

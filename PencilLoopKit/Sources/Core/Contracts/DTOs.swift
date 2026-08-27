@@ -820,6 +820,15 @@ public struct SyncFolder: Sendable, Hashable {
 
     public static let inboxDirectoryName = "inbox"
     public static let outboxDirectoryName = "outbox"
+
+    /// Which group each document should be filed under, as one map at the sync
+    /// root (docs/12-relay.md § 4a).
+    ///
+    /// Beside `inbox/` and `outbox/` rather than inside either: it is shared
+    /// state, not a directional queue. `meta.json`'s `group` is read once at
+    /// ingest, so a document already in the library never sees it again — this
+    /// is how something sent last week gets filed.
+    public static let groupsFileName = "groups.json"
 }
 
 /// One candidate directory under `inbox/`, as found on disk.

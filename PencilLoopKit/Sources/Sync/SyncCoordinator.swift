@@ -285,6 +285,31 @@ public actor SyncCoordinator: SyncCoordinating {
         return summary.id
     }
 
+    /// Applies the filing `groups.json` asks for.
+    ///
+    /// **Never throws, and never overrides the reader.** Each assignment goes
+    /// through `adoptGroupName`, which files a document that has no group and
+    /// leaves alone one that does. A missing or malformed file means nothing to
+    /// do, which is the normal case — most sync folders will never have one.
+    private func adoptGroupAssignments() async {
+        guard let groups else { return }
+        let url = folder.rootURL.appendingPathComponent(
+            SyncFolder.groupsFileName,
+            isDirectory: false
+        )
+        guard let data = try? CoordinatedFileAccess.read(at: url, by: { try Data(contentsOf: $0) }),
+              let published = try? ContractCoding.decoder().decode(PublishedGroups.self, from: data)
+        else { return }
+        for (folderName, name) in published.assignments {
+            try? await groups.adoptGroupName(name, forFolderName: folderName)
+        }
+    }
+
+    /// The shape of `groups.json`.
+    private struct PublishedGroups: Decodable {
+        let assignments: [String: String]
+    }
+
     /// Files a newly ingested document under the group its `meta.json` proposed.
     ///
     /// **Never throws, deliberately.** A group is a convenience about where a
@@ -327,6 +352,12 @@ public actor SyncCoordinator: SyncCoordinating {
         // between staging and rename. Nothing else removes them — every scan
         // here skips hidden entries — and they are in somebody else's folder.
         StagingSweeper.sweep(in: folder.inboxURL)
+
+        // Filing a sender has asked for, from `groups.json` at the sync root.
+        // The relay transport reads the same map over HTTP; this is the folder
+        // half, and without it the feature simply did not exist for anyone on
+        // this transport — which is most of the reason it is here.
+        await adoptGroupAssignments()
 
         if importsAppGroupStaging {
             stagingImporter.importAll(into: folder)
