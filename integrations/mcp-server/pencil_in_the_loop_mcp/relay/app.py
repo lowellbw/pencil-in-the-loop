@@ -45,6 +45,7 @@ from starlette.responses import (
 from starlette.concurrency import run_in_threadpool
 from starlette.routing import Mount, Route
 
+from .. import cleanup
 from .. import core
 from .. import transcribe
 from . import files as relay_files
@@ -415,8 +416,18 @@ def create_app(
             # Left declared so a retry can re-upload without re-declaring.
             raise ApiError(502, "provider_failed", str(error)) from error
 
+        # Stage 3: correct the transcript against the document's own words. It
+        # never raises and never returns something worse than the ASR gave —
+        # a refused cleanup is the raw text, with a reason — so it is not
+        # wrapped in a try. See cleanup.polish.
+        polished = await run_in_threadpool(
+            cleanup.polish,
+            result.text,
+            keyterms=meta.get("keyterms") or [],
+        )
+
         declared.unlink(missing_ok=True)
-        return JSONResponse({"ok": True, **result.as_dict()})
+        return JSONResponse({"ok": True, **result.as_dict(), **polished.as_dict()})
 
     def get_changes(request: Request) -> Response:
         try:

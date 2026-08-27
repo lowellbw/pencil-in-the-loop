@@ -172,8 +172,35 @@ have to send the document's vocabulary again.
 POST /v1/clips            {"clipId": "<UUID>", "language": "en-GB",
                            "keyterms": ["Ofgem", "RIIO-3", …]}
 PUT  /v1/clips/{id}/audio  <FLAC bytes>
-  → {"ok": true, "text": "…", "model": "gpt-4o-transcribe", "provider": "openai"}
+  → {"ok": true, "text": "…", "raw": "…",
+     "model": "gpt-4o-transcribe", "provider": "openai",
+     "cleanupApplied": true, "inventedRatio": 0.0}
 ```
+
+`raw` is the transcript as the speech model produced it and `text` is the best
+available version — the same one after a correction pass, or identical to `raw`
+when that pass was refused or unavailable. A consumer that does not care reads
+`text` and is unaffected.
+
+**The correction pass corrects; it does not rewrite.** It is told to fix misheard
+proper nouns against the document's terms, resolve homophones, punctuate, drop
+fillers and false starts while keeping hedges, and execute spoken commands like
+"strike that" — and to change nothing else. Then the result is measured against
+the transcript and **thrown away if too much of it has nothing behind it**.
+
+That measurement is asymmetric, and the asymmetry was learned from a real clip.
+Deleting words is what the pass is asked to do, so retractions and fillers cost
+nothing; what is counted is output with no matching input, which is what
+invention looks like. Measuring *change* instead scored a correct "strike that"
+at exactly the 25% limit for doing what it was told. `inventedRatio` is that
+number and `cleanupApplied` says whether it survived.
+
+Only the term list is sent to the correction model, never the document's prose.
+The note flags this as the larger of the two disclosures: audio is one comment,
+a paragraph of context is the document itself.
+
+Set `PENCIL_CLEANUP_MODEL` to change the model, or `PENCIL_CLEANUP=off` to skip
+the pass entirely. With no key it is skipped and the raw transcript stands.
 
 The clip waits in `.clips/` — dot-prefixed, so every scanner here already skips
 it. **A clip is not a document and never appears in the change feed.** It is
