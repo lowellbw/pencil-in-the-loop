@@ -210,8 +210,16 @@ public actor PreviewDocumentStore: DocumentStoring {
     }
 
     public func summaries(_ query: LibraryQuery) throws -> [DocumentSummary] {
-        guard let text = query.searchText, !text.isEmpty else { return storedSummaries }
-        return storedSummaries.filter { $0.title.localizedCaseInsensitiveContains(text) }
+        // Honours `states` as the real store does. It used to return everything
+        // it held, which made previews and tests disagree with the app about
+        // whether archived documents come back — and disagree quietly, in the
+        // direction that hides a bug rather than shows one.
+        let states = query.states.isEmpty ? Set(DocState.librarySections) : query.states
+        var rows = storedSummaries.filter { states.contains($0.state) }
+        if let text = query.searchText, !text.isEmpty {
+            rows = rows.filter { $0.title.localizedCaseInsensitiveContains(text) }
+        }
+        return rows
     }
 
     public func summary(id: UUID) throws -> DocumentSummary? {

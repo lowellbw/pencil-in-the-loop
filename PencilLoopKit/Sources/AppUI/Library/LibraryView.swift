@@ -189,6 +189,7 @@ public struct LibraryView<Detail: View>: View {
                     groupSectionView(for: section)
                 }
             }
+            archivedSection
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Library")
@@ -289,6 +290,35 @@ public struct LibraryView<Detail: View>: View {
             Section(state.displayName) {
                 ForEach(summaries) { summary in
                     row(for: summary, isFilingTarget: true)
+                }
+            }
+        }
+    }
+
+    /// What has been put out of the way, when the reader has asked to see it.
+    ///
+    /// Last, and in one section in both modes. Archiving is how a document
+    /// stops being in the way, so putting those rows back among the groups they
+    /// came from would undo the gesture that moved them.
+    ///
+    /// No group tint and no filing: a document in here is not anywhere, and the
+    /// only thing worth offering is the way out.
+    @ViewBuilder private var archivedSection: some View {
+        let summaries = model.archived
+        if model.showsArchived && summaries.isEmpty == false {
+            Section("Archived") {
+                ForEach(summaries) { summary in
+                    LibraryRow(summary: summary)
+                        .tag(summary.id)
+                        .selectionDisabled(summary.isLocal == false)
+                        .swipeActions(edge: .trailing) {
+                            Button {
+                                Task { await self.model.unarchive(summary) }
+                            } label: {
+                                Label("Restore", systemImage: "arrow.uturn.backward")
+                            }
+                            .tint(.blue)
+                        }
                 }
             }
         }
@@ -584,6 +614,10 @@ public struct LibraryView<Detail: View>: View {
                 } label: {
                     Label("Reorder Groups…", systemImage: "arrow.up.arrow.down")
                 }
+            }
+            Divider()
+            Toggle(isOn: $model.showsArchived) {
+                Label("Show Archived", systemImage: "archivebox")
             }
         } label: {
             Label("Sort", systemImage: "arrow.up.arrow.down")

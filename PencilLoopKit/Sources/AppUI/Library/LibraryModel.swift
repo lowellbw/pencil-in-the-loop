@@ -46,6 +46,14 @@ public final class LibraryModel {
     /// Remembered, so the reader chooses once rather than every launch. The
     /// write is coalesced in the store and skipped entirely when `load()` is
     /// merely restoring what was already saved.
+    /// Whether archived documents are shown, in a section of their own at the
+    /// bottom (docs/02-spec.md § S1).
+    ///
+    /// Off by default and not remembered: archiving something is how you get it
+    /// out of the way, so a library that stayed opened on the archive would
+    /// undo the gesture. This is a look, not a mode.
+    public var showsArchived = false
+
     public var grouping: LibraryGrouping = .group {
         didSet {
             guard grouping != oldValue else { return }
@@ -70,6 +78,7 @@ public final class LibraryModel {
     private var grouped: [DocState: [DocumentSummary]] = [:]
     private var pinnedRows: [DocumentSummary] = []
     private var groupSections: [GroupSection] = []
+    private var archivedRows: [DocumentSummary] = []
 
     /// Every group in use, whether or not the current search left a row in it.
     ///
@@ -91,7 +100,7 @@ public final class LibraryModel {
     /// Changes whenever the list has to be fetched again. The view drives its
     /// reload from this rather than from two separate change handlers.
     public var reloadKey: String {
-        sort.rawValue + "\u{1F}" + searchText
+        sort.rawValue + "\u{1F}" + searchText + "\u{1F}" + (showsArchived ? "+archived" : "")
     }
 
     /// The query the current search and sort describe.
@@ -99,7 +108,9 @@ public final class LibraryModel {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return LibraryQuery(
             searchText: trimmed.isEmpty ? nil : trimmed,
-            states: [],
+            // Empty means every state *except* archived, which is the normal
+            // case; naming them all is the only way to ask for it as well.
+            states: showsArchived ? Set(DocState.allCases) : [],
             sort: sort,
             ascending: sort == .title
         )
@@ -162,6 +173,16 @@ public final class LibraryModel {
         allGroupNames
     }
 
+    /// The archived documents, when they are being shown, newest first.
+    ///
+    /// Drawn last and in one section in both modes: archived is a state the
+    /// reader put a document into to stop seeing it, so scattering those rows
+    /// back through the groups they came from would be the opposite of what the
+    /// gesture asked for.
+    public var archived: [DocumentSummary] {
+        archivedRows
+    }
+
     /// The selected row, if the selection still names one.
     public func summary(id: UUID?) -> DocumentSummary? {
         guard let id else { return nil }
@@ -207,6 +228,20 @@ public final class LibraryModel {
             statusMessage = SyncFolderChoice.describe(error)
         }
         await load()
+    }
+
+    /// Takes a document out of the archive.
+    ///
+    /// Restored to **Read**, not Unread. It has been in the library and been
+    /// seen; calling it Unread would claim it had just arrived, and would put
+    /// it back at the top of a section it has no business being at the top of.
+    public func unarchive(_ summary: DocumentSummary) async {
+        do {
+            try await environment.store.setState(.read, documentId: summary.id)
+            await load()
+        } catch {
+            statusMessage = SyncFolderChoice.describe(error)
+        }
     }
 
     /// Swipe to archive. `.archived` is hidden from all three sections and its
@@ -431,6 +466,11 @@ public final class LibraryModel {
         var pinned: [DocumentSummary] = []
         var byGroup: [String: [DocumentSummary]] = [:]
         var ungrouped: [DocumentSummary] = []
+        // Gated here as well as in the query. The store is asked not to return
+        // archived rows unless they were wanted, but a bucket that fills from
+        // whatever arrives would draw an Archived section the reader never
+        // asked for the moment any store answered differently.
+        archivedRows = showsArchived ? decorated.filter { $0.state == .archived } : []
         for summary in decorated where summary.state != .archived {
             // The invariant that made Pinned work holds in both modes and for
             // the same reason: a pinned row is drawn in Pinned and nowhere else.

@@ -138,6 +138,15 @@ nullable string, and nothing needs a group to be queryable — the sidebar re-se
 it has already fetched. The cost is that document state now lives in two places, and it is
 paid deliberately.
 
+**Show Archived** is a toggle in the same menu. Off by default and not remembered:
+archiving something is how you get it out of the way, so a library that stayed opened on the
+archive would undo the gesture. It is a look, not a mode. Archived documents are drawn last,
+in one section, in both grouping modes — putting them back among the groups they came from
+would be the opposite of what archiving asked for — and they carry no group tint and no
+filing, because a document in there is not anywhere. Swipe one to **Restore**, which returns
+it to Read rather than Unread: it has been in the library and been seen, and calling it
+unread would claim it had just arrived.
+
 A **New** menu in the toolbar makes a document rather than waiting for one
 (`11-backlog.md` § B1): a blank notebook — plain, lined or grid paper, eight pages to
 start — or a document typed as markdown and rendered by the same path as anything sent.

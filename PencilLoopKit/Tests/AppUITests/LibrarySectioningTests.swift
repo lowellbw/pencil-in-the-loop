@@ -461,4 +461,64 @@ final class LibrarySectioningTests: XCTestCase {
         let saved = await environment.settings.settings.libraryGrouping
         XCTAssertEqual(saved, .status, "Read back from the store, or this asserts nothing.")
     }
+
+    // MARK: - Archived
+
+    func testArchivedIsHiddenUntilItIsAskedFor() async {
+        let model = model([
+            summary(1, title: "Live one"),
+            summary(2, title: "Put away", state: .archived)
+        ])
+
+        await model.load()
+
+        XCTAssertFalse(model.showsArchived, "Archiving is how a document stops being in the way.")
+        XCTAssertEqual(model.archived, [])
+        XCTAssertEqual(model.sections.flatMap(\.rows).map(\.title), ["Live one"])
+    }
+
+    func testAskingForArchivedPutsItInItsOwnSection() async {
+        let model = model(
+            [summary(1, title: "Live one"), summary(2, title: "Put away", state: .archived)],
+            filed: ["folder-2": "AI evals"]
+        )
+        model.showsArchived = true
+
+        await model.load()
+
+        XCTAssertEqual(model.archived.map(\.title), ["Put away"])
+        XCTAssertEqual(
+            model.sections.flatMap(\.rows).map(\.title),
+            ["Live one"],
+            "An archived document is not put back in the group it came from — that would undo the gesture."
+        )
+    }
+
+    func testAskingForArchivedRefetches() async {
+        let model = model([summary(1, title: "One")])
+        await model.load()
+        let before = model.reloadKey
+
+        model.showsArchived = true
+
+        XCTAssertNotEqual(
+            model.reloadKey,
+            before,
+            "Unlike grouping, this changes which rows are fetched, so it has to be in the key."
+        )
+    }
+
+    func testArchivedRowsAreNeverPinnedOrGrouped() async {
+        let model = model(
+            [summary(1, title: "Put away", state: .archived, pinnedAt: Date())],
+            filed: ["folder-1": "AI evals"]
+        )
+        model.showsArchived = true
+
+        await model.load()
+
+        XCTAssertEqual(model.pinned, [], "archived beats pinned; it is not on the shelf any more")
+        XCTAssertEqual(model.sections, [])
+        XCTAssertEqual(model.archived.count, 1)
+    }
 }
