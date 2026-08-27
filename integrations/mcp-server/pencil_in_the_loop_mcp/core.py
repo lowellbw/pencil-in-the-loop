@@ -831,6 +831,70 @@ def scan_inbox_groups(sync_root: Path) -> tuple[list[dict[str, Any]], int, bool]
     return groups, ungrouped, len(total) > len(groups)
 
 
+# The filing a sender has asked for, as a map of folder name to group name.
+#
+# One file at the sync root, beside inbox/ and outbox/ rather than inside
+# either: it is shared state, not a directional queue, and every scanner in this
+# codebase already walks directories rather than files at that level.
+#
+# The iPad adopts from it and never has to be told twice; it files a document
+# that has no group and never overrides one the reader chose by hand, which is
+# the same rule a `group` in meta.json obeys.
+GROUPS_FILE = "groups.json"
+
+
+def read_group_map(sync_root: Path) -> dict[str, str]:
+    """Every filing a sender has asked for. Empty when nothing has.
+
+    Never raises: an unreadable or malformed file reads as "nothing filed",
+    because the alternative is a broken groups.json stopping documents being
+    sent at all.
+    """
+    body = _read_json_file(Path(sync_root).expanduser() / GROUPS_FILE)
+    if not isinstance(body, dict):
+        return {}
+    assignments = body.get("assignments")
+    if not isinstance(assignments, dict):
+        return {}
+    return {
+        str(folder): str(group)
+        for folder, group in assignments.items()
+        if isinstance(folder, str) and isinstance(group, str) and group.strip()
+    }
+
+
+def write_group_map(sync_root: Path, assignments: dict[str, str]) -> dict[str, str]:
+    """Merges these filings into the map and writes it atomically.
+
+    A merge rather than a replace: two senders filing different documents must
+    not undo each other, and a caller that knows about three documents should
+    not have to send the other sixty to keep them where they are. Passing an
+    empty group name for a folder removes it.
+
+    - Returns: the map as it now stands.
+    """
+    root = Path(sync_root).expanduser()
+    merged = read_group_map(root)
+    for folder, group in assignments.items():
+        name = " ".join(str(group).split())
+        if name:
+            merged[str(folder)] = name
+        else:
+            merged.pop(str(folder), None)
+    root.mkdir(parents=True, exist_ok=True)
+    _write_file(
+        root / GROUPS_FILE,
+        json.dumps(
+            {"version": 1, "updatedAt": utc_now_iso(), "assignments": merged},
+            indent=2,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    return merged
+
+
 def read_review(sync_root: Path, raw_id: Any) -> dict[str, Any]:
     """Full contents of one review bundle. Read-only, always.
 

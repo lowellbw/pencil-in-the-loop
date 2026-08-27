@@ -100,6 +100,8 @@ Everything under `/v1` requires the device token. `/healthz` requires nothing.
 | `GET` | `/healthz` | Liveness, epoch, cursor, free bytes. No auth. |
 | `POST` | `/v1/documents` | Send a document. `{content, title?, tags?, group?, documentId?, expectedFiles?}` |
 | `PUT` | `/v1/documents/{folder}/files/{name}` | Upload one declared file. |
+| `GET` | `/v1/groups` | Which group each document should be filed under. |
+| `PUT` | `/v1/groups` | Ask for filings. `{assignments: {folderName: group}}` |
 | `POST` | `/v1/clips` | Declare a voice clip. `{clipId, language?, keyterms?}` |
 | `PUT` | `/v1/clips/{clipId}/audio` | Upload the audio; returns the transcript. |
 | `GET` | `/v1/documents/{folder}/files/{name}` | Bytes, with `ETag: "<sha256>"`. |
@@ -155,6 +157,36 @@ An unfamiliar `epoch` means the index was rebuilt: reset the cursor to zero and 
 
 ---
 
+
+## 4a · Groups — filing documents the device already has
+
+`group` in `meta.json` is read once, at ingest. A document already in the
+library never sees it again, which is deliberate — a re-send must not move
+something the reader filed by hand — but it means a sender has no way to file
+the fifty documents it sent last week.
+
+This map does. One file at the sync root, `groups.json`, beside `inbox/` and
+`outbox/` rather than inside either: it is shared state, not a directional
+queue.
+
+```
+PUT /v1/groups   {"assignments": {"2026-08-20-waymo-and-av": "AI taxation"}}
+GET /v1/groups → {"assignments": {…}}
+```
+
+A **merge**, not a replace: two senders filing different documents must not undo
+each other, and a caller that knows about three documents should not have to
+send the other sixty to keep them where they are. An empty group name withdraws
+a suggestion.
+
+**The device still decides.** Every assignment is applied through
+`DocumentGrouping.adoptGroupName`, which files a document that has no group and
+never overrides one the reader chose by hand. So this suggests: if something
+does not move, they filed it themselves and that stands. A relay too old to have
+the route answers 404 and the device does nothing.
+
+A malformed `groups.json` reads as nothing filed. A broken map must not stop
+documents being sent.
 
 ## 4a · Clips — a better transcript for a voice comment
 

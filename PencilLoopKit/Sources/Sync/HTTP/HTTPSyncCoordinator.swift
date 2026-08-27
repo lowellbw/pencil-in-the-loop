@@ -256,6 +256,10 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     private func scanOnce(fromStart: Bool) async throws -> Int {
         await flushQueue()
 
+        // Filing the relay has been asked for. Before the feed, so a document
+        // arriving in this pass is already filed by the time it is drawn.
+        await adoptGroupAssignments()
+
         // Voice comments waiting on a better transcript. Before the feed for
         // the same reason staging is: a comment dictated a moment ago should
         // improve in this pass rather than the next one. It never throws, so it
@@ -348,6 +352,21 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
 
     /// Download, verify, pin, ingest, store — in that order, always.
     ///
+    /// Applies the filing the relay has been asked for.
+    ///
+    /// **Never throws, and never overrides the reader.** Each assignment goes
+    /// through `adoptGroupName`, which files a document that has no group and
+    /// leaves alone one that does — so this suggests, and a document the reader
+    /// filed by hand stays where they put it. A relay too old to have the route
+    /// answers 404 and this does nothing, which is the correct amount of fuss.
+    private func adoptGroupAssignments() async {
+        guard let groups else { return }
+        guard let assignments = try? await client.groupAssignments() else { return }
+        for (folderName, name) in assignments {
+            try? await groups.adoptGroupName(name, forFolderName: folderName)
+        }
+    }
+
     /// - Returns: whether the document landed. A false answer defers the folder
     ///   and holds the cursor back, so the next scan tries again.
     private func ingest(_ document: RemoteDocument) async -> Bool {

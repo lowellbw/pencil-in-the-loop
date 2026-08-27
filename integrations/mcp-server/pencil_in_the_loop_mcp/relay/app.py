@@ -339,6 +339,35 @@ def create_app(
             {"complete": not missing, "missingFiles": missing, "sha256": digest}
         )
 
+    # ----------------------------------------------------------- groups
+    #
+    # Which group each document should be filed under, as one map the device
+    # adopts on its next poll. This is what lets a sender file a document it
+    # sent last week, which `group` in meta.json cannot: that is read once, at
+    # ingest, and a document already in the library never sees it again.
+    #
+    # The device still decides. It files a document that has no group and never
+    # overrides one the reader chose by hand — the same rule, in the same words,
+    # as `DocumentGrouping.adoptGroupName`.
+
+    def get_groups(request: Request) -> Response:
+        return JSONResponse({"assignments": core.read_group_map(root)})
+
+    async def put_groups(request: Request) -> Response:
+        body = await _json_body(request)
+        assignments = body.get("assignments")
+        if not isinstance(assignments, dict):
+            raise ApiError(400, "invalid_input", "assignments must be an object.")
+        for folder, group in assignments.items():
+            if not isinstance(folder, str) or not isinstance(group, str):
+                raise ApiError(400, "invalid_input", "assignments must map strings to strings.")
+            try:
+                relay_files.bundle_id(folder)
+            except core.ValidationError as error:
+                raise ApiError(400, "bad_folder_name", str(error)) from error
+        merged = core.write_group_map(root, assignments)
+        return JSONResponse({"assignments": merged, "count": len(merged)})
+
     # ------------------------------------------------------------ clips
     #
     # A voice comment is transcribed on the iPad first, so there is always text
@@ -710,6 +739,8 @@ def create_app(
         Route("/v1/export.tar", export_tar, methods=["GET"]),
         Route("/v1/changes", get_changes, methods=["GET"]),
         Route("/v1/documents", post_document, methods=["POST"]),
+        Route("/v1/groups", get_groups, methods=["GET"]),
+        Route("/v1/groups", put_groups, methods=["PUT"]),
         Route("/v1/clips", post_clip, methods=["POST"]),
         Route("/v1/clips/{clipId}/audio", put_clip_audio, methods=["PUT"]),
         Route("/v1/documents/{folderName}", delete_document, methods=["DELETE"]),

@@ -187,6 +187,13 @@ already does. `list_groups` unions it over the scan, keeping the counts and
 titles it knows and taking the published spelling for the name, because a rename
 on the device is the reader's most recent word about what a group is called.
 
+**Half of this is now built, in the other direction.** `PUT /v1/groups` lets a
+sender file documents the device already holds, and the device adopts the map on
+its next poll (`docs/12-relay.md` § 4a). What remains is the return leg: a group
+the reader *creates or renames on the iPad* is still invisible to `list_groups`,
+so a rename still splits a collection. The shape below is unchanged; only the
+direction that was blocking day-to-day use has been done.
+
 Deferred rather than dropped. Everything the sender filed is already
 discoverable, the sections themselves work regardless, and the reply says what it
 cannot see instead of letting silence read as completeness. Two iPads writing one

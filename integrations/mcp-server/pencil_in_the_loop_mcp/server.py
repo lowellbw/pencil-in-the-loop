@@ -22,6 +22,8 @@ from .core import (
     read_review,
     scan_inbox_groups,
     validate_bundle_id,
+    validate_group,
+    write_group_map,
     write_file,
     write_inbox_bundle,
 )
@@ -197,6 +199,59 @@ def list_groups() -> dict[str, Any]:
         "note": (
             "Groups created or renamed on the iPad are not listed here; this "
             "is what has been sent."
+        ),
+    }
+
+
+@server.tool(
+    name="set_group",
+    description=(
+        "File documents already in the user's library into a named group, by "
+        "folder name. Use this to organise things sent previously — `group` on "
+        "send only applies to a document arriving for the first time, so it "
+        "cannot move one that is already there.\n\n"
+        "Call list_groups first and reuse a name that already fits. Folder "
+        "names are the ids list_reviews and send_to_ipad return, e.g. "
+        "2026-08-20-don-t-tax-the-robotaxi-draft-essay.\n\n"
+        "The iPad picks this up on its next poll. It files a document that has "
+        "no group and never overrides one the reader chose by hand, so this "
+        "suggests rather than commands — if something does not move, they "
+        "filed it themselves and that stands. Pass an empty group to withdraw "
+        "a suggestion."
+    ),
+)
+def set_group(group: str, folder_names: list[str]) -> dict[str, Any]:
+    """Ask the iPad to file these documents under one group.
+
+    Args:
+        group: the group's name, e.g. ``"AI taxation"``. Empty withdraws the
+            suggestion for these documents.
+        folder_names: the documents, by folder name.
+    """
+    if not isinstance(folder_names, list) or not folder_names:
+        return {"ok": False, "error": "folder_names must be a non-empty list"}
+    try:
+        name = "" if group is None else " ".join(str(group).split())
+        if name and validate_group(name) is None:
+            return {"ok": False, "error": "group is empty after trimming"}
+        cleaned = [validate_bundle_id(folder) for folder in folder_names]
+    except ValidationError as exc:
+        return {"ok": False, "error": f"invalid input: {exc}"}
+
+    try:
+        merged = write_group_map(_sync_root(), {folder: name for folder in cleaned})
+    except OSError as exc:
+        return {"ok": False, "error": f"could not write to the sync folder: {exc}"}
+
+    return {
+        "ok": True,
+        "group": name or None,
+        "filed": cleaned,
+        "totalFiled": len(merged),
+        "message": (
+            f"{len(cleaned)} document(s) will move to {name} on the iPad's next poll."
+            if name
+            else f"Withdrew the suggestion for {len(cleaned)} document(s)."
         ),
     }
 

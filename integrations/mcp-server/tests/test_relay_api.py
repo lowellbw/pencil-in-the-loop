@@ -756,5 +756,77 @@ class ClipTests(RelayApiTestCase):
             "A clip is not a document; the feed is what the iPad pulls documents from.",
         )
 
+
+@unittest.skipIf(TestClient is None, "starlette is not installed")
+class GroupAssignmentTests(RelayApiTestCase):
+    """Filing documents the iPad already has.
+
+    `group` in meta.json is read once, at ingest, so it cannot move a document
+    that is already in the library. This map can, and the device still decides:
+    it files what has no group and leaves alone what does.
+    """
+
+    def put(self, assignments):
+        return self.client.put(
+            "/v1/groups", json={"assignments": assignments}, headers=self.auth
+        )
+
+    def get(self):
+        return self.client.get("/v1/groups", headers=self.auth).json()["assignments"]
+
+    def test_nothing_filed_is_an_empty_map_rather_than_an_error(self) -> None:
+        self.assertEqual(self.get(), {})
+
+    def test_an_assignment_round_trips(self) -> None:
+        response = self.put({"2026-08-20-waymo-and-av": "AI taxation"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.get(), {"2026-08-20-waymo-and-av": "AI taxation"})
+
+    def test_a_second_sender_does_not_undo_the_first(self) -> None:
+        self.put({"2026-08-20-waymo-and-av": "AI taxation"})
+        self.put({"2026-08-21-eval-reading-1": "AI evals"})
+
+        self.assertEqual(
+            self.get(),
+            {
+                "2026-08-20-waymo-and-av": "AI taxation",
+                "2026-08-21-eval-reading-1": "AI evals",
+            },
+            "A merge, so a caller that knows about one document need not resend the rest.",
+        )
+
+    def test_an_empty_group_withdraws_the_suggestion(self) -> None:
+        self.put({"2026-08-20-waymo-and-av": "AI taxation"})
+
+        self.put({"2026-08-20-waymo-and-av": ""})
+
+        self.assertEqual(self.get(), {})
+
+    def test_a_folder_name_that_could_be_a_path_is_refused(self) -> None:
+        response = self.put({"../../etc/passwd": "AI taxation"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.get(), {}, "and nothing was written")
+
+    def test_assignments_must_be_an_object(self) -> None:
+        response = self.client.put(
+            "/v1/groups", json={"assignments": ["nope"]}, headers=self.auth
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_groups_need_the_device_token(self) -> None:
+        self.assertEqual(self.client.get("/v1/groups").status_code, 401)
+        self.assertEqual(self.client.put("/v1/groups", json={"assignments": {}}).status_code, 401)
+
+    def test_a_malformed_groups_file_reads_as_nothing_filed(self) -> None:
+        (self.root / "groups.json").write_text("{ not json")
+
+        self.assertEqual(
+            self.get(),
+            {},
+            "A broken map must not stop documents being sent.",
+        )
+
 if __name__ == "__main__":
     unittest.main()

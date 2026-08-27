@@ -258,6 +258,35 @@ public struct SyncServerClient: Sendable {
 
     // MARK: - Reading
 
+    /// `GET /v1/groups` — which group each document should be filed under.
+    ///
+    /// A suggestion, not an instruction. The caller applies it through
+    /// `DocumentGrouping.adoptGroupName`, which files a document that has no
+    /// group and never overrides one the reader chose by hand.
+    ///
+    /// This exists because `meta.json`'s `group` is read once, at ingest: a
+    /// document already in the library never sees it again, so there would
+    /// otherwise be no way to file something sent last week.
+    ///
+    /// - Returns: folder name to group name. Empty when the relay has none,
+    ///   which is the normal answer.
+    /// - Throws: `.folderUnavailable`.
+    public func groupAssignments() async throws -> [String: String] {
+        let request = signed(.get, path: "v1/groups")
+        let (data, response) = try await perform(request)
+        if let failure = SyncServerClient.failure(forStatusCode: response.statusCode, in: .fetch) {
+            throw failure
+        }
+        // A relay that predates this route answers 404, which `failure(for:)`
+        // turns into a throw the caller already treats as "nothing to do".
+        return (try? ContractCoding.decoder().decode(GroupAssignments.self, from: data))?.assignments ?? [:]
+    }
+
+    /// The body of `GET /v1/groups`.
+    private struct GroupAssignments: Decodable {
+        let assignments: [String: String]
+    }
+
     /// `GET /v1/changes?since=<cursor>` — the only feed a device needs.
     ///
     /// - Parameter cursor: where to resume. Nil means look at everything again,
