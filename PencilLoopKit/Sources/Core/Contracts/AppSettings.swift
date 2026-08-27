@@ -103,6 +103,14 @@ public struct AppSettings: Codable, Sendable, Hashable {
     /// caller: nothing has been filed.
     public var documentGroups: DocumentGroups?
 
+    /// How the Library is sectioned, or nil in a blob written before the
+    /// choice existed.
+    ///
+    /// **Read `libraryGroupingOrDefault`, never this.** Persisted because a
+    /// view mode that reset on every launch is one the reader has to re-choose
+    /// every launch, which is a worse default than either value.
+    public var libraryGrouping: LibraryGrouping?
+
     public init(
         syncFolderBookmark: Data? = nil,
         syncFolderDisplayName: String? = nil,
@@ -116,7 +124,8 @@ public struct AppSettings: Codable, Sendable, Hashable {
         syncTransport: SyncTransport? = nil,
         serverBaseURLString: String? = nil,
         serverDisplayName: String? = nil,
-        documentGroups: DocumentGroups? = nil
+        documentGroups: DocumentGroups? = nil,
+        libraryGrouping: LibraryGrouping? = nil
     ) {
         self.syncFolderBookmark = syncFolderBookmark
         self.syncFolderDisplayName = syncFolderDisplayName
@@ -131,6 +140,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         self.serverBaseURLString = serverBaseURLString
         self.serverDisplayName = serverDisplayName
         self.documentGroups = documentGroups
+        self.libraryGrouping = libraryGrouping
     }
 
     /// A fresh install.
@@ -164,6 +174,19 @@ public struct AppSettings: Codable, Sendable, Hashable {
         documentGroups ?? .empty
     }
 
+    /// How the Library sections itself.
+    ///
+    /// **Group, when nobody has said otherwise.** Grouping is the reason to
+    /// have put things in groups, and a library that has to be switched into it
+    /// on every launch is one where the filing quietly stops being worth doing.
+    /// Status is a tap away and, once tapped, is remembered.
+    ///
+    /// A reader with nothing filed sees one Ungrouped section, which is the
+    /// same flat list Status would have shown them.
+    public var libraryGroupingOrDefault: LibraryGrouping {
+        libraryGrouping ?? .group
+    }
+
     /// `serverBaseURLString`, parsed.
     ///
     /// **When it fails:** nil — the string is absent, empty, or not a URL. Nil
@@ -194,6 +217,7 @@ public struct AppSettings: Codable, Sendable, Hashable {
         case serverBaseURLString
         case serverDisplayName
         case documentGroups
+        case libraryGrouping
     }
 
     /// Decodes settings written by *any* build of this app, including one that
@@ -252,7 +276,8 @@ public struct AppSettings: Codable, Sendable, Hashable {
             // likeliest malformed value in the blob, and the box above says what
             // a throw here would cost. `DocumentGroups.init(from:)` cannot throw
             // either; this is the second of the two locks.
-            documentGroups: try? container.decodeIfPresent(DocumentGroups.self, forKey: .documentGroups)
+            documentGroups: try? container.decodeIfPresent(DocumentGroups.self, forKey: .documentGroups),
+            libraryGrouping: try? container.decodeIfPresent(LibraryGrouping.self, forKey: .libraryGrouping)
         )
     }
 }

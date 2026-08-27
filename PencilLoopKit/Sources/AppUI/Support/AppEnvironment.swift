@@ -499,6 +499,10 @@ public actor PreviewSettingsStore: SettingsStoring, DocumentGrouping {
         settings.documentGroups = settings.groups.reordering(names)
     }
 
+    public func setLibraryGrouping(_ grouping: LibraryGrouping) throws {
+        settings.libraryGrouping = grouping
+    }
+
     public func pruneGroups(keeping folderNames: Set<String>) throws {
         settings.documentGroups = settings.groups.pruned(keeping: folderNames)
     }

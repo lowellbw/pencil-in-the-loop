@@ -42,7 +42,17 @@ public final class LibraryModel {
     /// **Not part of `query`, and deliberately absent from `reloadKey`.** Both
     /// sectionings are built in the same pass over the same fetched rows, so
     /// switching this is a re-render and costs no round trip to the store.
-    public var grouping: LibraryGrouping = .status
+    ///
+    /// Remembered, so the reader chooses once rather than every launch. The
+    /// write is coalesced in the store and skipped entirely when `load()` is
+    /// merely restoring what was already saved.
+    public var grouping: LibraryGrouping = .group {
+        didSet {
+            guard grouping != oldValue else { return }
+            let wanted = grouping
+            Task { [environment] in try? await environment.groups.setLibraryGrouping(wanted) }
+        }
+    }
 
     /// False until the first load finishes, so the empty state does not flash
     /// before the rows arrive.
@@ -165,7 +175,9 @@ public final class LibraryModel {
     /// than a stale one.
     public func load() async {
         transport = await environment.settings.settings.transport
-        let filed = await environment.groups.groups()
+        let settings = await environment.settings.settings
+        grouping = settings.libraryGroupingOrDefault
+        let filed = settings.groups
         groupsByFolderName = filed.assignments
         allGroupNames = filed.orderedNames
         do {

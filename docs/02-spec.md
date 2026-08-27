@@ -64,8 +64,12 @@ first drag — a question nothing asks. A newly pinned document lands at the top
 where a new pin belongs.
 
 **Group by** sits under Sort in the same toolbar menu, because two labelled pickers in the
-menu that is already there beat a fourth control on a column this narrow. **Status** is the
-default and is the sectioning above, unchanged. **Group** replaces the three state sections
+menu that is already there beat a fourth control on a column this narrow. **Group** is the
+default, and the choice is remembered: grouping is the reason to have filed anything, and a
+library that has to be switched into it on every launch is one where the filing quietly
+stops being worth doing. **Status** is the sectioning above, unchanged, one tap away, and
+once tapped it sticks. A reader with nothing filed sees a single Ungrouped section, which
+is the same flat list Status would have shown them. **Group** replaces the three state sections
 with one section per group and an **Ungrouped** section last — last because it is the
 residue rather than a group, so it never joins the ordering. Groups the reader has placed
 come first, in that order; every other group follows alphabetically, so one made tomorrow

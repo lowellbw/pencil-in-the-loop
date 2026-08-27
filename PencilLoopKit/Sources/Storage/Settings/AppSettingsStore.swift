@@ -256,6 +256,17 @@ public actor AppSettingsStore: SettingsStoring, DocumentGrouping {
         try replaceGroups(with: next)
     }
 
+    /// Remembers how the Library is sectioned.
+    ///
+    /// - Throws: `PencilLoopError.storeWriteFailed` when the settings will not
+    ///   encode. Nothing is changed in that case.
+    public func setLibraryGrouping(_ grouping: LibraryGrouping) throws {
+        guard stored.libraryGrouping != grouping else { return }
+        var next = stored
+        next.libraryGrouping = grouping
+        try update(next)
+    }
+
     /// The one write shared by all four, coalesced so that a no-op assignment
     /// does not rewrite the blob — a double tap on a menu item should not cost a
     /// write, and re-adopting a group on every re-scan of an unchanged inbox

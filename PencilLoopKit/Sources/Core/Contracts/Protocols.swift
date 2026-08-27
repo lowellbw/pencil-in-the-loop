@@ -792,6 +792,18 @@ public protocol DocumentGrouping: Actor {
     /// Library has fetched, because those are filtered by the search text and
     /// pruning against them would un-group everything that did not match.
     func pruneGroups(keeping folderNames: Set<String>) throws
+
+    /// Remembers how the Library is sectioned (docs/02-spec.md § S1).
+    ///
+    /// Here rather than on `SettingsStoring` because it is one blob and one
+    /// writer: the Library sets this while Settings may be writing something
+    /// else, and two actors over the same key lose one of the two.
+    ///
+    /// Idempotent — setting the value it already has does not write.
+    ///
+    /// - Throws: `.storeWriteFailed` when the settings will not encode. The
+    ///   mode on screen is unaffected; only the memory of it is.
+    func setLibraryGrouping(_ grouping: LibraryGrouping) throws
 }
 
 // MARK: - Export

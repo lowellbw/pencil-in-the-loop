@@ -65,10 +65,9 @@ final class LibrarySectioningTests: XCTestCase {
             summary(2, title: "Reviewing one", state: .reviewing),
             summary(3, title: "Read one", state: .read)
         ])
-
         await model.load()
+        model.grouping = .status
 
-        XCTAssertEqual(model.grouping, .status, "Status is the default, and grouping is opt-in.")
         XCTAssertEqual(model.rows(in: .unread).map(\.title), ["Unread one"])
         XCTAssertEqual(model.rows(in: .reviewing).map(\.title), ["Reviewing one"])
         XCTAssertEqual(model.rows(in: .read).map(\.title), ["Read one"])
@@ -423,5 +422,43 @@ final class LibrarySectioningTests: XCTestCase {
             GroupPalette.colours.contains(.green),
             "Pinned is green; a group painted green would say the wrong thing."
         )
+    }
+
+    // MARK: - Which mode the Library opens in
+
+    func testTheLibraryOpensGrouped() async {
+        let model = model([summary(1, title: "One")])
+
+        await model.load()
+
+        XCTAssertEqual(
+            model.grouping,
+            .group,
+            "Grouping is the reason to have filed anything; a library that must be switched into it every launch is one where filing stops being worth doing."
+        )
+    }
+
+    func testAChosenModeIsRemembered() async {
+        var settings = AppSettings.initial
+        settings.libraryGrouping = .status
+        let environment = PreviewEnvironment(summaries: [summary(1, title: "One")], settings: settings)
+        let model = LibraryModel(environment: environment)
+
+        await model.load()
+
+        XCTAssertEqual(model.grouping, .status, "The reader chooses once, not every launch.")
+    }
+
+    func testSwitchingTheModeIsRememberedForNextTime() async {
+        let environment = PreviewEnvironment(summaries: [summary(1, title: "One")])
+        let model = LibraryModel(environment: environment)
+        await model.load()
+
+        model.grouping = .status
+        // `didSet` fires the write into a task; give it a turn to land.
+        try? await Task.sleep(for: .milliseconds(50))
+
+        let saved = await environment.settings.settings.libraryGrouping
+        XCTAssertEqual(saved, .status, "Read back from the store, or this asserts nothing.")
     }
 }
