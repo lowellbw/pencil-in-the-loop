@@ -18,9 +18,8 @@ Nothing in this repository has ever been compiled. The first build will produce 
 the plan is to get the whole list at once rather than one at a time.
 
 ```sh
-git clone https://github.com/lowellbw/lowellbw.git
-cd lowellbw/pencil-in-the-loop
-git checkout claude/new-project-repo-u1op58
+git clone https://github.com/lowellbw/pencil-in-the-loop.git
+cd pencil-in-the-loop
 ./tooling/first-build.sh
 ```
 
@@ -37,18 +36,19 @@ do §2 when you first want to run it on the iPad.
 
 **Do this before opening Xcode.**
 
-`.github/workflows/ios-build.yml` — **at the root of the repository, not in this
-directory** — runs on every push that touches `pencil-in-the-loop/`. Its macOS job is the
+`.github/workflows/ios-build.yml` runs on every push. Its macOS job is the
 first real compiler this code has ever met, and it is a far better first read than Xcode
 is: it prints a complete, flat, greppable error list, in dependency order, with no editor
 state, no derived data and no signing in the way.
 
-The file sat at `pencil-in-the-loop/.github/workflows/` for the whole of Waves 0–3, which
-is the tidier-looking place and meant it never ran once: GitHub reads workflows only from
+For the whole of Waves 0–3 — when the app was the `pencil-in-the-loop/` subdirectory of
+`lowellbw/lowellbw` — the file sat at `pencil-in-the-loop/.github/workflows/`, which was
+the tidier-looking place and meant it never ran once: GitHub reads workflows only from
 the repository root, and one anywhere else is an inert text file. So this section
 described a loop that was not running — the Mac builds behind § 3 happened, at somebody's
-desk, but nothing was checked on push. If the Actions tab is empty, that is the first
-thing to check.
+desk, but nothing was checked on push. Now the app *is* the repository, the root is the
+project directory and the loop actually runs. If the Actions tab is empty, that is the
+first thing to check.
 
 **The runner needs Xcode 26.** `macos-15` defaults to Xcode 16.4, which is Swift 6.1 and
 the iOS 18.5 SDK: `swift package resolve` stops in one second on `package is using Swift
