@@ -164,6 +164,9 @@ public struct FirstRunView: View {
     /// What the screen says, which depends only on whether the default is still
     /// being tried.
     private var explanation: String {
+        if RelayDefaults.isPartiallyConfigured {
+            return "This build knows your relay's address but not its access token. Enter the token to connect, or choose a folder instead."
+        }
         if hasTriedDefault {
             return "Choose a folder this iPad shares with your computer. Documents put there appear in your library, and the reviews you send go back the same way."
         }
@@ -201,6 +204,20 @@ public struct FirstRunView: View {
                 // a reason to offer the other transport, not to stop.
                 problem = SyncServerChoice.describe(error)
             }
+        }
+
+        // The address without the token — a checkout built without
+        // `Config/Local.xcconfig`. The documents are on that relay, so
+        // adopting a folder by default would sync an empty elsewhere while
+        // everything sent from a session quietly misses this iPad. Ask for
+        // the token instead, address already filled in; the folder stays one
+        // tap behind Cancel.
+        if RelayDefaults.isPartiallyConfigured, let baseURL = RelayDefaults.baseURL {
+            serverURLText = baseURL.absoluteString
+            hasTriedDefault = true
+            isPreparing = false
+            isChoosingServer = true
+            return
         }
         do {
             let url = try await Task.detached(priority: .userInitiated) {

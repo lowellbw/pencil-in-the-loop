@@ -2,8 +2,11 @@
 
 #include "Shared.xcconfig"
 
-// Optional, and absent from a fresh checkout: the relay this build ships
-// pointed at. Without it the app starts at the folder picker, as it always did.
+// The relay this build ships pointed at. The address is public and committed
+// (Relay.xcconfig); the token is a credential and lives in Local.xcconfig,
+// which is not committed. Local comes second so a configured checkout can
+// override anything the committed defaults say.
+#include "Relay.xcconfig"
 #include? "Local.xcconfig"
 
 PRODUCT_NAME = PencilLoop

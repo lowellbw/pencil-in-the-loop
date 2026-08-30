@@ -6,9 +6,11 @@
 //
 //  The app is meant to work the moment it is installed — no folder to pick, no
 //  address to type, no token to paste. That is what these two values are for.
-//  They are set in `Config/Local.xcconfig`, which is not committed, and reach
-//  the app through `Info.plist`; a checkout without that file gets nothing here
-//  and falls back to the folder picker exactly as before.
+//  The address is committed in `Config/Relay.xcconfig` and is in every build;
+//  the token is a credential, set in `Config/Local.xcconfig`, which is not
+//  committed. Both reach the app through `Info.plist`. A checkout without the
+//  local file therefore builds knowing where the documents are but unable to
+//  fetch them — first run asks for the token, and only that.
 //
 //  ─── WHY A TOKEN IS IN THE BUNDLE, AND WHAT THAT COSTS ───────────────────────
 //  Anyone who can read the app bundle can read this token, and there is no way
@@ -66,11 +68,24 @@ public enum RelayDefaults {
         baseURL != nil && token != nil
     }
 
+    /// Whether the build carries the address alone — a checkout built without
+    /// `Config/Local.xcconfig`.
+    ///
+    /// First run treats this as "ask for the token", never as "fall back to
+    /// the folder": the address says where this person's documents already
+    /// are, and a build that quietly starts syncing somewhere else instead is
+    /// the one failure nobody notices until a review has gone missing.
+    public static var isPartiallyConfigured: Bool {
+        baseURL != nil && token == nil
+    }
+
     /// A trimmed, non-empty `Info.plist` string, or nil.
     ///
-    /// The empty case is the normal one: `Config/Relay.xcconfig` declares both
-    /// keys empty so that a checkout with no local config still substitutes
-    /// cleanly rather than leaving `$(PENCILLOOP_RELAY_URL)` in the bundle.
+    /// A checkout without `Config/Local.xcconfig` leaves the token key with
+    /// nothing to substitute, which lands here as an empty string or, from a
+    /// build system that skips substitution, as the literal `$(…)`. Both read
+    /// as "not set", so a half-configured build degrades to a question at
+    /// first run rather than to a token that is the wrong bytes.
     private static func string(forKey key: String) -> String? {
         guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else {
             return nil

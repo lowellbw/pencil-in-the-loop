@@ -1,0 +1,17 @@
+// Local.xcconfig.example — copy to Local.xcconfig and fill in the token.
+//
+// Local.xcconfig is the one build input that is not committed, because it
+// holds a credential. With it, every build from this checkout ships fully
+// configured: relay address from Relay.xcconfig, token from here, nothing to
+// type on the iPad. Without it the build still knows the address and first
+// run asks for the token.
+//
+// The token was generated once by integrations/mcp-server/deploy-railway.sh.
+// It is in the relay host's environment (Railway → service → Variables) and
+// in the Local.xcconfig of any previously configured checkout.
+//
+// Assign after any includes, never before — in an xcconfig the last
+// assignment wins, and an include that re-declares the token empty would
+// silently strip it from the build.
+
+PENCILLOOP_RELAY_TOKEN = paste-the-device-token-here
