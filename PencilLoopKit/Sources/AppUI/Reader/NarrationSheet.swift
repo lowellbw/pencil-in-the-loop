@@ -152,8 +152,16 @@ public struct NarrationSheet: View {
                 .accessibilityHidden(true)
 
             if narration.isPreparing {
-                ProgressView()
-                    .progressViewStyle(.circular)
+                // A bar once there are turns to count, a spinner while the
+                // script is still being written — a determinate bar sitting at
+                // the far left reads as stuck rather than starting.
+                if let fraction = narration.status?.fraction {
+                    ProgressView(value: fraction)
+                        .padding(.horizontal, 48)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                }
             }
 
             Text(narration.status?.summary ?? NarrationSheet.unknown)

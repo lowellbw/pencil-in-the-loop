@@ -847,7 +847,15 @@ class NarrationTests(RelayApiTestCase):
         self.narrate = narrate
         self._real = narrate.narrate
 
-        def fake(markdown, *, title="", depth="standard", hosts=2, timeout=120.0):
+        def fake(
+            markdown, *, title="", depth="standard", hosts=2, timeout=120.0,
+            on_progress=None,
+        ):
+            # Report like the real one does: the state machine's liveness check
+            # reads these, so a fake that never reports would test a generation
+            # that looks dead.
+            if on_progress is not None:
+                on_progress("recording", 1, 1)
             return narrate.Narration(
                 audio=b"ID3-pretend-mp3",
                 turns=[narrate.Turn("host", "Spoken.")],
@@ -876,19 +884,19 @@ class NarrationTests(RelayApiTestCase):
             f"/v1/documents/{folder}/narration", headers=self.auth
         ).json()
 
-    def working(self, folder, started=None):
+    def working(self, folder, started=None, progress_now=False):
         """Put a document into `working`, the way the relay itself would."""
         from pencil_in_the_loop_mcp import core
 
-        (self.root / "inbox" / folder / ".narration.json").write_text(
-            json.dumps(
-                {
-                    "state": "working",
-                    "depth": "standard",
-                    "startedAt": started or core.utc_now_iso(),
-                }
-            )
-        )
+        state = {
+            "state": "working",
+            "depth": "standard",
+            "startedAt": started or core.utc_now_iso(),
+        }
+        if progress_now:
+            state |= {"progressAt": core.utc_now_iso(), "stage": "recording",
+                      "done": 3, "total": 40}
+        (self.root / "inbox" / folder / ".narration.json").write_text(json.dumps(state))
 
     def wait_ready(self, folder, tries=50):
         import time
@@ -994,6 +1002,37 @@ class NarrationTests(RelayApiTestCase):
 
         self.ask(folder)
         self.assertEqual(self.wait_ready(folder)["state"], "ready")
+
+    def test_a_long_generation_that_is_still_reporting_is_not_reaped(self) -> None:
+        """The distinction the first version of this could not make.
+
+        A long paper is tens of sequential provider calls and legitimately runs
+        for the best part of an hour. A wall-clock limit reaped one at the hour
+        mark and nobody could say whether it had still been alive. Silence is
+        the signal, not elapsed time.
+        """
+        folder = self.folder()
+        self.working(folder, started="2020-01-01T00:00:00Z", progress_now=True)
+
+        self.assertEqual(self.state(folder)["state"], "working")
+
+    def test_a_generation_that_has_gone_quiet_is_dead_however_recently_it_started(
+        self,
+    ) -> None:
+        folder = self.folder()
+        from pencil_in_the_loop_mcp import core
+
+        (self.root / "inbox" / folder / ".narration.json").write_text(
+            json.dumps(
+                {
+                    "state": "working",
+                    "startedAt": core.utc_now_iso(),
+                    "progressAt": "2020-01-01T00:00:00Z",
+                }
+            )
+        )
+
+        self.assertEqual(self.state(folder)["state"], "failed")
 
     def test_a_state_from_before_timestamps_existed_is_treated_as_dead(self) -> None:
         folder = self.folder()

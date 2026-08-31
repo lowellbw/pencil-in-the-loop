@@ -27,7 +27,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Callable, Any
 
 from .transcribe import TranscriptionError, TranscriptionUnconfigured, _multipart, _post
 
@@ -136,6 +136,7 @@ def narrate(
     depth: str = DEFAULT_DEPTH,
     hosts: int = 2,
     timeout: float = 120.0,
+    on_progress: Callable[[str, int, int], None] | None = None,
 ) -> Narration:
     """Script the document, then speak it.
 
@@ -153,13 +154,16 @@ def narrate(
     if not os.environ.get("OPENAI_API_KEY"):
         raise NarrationUnconfigured("OPENAI_API_KEY is not set; it writes the script")
 
+    if on_progress is not None:
+        on_progress("scripting", 0, 0)
     turns, script_model = write_script(
-        body, title=title, depth=depth, hosts=hosts, timeout=timeout
+        body, title=title, depth=depth, hosts=hosts, timeout=timeout,
+        on_progress=on_progress,
     )
     if not turns:
         raise NarrationError("the script came back empty")
 
-    audio, voice_model, provider = speak(turns, timeout=timeout)
+    audio, voice_model, provider = speak(turns, timeout=timeout, on_progress=on_progress)
     words = sum(len(turn.text.split()) for turn in turns)
     return Narration(
         audio=audio,
@@ -261,6 +265,7 @@ def write_script(
     depth: str = DEFAULT_DEPTH,
     hosts: int = 2,
     timeout: float = 120.0,
+    on_progress: Callable[[str, int, int], None] | None = None,
 ) -> tuple[list[Turn], str]:
     """Ask a model for the spoken version. Returns the turns and the model used."""
     model = os.environ.get("PENCIL_NARRATION_SCRIPT_MODEL") or "gpt-4o"
@@ -325,9 +330,11 @@ def write_script(
     # cheap next to speaking thirty turns, which is what makes iterating here
     # the right place to spend.
     missed = missing_headings(markdown, turns)
-    for _ in range(MAX_REPAIRS):
+    for attempt in range(MAX_REPAIRS):
         if not missed:
             break
+        if on_progress is not None:
+            on_progress("scripting", attempt + 1, MAX_REPAIRS)
         revised = repair_script(
             markdown,
             turns,
@@ -480,8 +487,19 @@ def target_words(markdown: str, depth: str) -> int:
 # -------------------------------------------------------------------- speech
 
 
-def speak(turns: list[Turn], *, timeout: float = 120.0) -> tuple[bytes, str, str]:
-    """Speak every turn and join them. Returns the audio, the model, the provider."""
+def speak(
+    turns: list[Turn],
+    *,
+    timeout: float = 120.0,
+    on_progress: Callable[[str, int, int], None] | None = None,
+) -> tuple[bytes, str, str]:
+    """Speak every turn and join them. Returns the audio, the model, the provider.
+
+    - Parameter on_progress: called `(stage, done, total)` after each turn. This
+      is what lets a caller tell a stalled generation from a slow one — a long
+      document is tens of sequential provider calls, and elapsed time alone
+      cannot distinguish the two.
+    """
     provider = voice_provider()
     if provider is None:
         raise NarrationUnconfigured(
@@ -499,6 +517,8 @@ def speak(turns: list[Turn], *, timeout: float = 120.0) -> tuple[bytes, str, str
         else:
             raise NarrationError(f"unknown speech provider {provider!r}")
         chunks.append(audio)
+        if on_progress is not None:
+            on_progress("recording", index + 1, len(turns))
 
     if not chunks:
         raise NarrationError("no audio was produced")

@@ -299,6 +299,9 @@ public struct SyncServerClient: Sendable {
         return NarrationStatus(
             state: NarrationStatus.State(rawValue: body.state) ?? .failed,
             minutes: body.minutes,
+            stage: body.stage,
+            done: body.done ?? 0,
+            total: body.total ?? 0,
             missedSections: body.missedSections ?? []
         )
     }
@@ -310,6 +313,9 @@ public struct SyncServerClient: Sendable {
     private struct NarrationStateBody: Decodable {
         let state: String
         let minutes: Double?
+        let stage: String?
+        let done: Int?
+        let total: Int?
         let missedSections: [String]?
     }
 

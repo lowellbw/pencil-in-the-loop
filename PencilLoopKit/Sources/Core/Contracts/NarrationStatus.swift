@@ -34,14 +34,40 @@ public struct NarrationStatus: Sendable, Hashable, Codable {
     public var state: State
     /// How long the finished narration runs, when it is ready.
     public var minutes: Double?
+    /// Which half of the work is running: `scripting` or `recording`.
+    public var stage: String?
+    /// Turns spoken, and how many there are. Both zero while it is scripting,
+    /// because the number of turns is not known until the script exists.
+    public var done: Int
+    public var total: Int
     /// Headings the script never mentioned. Empty is the normal case: the relay
-    /// already asks again once for anything missing before it speaks a word.
+    /// already asks again for anything missing before it speaks a word.
     public var missedSections: [String]
 
-    public init(state: State, minutes: Double? = nil, missedSections: [String] = []) {
+    public init(
+        state: State,
+        minutes: Double? = nil,
+        stage: String? = nil,
+        done: Int = 0,
+        total: Int = 0,
+        missedSections: [String] = []
+    ) {
         self.state = state
         self.minutes = minutes
+        self.stage = stage
+        self.done = done
+        self.total = total
         self.missedSections = missedSections
+    }
+
+    /// 0…1 through the recording, or nil when there is nothing to measure yet.
+    ///
+    /// Nil rather than zero while scripting, so a view can show an
+    /// indeterminate spinner instead of a bar sitting at the far left — which
+    /// reads as stuck rather than starting.
+    public var fraction: Double? {
+        guard state == .working, total > 0 else { return nil }
+        return min(1, max(0, Double(done) / Double(total)))
     }
 
     /// What to put on screen, in the app's own voice.
@@ -54,8 +80,16 @@ public struct NarrationStatus: Sendable, Hashable, Codable {
         case .none:
             return "Not made yet."
         case .working:
-            return "Writing the script, then recording it. This takes a few minutes, "
-                + "and it carries on if you leave this screen."
+            // Deliberately no time estimate. The first version of this said "a
+            // few minutes", which was a guess and wrong by a factor of ten on a
+            // long paper: a 35,000-character document is tens of sequential
+            // provider calls and runs for the best part of an hour. Counting
+            // turns is a true thing to say; a duration was not.
+            if total > 0 {
+                return "Recording — \(done) of \(total). It carries on if you "
+                    + "leave this screen."
+            }
+            return "Writing the script. It carries on if you leave this screen."
         case .ready:
             guard let minutes, minutes > 0 else { return "Ready to play." }
             return "Ready — about \(Int(minutes.rounded())) minutes."

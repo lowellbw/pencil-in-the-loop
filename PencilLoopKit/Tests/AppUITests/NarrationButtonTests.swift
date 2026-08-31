@@ -62,6 +62,27 @@ final class NarrationButtonTests: XCTestCase {
         XCTAssertNotEqual(status.state, .failed)
     }
 
+    func testAScriptBeingWrittenHasNoBarToShow() {
+        // Nil, not zero: a determinate bar pinned at the far left reads as
+        // stuck. The number of turns does not exist until the script does.
+        XCTAssertNil(NarrationStatus(state: .working).fraction)
+        XCTAssertNil(NarrationStatus(state: .working, stage: "scripting").fraction)
+    }
+
+    func testRecordingCountsTurnsRatherThanGuessingAtATime() {
+        let status = NarrationStatus(state: .working, stage: "recording", done: 12, total: 34)
+        XCTAssertEqual(status.fraction ?? 0, 12.0 / 34.0, accuracy: 0.0001)
+        XCTAssertTrue(status.summary.contains("12 of 34"))
+        // The old copy promised "a few minutes" and was wrong by a factor of
+        // ten on a long paper. Nothing here claims a duration.
+        XCTAssertFalse(status.summary.contains("minute"))
+    }
+
+    func testOnlyAWorkingNarrationHasAProgressBar() {
+        XCTAssertNil(NarrationStatus(state: .ready, done: 34, total: 34).fraction)
+        XCTAssertNil(NarrationStatus(state: .failed, done: 3, total: 34).fraction)
+    }
+
     func testAReadyNarrationWithNoDurationStillReadsAsReady() {
         XCTAssertEqual(NarrationStatus(state: .ready).summary, "Ready to play.")
         XCTAssertEqual(NarrationStatus(state: .ready, minutes: 0).summary, "Ready to play.")

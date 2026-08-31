@@ -243,7 +243,7 @@ The sheet is where the states live, because they need room:
 | What the relay says | The sheet shows |
 |---|---|
 | nothing asked for | a length picker — Brief, Standard, In depth — and **Make One** |
-| being made | what it is doing, and that it carries on if you leave |
+| being made | *Writing the script*, then *Recording — 12 of 34* with a bar, and that it carries on if you leave. **No time estimate**: the relay counts turns, and an earlier version's "a few minutes" was wrong by a factor of ten on a long paper |
 | ready, and on the device | the player |
 | it failed | why, and **Try Again** |
 | no key on the relay | that it isn't set up, and *no* retry button — one that cannot work is worse than none |

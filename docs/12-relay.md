@@ -328,13 +328,30 @@ already skips it, and it never appears in the feed:
 | `state` | Means |
 |---|---|
 | `none` | no sidecar and no file; nothing has been asked for |
-| `working` | a generation is running; a second `POST` returns 202 and starts nothing. **It expires after an hour**: a worker thread dies with a deploy and writes no state, and `working` with no expiry strands the document forever — the reader is told it is being made and the guard against a second generation refuses to start the one that would fix it. An hour is generous on purpose; killing a live generation is worse than leaving a dead one a few minutes longer |
+| `working` | a generation is running; a second `POST` returns 202 and starts nothing. It also carries `stage`, `done` and `total`, rewritten on every turn — that heartbeat is what makes it expire safely (below) |
 | `ready` | the audio is written whole, *then* this was written — so a reader that sees `ready` is looking at a complete file |
 | `unconfigured` | no key is set; retrying will not help |
 | `failed` | `error` says why; retrying might help |
 
 A missing sidecar beside an existing `narration.mp3` reads as `ready`, so a file restored by
 hand is not invisible.
+
+**A `working` state expires after ten minutes of silence — not after ten minutes.** The
+distinction is the whole mechanism. A generation runs in a worker thread, so a deploy, a
+crash or an eviction takes it with no chance to write anything, and `working` with no expiry
+strands the document forever: the reader is told it is being made, and the guard against a
+second generation refuses to start the one that would fix it.
+
+The first version of this used a wall-clock hour, and that was wrong. A 35,000-character
+paper is tens of sequential provider calls and legitimately runs for the best part of an
+hour; one was reaped at the limit and nobody could say whether it had still been alive.
+Elapsed time cannot tell a slow generation from a dead one. Silence can: a live generation
+rewrites `progressAt` on every turn, and a dead one stops instantly. Ten minutes is several
+times the slowest single turn, so a live one never trips it.
+
+The same heartbeat is what the iPad shows. It says "Recording — 12 of 34" rather than naming
+a duration, because counting turns is a true thing to say and "a few minutes" was a guess
+that a long document made wrong by a factor of ten.
 
 Generation is a blocking call in a worker thread, like the clip route and for the same
 reason: nobody is waiting on it. The iPad asks and returns immediately, and the audio arrives

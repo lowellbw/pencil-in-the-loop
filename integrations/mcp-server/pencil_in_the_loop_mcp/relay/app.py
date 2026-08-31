@@ -154,28 +154,36 @@ def _folder(request: Request) -> str:
 # ------------------------------------------------------------------ the app
 
 
-#: How long a narration may claim to be running before it is presumed dead.
-#: A `deep` narration of a long paper is tens of TTS calls at up to two minutes
-#: each, so this is generous on purpose: killing a live one is worse than
-#: leaving a dead one for another few minutes.
-NARRATION_STALE_AFTER = timedelta(hours=1)
+#: How long a generation may go without reporting progress before it is presumed
+#: dead. **This measures silence, not elapsed time**, and the difference is the
+#: whole point: a long paper is tens of sequential provider calls and legitimately
+#: runs for the best part of an hour, while a worker thread killed by a deploy
+#: stops reporting instantly. A wall-clock limit cannot tell those apart, and the
+#: first version of this reaped a generation at the hour mark without anyone —
+#: including me — being able to say whether it had still been alive.
+#:
+#: Ten minutes is several times the slowest single turn, so a live generation
+#: never trips it and a dead one is cleared while the reader is still interested.
+NARRATION_SILENT_AFTER = timedelta(minutes=10)
 
 
-def _is_stale(started_at: Any, now: datetime | None = None) -> bool:
-    """Whether a `working` state has been running too long to still be alive.
+def _is_stale(state: dict[str, Any], now: datetime | None = None) -> bool:
+    """Whether a `working` state has gone quiet for long enough to be dead.
 
-    A state with no timestamp is from before this existed and is treated as
-    stale — those are exactly the stranded ones.
+    Measured from the last progress report, falling back to when it started for
+    a generation that has not reported yet. A state with neither is from before
+    this existed and is treated as dead — those are exactly the stranded ones.
     """
-    if not isinstance(started_at, str) or not started_at:
+    stamp = state.get("progressAt") or state.get("startedAt")
+    if not isinstance(stamp, str) or not stamp:
         return True
     try:
-        started = datetime.strptime(started_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+        last = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
             tzinfo=timezone.utc
         )
     except ValueError:
         return True
-    return (now or datetime.now(timezone.utc)) - started > NARRATION_STALE_AFTER
+    return (now or datetime.now(timezone.utc)) - last > NARRATION_SILENT_AFTER
 
 
 def create_app(
@@ -385,7 +393,7 @@ def create_app(
         body = core.read_json_file(_narration_state_path(folder_name))
         if not isinstance(body, dict):
             return {}
-        if body.get("state") == "working" and _is_stale(body.get("startedAt")):
+        if body.get("state") == "working" and _is_stale(body):
             # A generation runs in a worker thread, so a deploy, a crash or an
             # eviction takes it with no chance to write a state — and "working"
             # with no expiry strands the document forever: the reader is told it
@@ -408,6 +416,28 @@ def create_app(
     def _make_narration(folder_name: str, depth: str, hosts: int) -> None:
         """Runs in a worker thread. Never raises into the request."""
         directory = inbox / folder_name
+
+        def progress(stage: str, done: int, total: int) -> None:
+            """The generation saying it is still alive, and how far along.
+
+            Written on every turn. It is what `_is_stale` reads, and what lets
+            the iPad say "recording 12 of 34" instead of "a few minutes" — which
+            was a guess, and wrong by a factor of ten on a long paper.
+            """
+            _write_narration_state(
+                folder_name,
+                {
+                    "state": "working",
+                    "depth": depth,
+                    "startedAt": started,
+                    "progressAt": core.utc_now_iso(),
+                    "stage": stage,
+                    "done": done,
+                    "total": total,
+                },
+            )
+
+        started = _narration_state(folder_name).get("startedAt") or core.utc_now_iso()
         source = core.read_text_file(directory / "source.md") or ""
         meta = core.read_json_file(directory / "meta.json") or {}
         try:
@@ -420,6 +450,7 @@ def create_app(
                 title=(meta.get("title") if isinstance(meta, dict) else "") or "",
                 depth=depth,
                 hosts=hosts,
+                on_progress=progress,
             )
         except narration.NarrationUnconfigured as error:
             _write_narration_state(
