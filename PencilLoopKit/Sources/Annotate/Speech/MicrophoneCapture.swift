@@ -140,7 +140,7 @@ actor MicrophoneCapture {
     /// activation, and the engine's own graph preparation.
     ///
     /// Idempotent, and cheap on the second call.
-    func prewarm() throws {
+    func prewarm() async throws {
         guard isSessionActive == false else { return }
 
         // **Everything below the permission check can kill the process.**
@@ -160,15 +160,12 @@ actor MicrophoneCapture {
             )
         }
 
+        // Asked for, not taken. This used to set the category itself, which was
+        // safe only while nothing in the app played anything — a narration
+        // running when the Pencil touched down would have gone silent
+        // (`AudioSessionArbiter`).
+        try await AudioSessionArbiter.shared.beginRecording()
         let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
-            try session.setActive(true, options: [])
-        } catch {
-            throw PencilLoopError.speechUnavailable(
-                reason: "The microphone could not be started. \(error.localizedDescription)"
-            )
-        }
         isSessionActive = true
 
         // Granted permission is not the same as an input that is ready. A route
@@ -212,7 +209,7 @@ actor MicrophoneCapture {
         var lastError: (any Error)?
         for attempt in 0..<max(1, attempts) {
             do {
-                return try start(clipURL: clipURL)
+                return try await start(clipURL: clipURL)
             } catch {
                 lastError = error
                 if attempt < attempts - 1 {
@@ -242,9 +239,9 @@ actor MicrophoneCapture {
     /// - Parameter clipURL: where to also write the audio, or nil to keep none.
     ///   Writing is best-effort in one direction only: a clip that cannot be
     ///   written costs a later upgrade and never the recording in progress.
-    func start(clipURL: URL? = nil) throws -> AsyncStream<Chunk> {
+    func start(clipURL: URL? = nil) async throws -> AsyncStream<Chunk> {
         stopCapture()
-        try prewarm()
+        try await prewarm()
 
         let (stream, continuation) = AsyncStream<Chunk>.makeStream(
             bufferingPolicy: .bufferingNewest(64)
@@ -296,7 +293,7 @@ actor MicrophoneCapture {
         do {
             try engine.start()
         } catch {
-            stop()
+            await stop()
             throw PencilLoopError.speechUnavailable(
                 reason: "The microphone could not be started. \(error.localizedDescription)"
             )
@@ -334,9 +331,9 @@ actor MicrophoneCapture {
     ///
     /// This is the end of a recording, not the start of the next one — see
     /// `start()`, which tears the graph down without touching the session.
-    func stop() {
+    func stop() async {
         stopCapture()
-        releaseSession()
+        await releaseSession()
     }
 
     /// Removes the tap, stops the engine and finishes the stream, leaving the
@@ -359,16 +356,12 @@ actor MicrophoneCapture {
     }
 
     /// Deactivates the audio session, letting other audio unduck.
-    private func releaseSession() {
+    /// Hands the session back. The arbiter decides what happens to it — a
+    /// narration that was ducked for this recording is resumed rather than
+    /// left silent, which is why this no longer deactivates directly.
+    private func releaseSession() async {
         guard isSessionActive else { return }
-        do {
-            try AVAudioSession.sharedInstance().setActive(
-                false,
-                options: .notifyOthersOnDeactivation
-            )
-        } catch {
-            logger.debug("Audio session stayed active: \(error.localizedDescription, privacy: .public)")
-        }
+        await AudioSessionArbiter.shared.endRecording()
         isSessionActive = false
     }
 }

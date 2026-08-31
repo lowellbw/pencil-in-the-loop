@@ -62,6 +62,9 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     /// settings store and does not need one.
     private let groups: (any DocumentGrouping)?
 
+    /// Narrations the relay has made that this device has not collected.
+    private let narrations: NarrationFetcher
+
     /// Voice comments waiting for a better transcript
     /// (notes/pencil-loop-cloud-dictation.md). Drained after a scan, on the
     /// poll this coordinator already runs — the upgrade is a background sync
@@ -112,6 +115,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         self.queue = queue
         self.staging = staging ?? RelayStagingUploader(client: client)
         self.groups = groups
+        self.narrations = NarrationFetcher(client: client)
         self.upgrades = upgrades
         self.pollInterval = pollInterval
     }
@@ -298,6 +302,11 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
 
         let arriving = page.documents.filter { $0.isDeleted == false }
         emit(.scanStarted(pending: arriving.count))
+
+        // Spoken versions the relay has made. After the feed because it is what
+        // names them, and never throwing, so audio nobody asked for cannot stop
+        // documents arriving.
+        await narrations.fetch(for: page.documents)
 
         var ingestedCount = 0
         var everythingLanded = true
