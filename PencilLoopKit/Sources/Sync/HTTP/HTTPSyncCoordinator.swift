@@ -403,6 +403,55 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
 
     // MARK: - Sending
 
+    /// The manifest, or a corrected one when it does not describe the payload.
+    ///
+    /// - Returns: the manifest unchanged when every declared entry matches the
+    ///   bytes in `payload`, and one rebuilt from those bytes when it does not.
+    static func manifestMatchingPayload(
+        _ manifest: BundleFile, payload: OutboxPayload
+    ) throws -> BundleFile {
+        let actual = Dictionary(
+            payload.files
+                .filter { $0.relativePath != BundleManifest.fileName }
+                .map { ($0.relativePath, $0.data) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard var object = (try? JSONSerialization.jsonObject(with: manifest.data))
+            as? [String: Any],
+            let declared = object["files"] as? [[String: Any]]
+        else {
+            return manifest
+        }
+
+        let matches = declared.count == actual.count && declared.allSatisfy { entry in
+            guard let path = entry["path"] as? String, let data = actual[path] else {
+                return false
+            }
+            if let bytes = entry["bytes"] as? Int, bytes != data.count { return false }
+            if let hash = entry["sha256"] as? String,
+               hash != RemoteDocumentPinner.sha256Hex(data) {
+                return false
+            }
+            return true
+        }
+        if matches { return manifest }
+
+        SyncLog.coordinator.error(
+            "The queued manifest did not describe its own files; rebuilding it before sending."
+        )
+        object["files"] = actual.keys.sorted().map { path in
+            [
+                "path": path,
+                "bytes": actual[path]!.count,
+                "sha256": RemoteDocumentPinner.sha256Hex(actual[path]!),
+            ] as [String: Any]
+        }
+        return BundleFile(
+            relativePath: BundleManifest.fileName,
+            data: try JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
     private func upload(_ payload: OutboxPayload) async throws -> WrittenReview {
         let folderName = HTTPSyncCoordinator.documentFolderName(
             fromReviewDirectory: payload.directoryName
@@ -414,12 +463,33 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
             )
         }
 
+        // **The manifest must describe the bytes about to be sent.** A bundle
+        // whose manifest disagrees with its own files is refused by the server
+        // for good — the parts list is verified before anything is committed —
+        // and no amount of retrying changes that.
+        //
+        // It has happened: a review of Pangram 4 sat in the queue with a
+        // manifest built at 15:44 declaring a 712-byte review.md, over files
+        // written at 15:24 whose review.md was 817 — the 105 bytes of a closing
+        // instruction present in one and not the other. Two Sends, one bundle.
+        // The ink pages matched perfectly, which is what made it a permanent
+        // 422 rather than an obvious corruption.
+        //
+        // Rather than hand the server something that cannot pass, the manifest
+        // is checked against the payload here and rebuilt from what is actually
+        // being uploaded. Rebuilding is right because the *files* are the
+        // review — the manifest is derived from them, so when the two disagree
+        // the files are the half worth keeping.
+        let checkedManifest = try HTTPSyncCoordinator.manifestMatchingPayload(
+            manifest, payload: payload
+        )
+
         // The declaration carries the manifest and nothing else. Every file it
         // lists is uploaded as the exact bytes this device hashed — a server
         // that re-encoded review.json from JSON produced different bytes for
         // the same object, and verification could never pass.
         let declaration: [String: Any] = [
-            "manifest": try JSONSerialization.jsonObject(with: manifest.data)
+            "manifest": try JSONSerialization.jsonObject(with: checkedManifest.data)
         ]
         let body = try JSONSerialization.data(withJSONObject: declaration)
         _ = try await client.post(body, to: "/v1/documents/\(folderName)/review")

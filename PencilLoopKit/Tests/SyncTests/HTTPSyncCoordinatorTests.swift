@@ -340,6 +340,74 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
         )
     }
 
+    func testAManifestThatDoesNotDescribeItsOwnFilesIsRebuilt() throws {
+        // The Pangram 4 failure, in miniature. A manifest built from one Send
+        // over files from another: the sizes and hashes cannot match, the server
+        // verifies the parts list before committing, and the review is refused
+        // for good however many times it retries.
+        let review = Data("# Review — with a closing instruction\n".utf8)
+        let stale = Data("""
+        {"version":1,"documentId":"D976","reviewFolder":"x.review",
+         "files":[{"path":"review.md","bytes":712,
+                   "sha256":"af2f2399560e00000000000000000000000000000000000000000000000000"}]}
+        """.utf8)
+        let payload = OutboxPayload(
+            directoryName: "x.review",
+            documentId: UUID(),
+            files: [
+                BundleFile(relativePath: "review.md", data: review),
+                BundleFile(relativePath: "manifest.json", data: stale),
+            ]
+        )
+
+        let fixed = try HTTPSyncCoordinator.manifestMatchingPayload(
+            payload.files.last!, payload: payload
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fixed.data) as? [String: Any]
+        )
+        let files = try XCTUnwrap(object["files"] as? [[String: Any]])
+        XCTAssertEqual(files.count, 1)
+        XCTAssertEqual(files[0]["path"] as? String, "review.md")
+        XCTAssertEqual(
+            files[0]["bytes"] as? Int, review.count,
+            "The files are the review; the manifest is derived from them"
+        )
+        XCTAssertEqual(
+            files[0]["sha256"] as? String, RemoteDocumentPinner.sha256Hex(review)
+        )
+        XCTAssertEqual(
+            object["documentId"] as? String, "D976",
+            "Everything the manifest says that is not about bytes is kept"
+        )
+    }
+
+    func testAManifestThatAlreadyMatchesIsSentUntouched() throws {
+        // Byte-identical, not merely equivalent: the server hashes what arrives,
+        // so re-encoding a manifest that was already correct is how you turn a
+        // working send into a 422.
+        let review = Data("# Review\n".utf8)
+        let manifestData = Data("""
+        {"version":1,"files":[{"path":"review.md","bytes":\(review.count),\
+        "sha256":"\(RemoteDocumentPinner.sha256Hex(review))"}]}
+        """.utf8)
+        let payload = OutboxPayload(
+            directoryName: "x.review",
+            documentId: UUID(),
+            files: [
+                BundleFile(relativePath: "review.md", data: review),
+                BundleFile(relativePath: "manifest.json", data: manifestData),
+            ]
+        )
+
+        let result = try HTTPSyncCoordinator.manifestMatchingPayload(
+            payload.files.last!, payload: payload
+        )
+
+        XCTAssertEqual(result.data, manifestData)
+    }
+
     func testTheServerQueueIsSeparateFromTheFolderQueue() {
         XCTAssertNotEqual(
             HTTPSyncCoordinator.defaultQueueRootURL(),
