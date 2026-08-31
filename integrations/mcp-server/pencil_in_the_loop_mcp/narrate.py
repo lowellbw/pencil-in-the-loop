@@ -301,7 +301,108 @@ def write_script(
     except (TranscriptionError, KeyError, IndexError, TypeError, ValueError) as error:
         raise NarrationError(f"could not write the script: {error}") from error
 
-    return parse_turns(parsed, hosts=hosts), model
+    turns = parse_turns(parsed, hosts=hosts)
+
+    # One repair pass, and only when it is needed. The first draft of a long
+    # document reliably drops sections — measured on a real 4,700-word paper it
+    # dropped fourteen of forty headings at `standard` and came in at half the
+    # requested length. That is the failure this feature would have quietly, so
+    # it is checked and fixed before a single character is spoken. Speech is the
+    # expensive stage; the script settles first.
+    missed = missing_headings(markdown, turns)
+    if missed:
+        turns = repair_script(
+            markdown,
+            turns,
+            missed,
+            title=title,
+            model=model,
+            target=target,
+            hosts=hosts,
+            timeout=timeout,
+        )
+
+    return turns, model
+
+
+def repair_script(
+    markdown: str,
+    turns: list[Turn],
+    missed: list[str],
+    *,
+    title: str = "",
+    model: str,
+    target: int,
+    hosts: int = 2,
+    timeout: float = 120.0,
+) -> list[Turn]:
+    """Ask for the script again, naming what it left out.
+
+    Returns the revised turns **only if they cover more than the ones passed
+    in** — a repair that makes coverage worse is thrown away, and so is one that
+    fails outright. Either way the caller still has a script, which is why this
+    returns a list rather than raising: a narration missing two sections is worth
+    far more than no narration at all.
+    """
+    spoken = sum(len(turn.text.split()) for turn in turns)
+    script = json.dumps(
+        {"turns": [{"speaker": turn.speaker, "text": turn.text} for turn in turns]}
+    )
+    listed = "\n".join(f"- {heading}" for heading in missed[:60])
+    voices = (
+        "Two speakers, host and guest."
+        if hosts >= 2
+        else "One speaker throughout. Use \"host\" for every turn."
+    )
+    prompt = (
+        f"{INSTRUCTIONS}\n\n{voices}\n\n"
+        "You wrote the script below from the document that follows it. It leaves "
+        "out these sections entirely:\n"
+        f"{listed}\n\n"
+        "Rewrite it so every one of them is covered, in the document's own order. "
+        "Keep what is already good — reuse the wording of the turns that work. "
+        f"The current script runs about {spoken} words; the target is {target}, so "
+        "there is room, and you should use it rather than compressing what is "
+        "already there. Return the COMPLETE revised script, not just the "
+        "additions."
+    )
+    heading = f"Document title: {title}\n\n" if title else ""
+
+    body = json.dumps(
+        {
+            "model": model,
+            "temperature": 0.4,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": f"{heading}{markdown}"},
+                {"role": "assistant", "content": script},
+                {"role": "user", "content": "Now the complete revised script."},
+            ],
+        }
+    ).encode("utf-8")
+
+    try:
+        response = _post(
+            "https://api.openai.com/v1/chat/completions",
+            body,
+            {
+                "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+                "Content-Type": "application/json",
+            },
+            timeout,
+        )
+        revised = parse_turns(
+            json.loads(response["choices"][0]["message"]["content"]), hosts=hosts
+        )
+    except (TranscriptionError, KeyError, IndexError, TypeError, ValueError):
+        return turns
+
+    if not revised:
+        return turns
+    if len(missing_headings(markdown, revised)) >= len(missed):
+        return turns
+    return revised
 
 
 def parse_turns(parsed: Any, *, hosts: int = 2) -> list[Turn]:

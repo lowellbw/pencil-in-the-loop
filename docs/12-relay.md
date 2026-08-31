@@ -291,10 +291,18 @@ than writing the script ourselves — and writing it ourselves is what makes `de
 what lets one pipeline serve one host or two.
 
 **The failure this would have quietly** is a narration that sounds fluent and silently drops
-the document's third section. So the script is checked against the source's headings before a
-single character is spoken, and `missedSections` reports any whose distinctive words never
-appear. It is reported rather than enforced: a heading a host legitimately paraphrased is not
-a bug, and a caller that gets a non-empty list can decide.
+the document's third section. It is not hypothetical: measured on a real 4,700-word paper,
+the first draft dropped fourteen of forty headings at `standard` and came in at half the
+requested length. So the script is checked against the source's headings, and if any are
+missing the model is asked again — handed its own draft, the list of what it left out, and
+the word count it undershot. The revision is kept **only if it covers more**; a repair that
+is worse, or that fails outright, is discarded and the first draft stands. Both passes happen
+before a single character is spoken, because speech is the expensive stage.
+
+`missedSections` is what survives that. It is reported rather than enforced beyond the one
+repair: a heading a host legitimately paraphrased is not a bug, a narration missing two
+sections is worth far more than no narration, and a caller that gets a non-empty list can
+decide.
 
 **Config**, following the STT precedent exactly. `OPENAI_API_KEY` writes the script and
 `PENCIL_NARRATION_SCRIPT_MODEL` overrides that model. Speech goes to whichever of

@@ -239,6 +239,67 @@ class NarrateTests(unittest.TestCase):
 
         self.assertIn("Corpus selection", result.missed_sections)
 
+    def test_a_dropped_section_is_asked_for_again_before_anything_is_spoken(self) -> None:
+        """The repair pass is the whole reason coverage is checked twice.
+
+        Measured on a real 4,700-word paper, the first draft dropped fourteen of
+        forty headings at `standard`. Reporting that in a JSON blob nobody reads
+        is not a fix; asking again, before the expensive stage, is.
+        """
+        thin = {"choices": [{"message": {"content": json.dumps({"turns": [
+            {"speaker": "host", "text": "Only prevalence estimation, nothing else."},
+        ]})}}]}
+        full = {"choices": [{"message": {"content": json.dumps({"turns": [
+            {"speaker": "host", "text": "Traces in the Record: prevalence estimation, and Pangram failure modes."},
+            {"speaker": "guest", "text": "Then corpus selection, which is the hard part."},
+        ]})}}]}
+        with mock.patch.object(narrate, "_post", side_effect=[thin, full]) as post, \
+             mock.patch.object(narrate, "_post_bytes", return_value=b"mp3"):
+            result = narrate.narrate(DOC)
+
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(result.missed_sections, [])
+        self.assertEqual(len(result.turns), 2)
+
+    def test_a_repair_that_covers_less_is_thrown_away(self) -> None:
+        """A second attempt is not automatically the better one."""
+        good = {"choices": [{"message": {"content": json.dumps({"turns": [
+            {"speaker": "host", "text": "Prevalence estimation and Pangram failure modes."},
+        ]})}}]}
+        worse = {"choices": [{"message": {"content": json.dumps({"turns": [
+            {"speaker": "host", "text": "Nothing in particular."},
+        ]})}}]}
+        with mock.patch.object(narrate, "_post", side_effect=[good, worse]), \
+             mock.patch.object(narrate, "_post_bytes", return_value=b"mp3"):
+            result = narrate.narrate(DOC)
+
+        self.assertIn("prevalence", result.turns[0].text.casefold())
+        self.assertIn("Corpus selection", result.missed_sections)
+
+    def test_a_failed_repair_leaves_the_first_script_standing(self) -> None:
+        """A narration missing two sections beats no narration at all."""
+        thin = {"choices": [{"message": {"content": json.dumps({"turns": [
+            {"speaker": "host", "text": "Only prevalence estimation."},
+        ]})}}]}
+        with mock.patch.object(
+            narrate, "_post", side_effect=[thin, narrate.TranscriptionError("502")]
+        ), mock.patch.object(narrate, "_post_bytes", return_value=b"mp3"):
+            result = narrate.narrate(DOC)
+
+        self.assertEqual(len(result.turns), 1)
+        self.assertIn("Corpus selection", result.missed_sections)
+
+    def test_a_covered_script_is_never_asked_for_twice(self) -> None:
+        script = {"choices": [{"message": {"content": json.dumps({"turns": [
+            {"speaker": "host", "text": "Traces in the Record: prevalence estimation."},
+            {"speaker": "guest", "text": "Pangram failure modes, and corpus selection."},
+        ]})}}]}
+        with mock.patch.object(narrate, "_post", return_value=script) as post, \
+             mock.patch.object(narrate, "_post_bytes", return_value=b"mp3"):
+            narrate.narrate(DOC, depth="brief")
+
+        self.assertEqual(post.call_count, 1)
+
     def test_an_empty_document_is_refused(self) -> None:
         with self.assertRaises(narrate.NarrationError):
             narrate.narrate("   ")
