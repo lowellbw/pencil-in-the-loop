@@ -484,6 +484,17 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         try? await store.setState(.read, documentId: written.documentId)
     }
 
+    /// Asks the relay for a spoken version, and returns.
+    ///
+    /// The audio arrives on a later scan through `NarrationFetcher`, which is
+    /// why nothing here waits and nothing here reports progress.
+    public func requestNarration(forFolderName folderName: String, depth: String) async throws {
+        try await client.requestNarration(forFolderName: folderName, depth: depth)
+        // So a narration finished while the poll was idling is collected now
+        // rather than in fifteen seconds' time.
+        await narrations.retryFailures()
+    }
+
     // MARK: - Replies
 
     private func announceReplies(_ replies: [SyncServerClient.ChangePage.Reply]) async {

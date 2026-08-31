@@ -258,6 +258,28 @@ public struct SyncServerClient: Sendable {
 
     // MARK: - Reading
 
+    /// `POST /v1/documents/{folder}/narration` — ask for a spoken version.
+    ///
+    /// Answers 202 and gets on with it; the audio turns up in the document's
+    /// files on a later feed. Asking twice while one is being made is a no-op
+    /// on the server, so this needs no guard of its own.
+    ///
+    /// - Throws: `.folderUnavailable`, `.outboxWriteFailed`.
+    public func requestNarration(forFolderName folderName: String, depth: String) async throws {
+        var request = signed(.post, path: "v1/documents/\(folderName)/narration")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try ContractCoding.encoder().encode(NarrationRequest(depth: depth))
+        let (_, response) = try await perform(request)
+        if let failure = SyncServerClient.failure(forStatusCode: response.statusCode, in: .upload) {
+            throw failure
+        }
+    }
+
+    /// The body of `POST …/narration`.
+    private struct NarrationRequest: Encodable {
+        let depth: String
+    }
+
     /// `GET /v1/groups` — which group each document should be filed under.
     ///
     /// A suggestion, not an instruction. The caller applies it through

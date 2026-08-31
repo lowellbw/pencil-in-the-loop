@@ -36,6 +36,9 @@ public struct ReaderView: View {
     private let onReview: (UUID) -> Void
 
     @Environment(\.scenePhase) private var scenePhase
+    /// True while the player sheet is up.
+    @State private var isListening = false
+
     @State private var model = ReaderModel()
 
     /// Whether the rename field is up, and what is in it. Held here rather than
@@ -105,6 +108,9 @@ public struct ReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             self.toolbarContent
+        }
+        .sheet(isPresented: self.$isListening) {
+            self.narrationSheet
         }
         .toolbarVisibility(self.model.isChromeVisible ? .visible : .hidden, for: .navigationBar)
         .persistentSystemOverlays(self.model.isChromeVisible ? .automatic : .hidden)
@@ -206,6 +212,10 @@ public struct ReaderView: View {
         }
 
         ToolbarItem(placement: .topBarTrailing) {
+            self.listenButton
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
             self.pageMenu
         }
 
@@ -251,6 +261,52 @@ public struct ReaderView: View {
     /// still one setting for the whole app — the next document opens the way
     /// this one looks — and the ruling still belongs to the one notebook.
     /// ─────────────────────────────────────────────────────────────────────────
+    /// Hoisted out of `body`: the modifier chain there is long enough that
+    /// inlining another expression pushes the type-checker over its budget.
+    private var narrationSheet: NarrationSheet {
+        let title: String = self.model.detail?.title ?? "Listening"
+        return NarrationSheet(player: self.environment.narrationPlayer, title: title)
+    }
+
+    /// Listen to this document, or ask for a version to listen to.
+    ///
+    /// Three states, and the middle one is the reason this is not a spinner.
+    /// Generating a narration takes minutes, so asking returns immediately and
+    /// the audio arrives on a later scan like a document does — the reader is a
+    /// protected path and never waits on a request (CLAUDE.md non-negotiable 1).
+    @ViewBuilder private var listenButton: some View {
+        if self.model.hasNarration {
+            Button {
+                Task {
+                    if await self.model.playNarration() {
+                        self.isListening = true
+                    }
+                }
+            } label: {
+                Label("Listen", systemImage: "headphones")
+            }
+            .accessibilityLabel("Listen")
+            .disabled(self.model.isReady == false)
+        } else if self.model.isPreparingNarration {
+            // Not a progress view: there is no progress to report, and a
+            // spinner in a toolbar reads as "the app is stuck" rather than
+            // "something is happening elsewhere".
+            Label("Preparing", systemImage: "headphones")
+                .labelStyle(.titleAndIcon)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Preparing a version to listen to")
+        } else {
+            Button {
+                Task { await self.model.requestNarration() }
+            } label: {
+                Label("Listen", systemImage: "headphones")
+            }
+            .accessibilityLabel("Make a version to listen to")
+            .disabled(self.model.isReady == false)
+        }
+    }
+
     private var pageMenu: some View {
         Menu {
             Button {

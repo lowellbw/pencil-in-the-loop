@@ -19,6 +19,7 @@ import UIKit
 import Annotate
 import Core
 import Ingest
+import Sync
 
 /// The reader's state, one document at a time.
 ///
@@ -37,6 +38,53 @@ public final class ReaderModel {
 
     /// The open document, once the store has answered.
     public private(set) var detail: DocumentDetail?
+
+    /// Whether this document has a narration on disk, ready to play offline.
+    ///
+    /// A file's presence, read each time it is asked for rather than cached:
+    /// the fetcher may land one while the reader is open, and a cached "no"
+    /// would leave the button wrong until the document was reopened.
+    public var hasNarration: Bool {
+        guard let folderName = detail?.folderName else { return false }
+        return NarrationFetcher.hasNarration(forFolderName: folderName)
+    }
+
+    /// True between asking for a narration and one arriving. Not persisted:
+    /// it is a fact about this screen, and the relay is the one that remembers.
+    public private(set) var isPreparingNarration = false
+
+    /// Asks the relay for a spoken version, and returns immediately.
+    ///
+    /// **Never waits, and never throws into the reader.** Generating one takes
+    /// minutes; the audio arrives on a later scan. A relay that refuses leaves
+    /// the reader exactly as it was, with one line in the status bar it already
+    /// has (CLAUDE.md non-negotiable 1).
+    public func requestNarration(depth: String = "standard") async {
+        guard let folderName = detail?.folderName, isPreparingNarration == false else { return }
+        isPreparingNarration = true
+        do {
+            try await environment?.sync.requestNarration(forFolderName: folderName, depth: depth)
+        } catch {
+            isPreparingNarration = false
+            ReaderLog.reader.notice(
+                "Could not ask for a narration: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    /// Starts playing this document's narration.
+    ///
+    /// - Returns: whether it started. False means the file would not open or a
+    ///   dictation holds the audio session.
+    @discardableResult
+    public func playNarration() async -> Bool {
+        guard let detail, let environment else { return false }
+        return await environment.narrationPlayer.play(
+            NarrationFetcher.narrationURL(forFolderName: detail.folderName),
+            title: detail.title,
+            folderName: detail.folderName
+        )
+    }
 
     /// The parsed PDF. Nil until it is open, and for a row that has no file.
     public private(set) var document: PDFDocument?

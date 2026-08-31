@@ -16,6 +16,13 @@ import Core
 /// A sync coordinator that writes nothing and reports what it was told to.
 actor AppUITestSyncCoordinator: SyncCoordinating {
 
+    /// Recorded so a test can assert the Listen button asked for one.
+    private(set) var narrationRequests: [(folderName: String, depth: String)] = []
+
+    func requestNarration(forFolderName folderName: String, depth: String) async throws {
+        narrationRequests.append((folderName, depth))
+    }
+
     /// What the next `send(_:)` reports.
     private let isQueued: Bool
 

@@ -163,6 +163,11 @@ public actor SyncGateway: SyncCoordinating {
         return try await coordinator.send(payload)
     }
 
+    public func requestNarration(forFolderName folderName: String, depth: String) async throws {
+        guard let coordinator else { throw SyncGateway.noFolder }
+        try await coordinator.requestNarration(forFolderName: folderName, depth: depth)
+    }
+
     @discardableResult
     public func ingestReply(fromReviewDirectory reviewDirectoryName: String) async throws -> UUID {
         guard let coordinator else { throw SyncGateway.noFolder }

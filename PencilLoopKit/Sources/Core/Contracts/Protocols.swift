@@ -282,6 +282,22 @@ public protocol SyncCoordinating: Sendable {
     /// - Returns: where it landed, or throws when it could not even be queued.
     func send(_ payload: OutboxPayload) async throws -> WrittenReview
 
+    /// Asks for a spoken version of a document (docs/02-spec.md § S2).
+    ///
+    /// **Returns as soon as the request is made, not when audio exists.**
+    /// Generating a narration takes minutes; the file arrives on a later scan
+    /// like a document does. The reader is on a protected path and must never
+    /// wait on this (CLAUDE.md non-negotiable 1).
+    ///
+    /// Idempotent: asking again while one is being made does nothing.
+    ///
+    /// - Parameter depth: how much of the document survives — `brief`,
+    ///   `standard` or `deep`. All three cover every section.
+    /// - Throws: `.folderUnavailable` when the relay cannot be reached, and
+    ///   `.outboxWriteFailed` when it refuses. Either way there is still a
+    ///   document to read.
+    func requestNarration(forFolderName folderName: String, depth: String) async throws
+
     /// Turns an agent's `reply.md` into a new document, with the origin
     /// inherited — the "Open as document" action on the Sent screen
     /// (docs/04-flows.md § F6).
