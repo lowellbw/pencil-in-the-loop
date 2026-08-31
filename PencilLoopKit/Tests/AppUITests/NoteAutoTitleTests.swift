@@ -13,6 +13,10 @@
 import XCTest
 @testable import AppUI
 
+// `@MainActor` like every other case in this target: AppUI is compiled with
+// `.defaultIsolation(MainActor.self)` (Package.swift § AppUI), so `NoteAutoTitle`
+// is main-actor bound and calling it from a nonisolated test does not compile.
+@MainActor
 final class NoteAutoTitleTests: XCTestCase {
 
     func testTheFirstSentenceBecomesTheTitle() {
