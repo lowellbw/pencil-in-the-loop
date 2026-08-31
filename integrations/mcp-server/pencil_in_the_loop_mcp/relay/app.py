@@ -28,6 +28,7 @@ import io
 import json
 import tarfile
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -151,6 +152,30 @@ def _folder(request: Request) -> str:
 
 
 # ------------------------------------------------------------------ the app
+
+
+#: How long a narration may claim to be running before it is presumed dead.
+#: A `deep` narration of a long paper is tens of TTS calls at up to two minutes
+#: each, so this is generous on purpose: killing a live one is worse than
+#: leaving a dead one for another few minutes.
+NARRATION_STALE_AFTER = timedelta(hours=1)
+
+
+def _is_stale(started_at: Any, now: datetime | None = None) -> bool:
+    """Whether a `working` state has been running too long to still be alive.
+
+    A state with no timestamp is from before this existed and is treated as
+    stale — those are exactly the stranded ones.
+    """
+    if not isinstance(started_at, str) or not started_at:
+        return True
+    try:
+        started = datetime.strptime(started_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return True
+    return (now or datetime.now(timezone.utc)) - started > NARRATION_STALE_AFTER
 
 
 def create_app(
@@ -358,7 +383,21 @@ def create_app(
 
     def _narration_state(folder_name: str) -> dict[str, Any]:
         body = core.read_json_file(_narration_state_path(folder_name))
-        return body if isinstance(body, dict) else {}
+        if not isinstance(body, dict):
+            return {}
+        if body.get("state") == "working" and _is_stale(body.get("startedAt")):
+            # A generation runs in a worker thread, so a deploy, a crash or an
+            # eviction takes it with no chance to write a state — and "working"
+            # with no expiry strands the document forever: the reader is told it
+            # is being made, and the guard against a second generation refuses
+            # to start the one that would fix it. Observed exactly once, after a
+            # redeploy mid-generation, and it is unrecoverable by hand from the
+            # iPad. Anything older than the longest a real one takes is dead.
+            return {
+                "state": "failed",
+                "error": "generation stopped before it finished; ask again",
+            }
+        return body
 
     def _write_narration_state(folder_name: str, state: dict[str, Any]) -> None:
         core.write_file(
@@ -427,7 +466,10 @@ def create_app(
         if current.get("state") == "working":
             return JSONResponse({"state": "working"}, status_code=202)
 
-        _write_narration_state(folder_name, {"state": "working", "depth": depth})
+        _write_narration_state(
+            folder_name,
+            {"state": "working", "depth": depth, "startedAt": core.utc_now_iso()},
+        )
         # Fire and forget. Nobody is waiting on the other end, and a job store
         # for one file per document would be more machinery than the problem.
         asyncio.get_running_loop().run_in_executor(

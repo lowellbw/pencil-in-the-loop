@@ -323,7 +323,7 @@ already skips it, and it never appears in the feed:
 | `state` | Means |
 |---|---|
 | `none` | no sidecar and no file; nothing has been asked for |
-| `working` | a generation is running; a second `POST` returns 202 and starts nothing |
+| `working` | a generation is running; a second `POST` returns 202 and starts nothing. **It expires after an hour**: a worker thread dies with a deploy and writes no state, and `working` with no expiry strands the document forever — the reader is told it is being made and the guard against a second generation refuses to start the one that would fix it. An hour is generous on purpose; killing a live generation is worse than leaving a dead one a few minutes longer |
 | `ready` | the audio is written whole, *then* this was written — so a reader that sees `ready` is looking at a complete file |
 | `unconfigured` | no key is set; retrying will not help |
 | `failed` | `error` says why; retrying might help |

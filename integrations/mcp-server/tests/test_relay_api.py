@@ -876,6 +876,20 @@ class NarrationTests(RelayApiTestCase):
             f"/v1/documents/{folder}/narration", headers=self.auth
         ).json()
 
+    def working(self, folder, started=None):
+        """Put a document into `working`, the way the relay itself would."""
+        from pencil_in_the_loop_mcp import core
+
+        (self.root / "inbox" / folder / ".narration.json").write_text(
+            json.dumps(
+                {
+                    "state": "working",
+                    "depth": "standard",
+                    "startedAt": started or core.utc_now_iso(),
+                }
+            )
+        )
+
     def wait_ready(self, folder, tries=50):
         import time
 
@@ -957,11 +971,42 @@ class NarrationTests(RelayApiTestCase):
             json={},
             headers=self.auth,
         )
-        (self.root / "inbox" / folder / ".narration.json").write_text('{"state": "working"}')
+        self.working(folder)
 
         second = self.ask(folder)
 
         self.assertEqual(second.status_code, 202)
+        self.assertEqual(self.state(folder)["state"], "working")
+
+    def test_a_generation_killed_mid_flight_does_not_strand_the_document(self) -> None:
+        """A worker thread dies with a deploy and writes no state.
+
+        Observed once, after a redeploy mid-generation: the sidecar said
+        `working` forever, so the reader was told it was being made, and the
+        guard above refused to start the one generation that would have fixed
+        it. Nothing on the iPad can clear that. Anything older than the longest
+        a real one takes is presumed dead.
+        """
+        folder = self.folder()
+        self.working(folder, started="2020-01-01T00:00:00Z")
+
+        self.assertEqual(self.state(folder)["state"], "failed")
+
+        self.ask(folder)
+        self.assertEqual(self.wait_ready(folder)["state"], "ready")
+
+    def test_a_state_from_before_timestamps_existed_is_treated_as_dead(self) -> None:
+        folder = self.folder()
+        (self.root / "inbox" / folder / ".narration.json").write_text(
+            '{"state": "working"}'
+        )
+
+        self.assertEqual(self.state(folder)["state"], "failed")
+
+    def test_one_that_has_only_just_started_is_left_alone(self) -> None:
+        folder = self.folder()
+        self.working(folder)
+
         self.assertEqual(self.state(folder)["state"], "working")
 
     def test_an_unknown_depth_is_refused(self) -> None:
