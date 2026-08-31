@@ -59,4 +59,15 @@ public enum DocumentFileNames {
     /// Every file name a document directory may hold, in the order a reader
     /// should prefer them.
     public static let documentFiles = [document, sourceMarkdown, sourceMap, metadata]
+
+    /// The spoken version of a document, when one has been made
+    /// (docs/02-spec.md § S2).
+    ///
+    /// **Deliberately not in `documentFiles`.** That array is what
+    /// `RemoteDocument.pinnableFiles` will fetch and the order a reader prefers
+    /// them in, and a document is not incomplete without a narration — it is an
+    /// addition to a bundle that already works. `NarrationFetcher` collects it
+    /// separately, which also keeps `RemoteDocumentPinner`'s "pdf or source.md
+    /// must be present" check honest.
+    public static let narration = "narration.mp3"
 }

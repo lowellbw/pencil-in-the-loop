@@ -22,6 +22,7 @@ because those genuinely do want the event loop.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import io
 import json
@@ -47,6 +48,7 @@ from starlette.routing import Mount, Route
 
 from .. import cleanup
 from .. import core
+from .. import narrate as narration
 from .. import transcribe
 from . import files as relay_files
 from .db import Index
@@ -338,6 +340,99 @@ def create_app(
         return JSONResponse(
             {"complete": not missing, "missingFiles": missing, "sha256": digest}
         )
+
+    # -------------------------------------------------------- narration
+    #
+    # A document, remade for the ear. Asked for from the iPad or from an MCP
+    # client, made here because the keys are here, and delivered as one more
+    # file in the bundle — which is what makes it offline by construction
+    # rather than by effort: the app already downloads every file it is told
+    # about, in full, and never evicts it.
+    #
+    # Generation is not fast. It is deliberately fire-and-forget: the caller
+    # gets a 202 and asks again later, and nothing on the reading path ever
+    # waits on it (CLAUDE.md non-negotiable 1).
+
+    def _narration_state_path(folder_name: str):
+        return inbox / folder_name / ".narration.json"
+
+    def _narration_state(folder_name: str) -> dict[str, Any]:
+        body = core.read_json_file(_narration_state_path(folder_name))
+        return body if isinstance(body, dict) else {}
+
+    def _write_narration_state(folder_name: str, state: dict[str, Any]) -> None:
+        core.write_file(
+            _narration_state_path(folder_name),
+            json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        )
+
+    def _make_narration(folder_name: str, depth: str, hosts: int) -> None:
+        """Runs in a worker thread. Never raises into the request."""
+        directory = inbox / folder_name
+        source = core.read_text_file(directory / "source.md") or ""
+        meta = core.read_json_file(directory / "meta.json") or {}
+        try:
+            if not source.strip():
+                raise narration.NarrationError(
+                    "this document has no source.md to narrate"
+                )
+            made = narration.narrate(
+                source,
+                title=(meta.get("title") if isinstance(meta, dict) else "") or "",
+                depth=depth,
+                hosts=hosts,
+            )
+        except narration.NarrationUnconfigured as error:
+            _write_narration_state(
+                folder_name, {"state": "unconfigured", "error": str(error)}
+            )
+            return
+        except Exception as error:  # noqa: BLE001 - a background job reports, never raises
+            _write_narration_state(folder_name, {"state": "failed", "error": str(error)})
+            return
+
+        # Written whole, then the state — so a reader that sees "ready" is
+        # looking at a file that is entirely there.
+        (directory / relay_files.NARRATION_FILE).write_bytes(made.audio)
+        state = {"state": "ready", **made.as_dict()}
+        _write_narration_state(folder_name, state)
+
+    async def post_narration(request: Request) -> Response:
+        folder_name = _folder(request)
+        if index.document(folder_name) is None:
+            raise ApiError(404, "not_found", f"No document named {folder_name}.")
+
+        body = await _json_body(request) if request.headers.get("content-length") else {}
+        depth = body.get("depth") or narration.DEFAULT_DEPTH
+        if depth not in narration.DEPTHS:
+            raise ApiError(
+                400, "invalid_input", f"depth must be one of {sorted(narration.DEPTHS)}."
+            )
+        hosts = body.get("hosts", 2)
+        if hosts not in (1, 2):
+            raise ApiError(400, "invalid_input", "hosts must be 1 or 2.")
+
+        current = _narration_state(folder_name)
+        if current.get("state") == "working":
+            return JSONResponse({"state": "working"}, status_code=202)
+
+        _write_narration_state(folder_name, {"state": "working", "depth": depth})
+        # Fire and forget. Nobody is waiting on the other end, and a job store
+        # for one file per document would be more machinery than the problem.
+        asyncio.get_running_loop().run_in_executor(
+            None, _make_narration, folder_name, depth, hosts
+        )
+        return JSONResponse({"state": "working"}, status_code=202)
+
+    def get_narration(request: Request) -> Response:
+        folder_name = _folder(request)
+        if index.document(folder_name) is None:
+            raise ApiError(404, "not_found", f"No document named {folder_name}.")
+        state = _narration_state(folder_name)
+        if not state:
+            exists = (inbox / folder_name / relay_files.NARRATION_FILE).is_file()
+            return JSONResponse({"state": "ready" if exists else "none"})
+        return JSONResponse(state)
 
     # ----------------------------------------------------------- groups
     #
@@ -739,6 +834,8 @@ def create_app(
         Route("/v1/export.tar", export_tar, methods=["GET"]),
         Route("/v1/changes", get_changes, methods=["GET"]),
         Route("/v1/documents", post_document, methods=["POST"]),
+        Route("/v1/documents/{folderName}/narration", get_narration, methods=["GET"]),
+        Route("/v1/documents/{folderName}/narration", post_narration, methods=["POST"]),
         Route("/v1/groups", get_groups, methods=["GET"]),
         Route("/v1/groups", put_groups, methods=["PUT"]),
         Route("/v1/clips", post_clip, methods=["POST"]),

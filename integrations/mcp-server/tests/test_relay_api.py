@@ -830,3 +830,163 @@ class GroupAssignmentTests(RelayApiTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(TestClient is None, "starlette is not installed")
+class NarrationTests(RelayApiTestCase):
+    """Asking the relay to make a document listenable.
+
+    Fire-and-forget on purpose: the caller gets a 202 and asks again later, so
+    nothing on the iPad's reading path ever waits on a model.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        from pencil_in_the_loop_mcp import narrate
+
+        self.narrate = narrate
+        self._real = narrate.narrate
+
+        def fake(markdown, *, title="", depth="standard", hosts=2, timeout=120.0):
+            return narrate.Narration(
+                audio=b"ID3-pretend-mp3",
+                turns=[narrate.Turn("host", "Spoken.")],
+                minutes=4.0,
+                script_model="gpt-4o",
+                voice_model="eleven_multilingual_v2",
+                provider="elevenlabs",
+                missed_sections=[],
+            )
+
+        narrate.narrate = fake
+        self.addCleanup(setattr, narrate, "narrate", self._real)
+
+    def folder(self) -> str:
+        response = self.send()
+        self.assertEqual(response.status_code, 201)
+        return response.json()["folderName"]
+
+    def ask(self, folder, **body):
+        return self.client.post(
+            f"/v1/documents/{folder}/narration", json=body, headers=self.auth
+        )
+
+    def state(self, folder):
+        return self.client.get(
+            f"/v1/documents/{folder}/narration", headers=self.auth
+        ).json()
+
+    def wait_ready(self, folder, tries=50):
+        import time
+
+        for _ in range(tries):
+            state = self.state(folder)
+            if state.get("state") != "working":
+                return state
+            time.sleep(0.05)
+        return self.state(folder)
+
+    def test_a_document_with_no_narration_says_none(self) -> None:
+        self.assertEqual(self.state(self.folder())["state"], "none")
+
+    def test_asking_returns_immediately_and_the_audio_arrives_later(self) -> None:
+        folder = self.folder()
+
+        response = self.ask(folder)
+
+        self.assertEqual(response.status_code, 202, "the reader never waits on a model")
+        self.assertEqual(response.json()["state"], "working")
+
+        state = self.wait_ready(folder)
+        self.assertEqual(state["state"], "ready")
+        self.assertEqual(state["minutes"], 4.0)
+        self.assertEqual(
+            (self.root / "inbox" / folder / "narration.mp3").read_bytes(),
+            b"ID3-pretend-mp3",
+        )
+
+    def test_the_finished_audio_can_be_downloaded_like_any_other_file(self) -> None:
+        folder = self.folder()
+        self.ask(folder)
+        self.wait_ready(folder)
+
+        response = self.client.get(
+            f"/v1/documents/{folder}/files/narration.mp3", headers=self.auth
+        )
+
+        self.assertEqual(response.status_code, 200, "the whitelist must let it back out")
+        self.assertEqual(response.content, b"ID3-pretend-mp3")
+
+    def test_asking_twice_does_not_start_a_second_generation(self) -> None:
+        folder = self.folder()
+        calls = []
+        self.narrate.narrate = lambda *a, **k: calls.append(1) or self._real(*a, **k)
+        # Leave it "working" by never letting the first call finish.
+        self.client.post(
+            f"/v1/documents/{folder}/narration",
+            json={},
+            headers=self.auth,
+        )
+        (self.root / "inbox" / folder / ".narration.json").write_text('{"state": "working"}')
+
+        second = self.ask(folder)
+
+        self.assertEqual(second.status_code, 202)
+        self.assertEqual(self.state(folder)["state"], "working")
+
+    def test_an_unknown_depth_is_refused(self) -> None:
+        self.assertEqual(self.ask(self.folder(), depth="epic").status_code, 400)
+
+    def test_narration_for_a_document_that_is_not_there_is_a_404(self) -> None:
+        self.assertEqual(self.ask("2026-01-01-nope").status_code, 404)
+
+    def test_narration_needs_the_device_token(self) -> None:
+        folder = self.folder()
+        self.assertEqual(
+            self.client.post(f"/v1/documents/{folder}/narration", json={}).status_code, 401
+        )
+        self.assertEqual(
+            self.client.get(f"/v1/documents/{folder}/narration").status_code, 401
+        )
+
+    def test_no_key_is_reported_as_unconfigured_and_writes_no_audio(self) -> None:
+        def unconfigured(*a, **k):
+            raise self.narrate.NarrationUnconfigured("ELEVENLABS_API_KEY is not set")
+
+        self.narrate.narrate = unconfigured
+        folder = self.folder()
+
+        self.ask(folder)
+        state = self.wait_ready(folder)
+
+        self.assertEqual(state["state"], "unconfigured", "retrying will not help")
+        self.assertFalse((self.root / "inbox" / folder / "narration.mp3").exists())
+
+    def test_a_failure_leaves_no_partial_audio(self) -> None:
+        def failing(*a, **k):
+            raise self.narrate.NarrationError("provider unreachable")
+
+        self.narrate.narrate = failing
+        folder = self.folder()
+
+        self.ask(folder)
+        state = self.wait_ready(folder)
+
+        self.assertEqual(state["state"], "failed")
+        self.assertFalse((self.root / "inbox" / folder / "narration.mp3").exists())
+
+    def test_a_dropped_section_is_reported_to_the_caller(self) -> None:
+        def partial(markdown, **k):
+            return self.narrate.Narration(
+                audio=b"mp3", turns=[self.narrate.Turn("host", "x")], minutes=1.0,
+                script_model="m", voice_model="v", provider="p",
+                missed_sections=["Corpus selection"],
+            )
+
+        self.narrate.narrate = partial
+        folder = self.folder()
+
+        self.ask(folder)
+        state = self.wait_ready(folder)
+
+        self.assertEqual(state["missedSections"], ["Corpus selection"])

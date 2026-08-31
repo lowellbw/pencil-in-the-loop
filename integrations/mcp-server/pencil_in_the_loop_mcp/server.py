@@ -19,7 +19,9 @@ from .core import (
     atomic_bundle_dir,
     list_review_bundles,
     prepare_pdf_bundle,
+    read_json_file,
     read_review,
+    read_text_file,
     scan_inbox_groups,
     validate_bundle_id,
     validate_group,
@@ -201,6 +203,93 @@ def list_groups() -> dict[str, Any]:
             "is what has been sent."
         ),
     }
+
+
+@server.tool(
+    name="narrate",
+    description=(
+        "Turn a document already in the user's library into something they can "
+        "listen to — a spoken version made for the ear, two voices, covering "
+        "every section rather than summarising. The audio arrives on the iPad "
+        "like any other file and plays offline.\n\n"
+        "Use it when the user asks to listen to something, or when they are "
+        "about to be away from a screen and a document matters. Do not make one "
+        "for every document you send: each costs real money in speech credits "
+        "and most documents are never listened to.\n\n"
+        "`depth` is how much of the document survives: `brief` is about a "
+        "quarter of the reading time, `standard` a half, `deep` three quarters. "
+        "All three cover every section — they differ in detail, not coverage. "
+        "`standard` is the right default; choose `deep` only when the user says "
+        "the detail matters, because it costs three times `brief`.\n\n"
+        "Returns immediately. Generation takes minutes, so call this and move "
+        "on; the reply says where it got to."
+    ),
+)
+def narrate(folder_name: str, depth: str = "standard", hosts: int = 2) -> dict[str, Any]:
+    """Ask for a spoken version of one document.
+
+    Args:
+        folder_name: the document, by folder name — the id `list_reviews` and
+            `send_to_ipad` return, e.g. 2026-08-25-traces-in-the-record.
+        depth: `brief`, `standard` or `deep`. See the tool description.
+        hosts: 2 for a two-voice discussion, 1 for a single narrator.
+    """
+    try:
+        folder = validate_bundle_id(folder_name)
+    except ValidationError as exc:
+        return {"ok": False, "error": f"invalid input: {exc}"}
+    if depth not in narrate_module.DEPTHS:
+        return {"ok": False, "error": f"depth must be one of {sorted(narrate_module.DEPTHS)}"}
+    if hosts not in (1, 2):
+        return {"ok": False, "error": "hosts must be 1 or 2"}
+
+    root = Path(_sync_root())
+    directory = root / "inbox" / folder
+    if not directory.is_dir():
+        return {"ok": False, "error": f"no document named {folder}"}
+
+    state_path = directory / ".narration.json"
+    existing = read_json_file(state_path) or {}
+    if isinstance(existing, dict) and existing.get("state") == "working":
+        return {"ok": True, "state": "working", "message": "One is already being made."}
+    if isinstance(existing, dict) and existing.get("state") == "ready":
+        return {
+            "ok": True,
+            "state": "ready",
+            "minutes": existing.get("minutes"),
+            "message": "This document already has one; it is on the iPad.",
+        }
+
+    source = read_text_file(directory / "source.md") or ""
+    if not source.strip():
+        return {"ok": False, "error": "this document has no source.md to narrate"}
+    meta = read_json_file(directory / "meta.json") or {}
+
+    write_file(state_path, json.dumps({"state": "working", "depth": depth}) + "\n")
+    try:
+        made = narrate_module.narrate(
+            source,
+            title=(meta.get("title") if isinstance(meta, dict) else "") or "",
+            depth=depth,
+            hosts=hosts,
+        )
+    except narrate_module.NarrationUnconfigured as exc:
+        write_file(state_path, json.dumps({"state": "unconfigured", "error": str(exc)}) + "\n")
+        return {"ok": False, "error": f"not configured: {exc}"}
+    except narrate_module.NarrationError as exc:
+        write_file(state_path, json.dumps({"state": "failed", "error": str(exc)}) + "\n")
+        return {"ok": False, "error": str(exc)}
+
+    (directory / "narration.mp3").write_bytes(made.audio)
+    state = {"state": "ready", **made.as_dict()}
+    write_file(state_path, json.dumps(state) + "\n")
+
+    message = f"{round(made.minutes)} minutes, on the iPad shortly."
+    if made.missed_sections:
+        # Surfaced rather than buried: a narration that quietly dropped a
+        # section is the one failure this feature actually has.
+        message += " Sections not covered: " + ", ".join(made.missed_sections) + "."
+    return {"ok": True, **state, "message": message}
 
 
 @server.tool(

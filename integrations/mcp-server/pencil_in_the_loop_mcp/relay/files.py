@@ -28,13 +28,21 @@ from .. import core
 # sourcemap.json back after it renders them, so a second device does not
 # re-render and sourceRange resolves everywhere.
 DOCUMENT_FILES = frozenset(
-    {"meta.json", "source.md", "document.pdf", "sourcemap.json"}
+    {"meta.json", "source.md", "document.pdf", "sourcemap.json", "narration.mp3"}
 )
+
+# The narration is the one file here the app does not need in order to open a
+# document — it is an addition to a bundle, made after the fact and fetched on
+# its own. It is in this set because every gate on the way in and out reads it:
+# declare, upload, download. See docs/12-relay.md § 4b.
 
 # Where declared-but-not-yet-uploaded voice clips wait. Dot-prefixed so every
 # scanner in this codebase already skips it: a clip is not a document and must
 # never appear in the change feed.
 CLIPS_DIRECTORY = ".clips"
+
+# The spoken version of a document, when one has been made.
+NARRATION_FILE = "narration.mp3"
 
 # The review bundle. `ink/page-NN.png` is the only nested path in the contract.
 REVIEW_FILES = frozenset({"review.md", "review.json", "manifest.json", "reply.md"})
@@ -44,6 +52,9 @@ INK_PATH_RE = re.compile(r"^ink/page-[0-9]{2,}\.png$")
 # of RAM cannot afford to discover a body is too big by receiving it.
 MAX_DOCUMENT_PDF_BYTES = 100 * 1024 * 1024
 MAX_OTHER_FILE_BYTES = 25 * 1024 * 1024
+# A narration is speech at 64 kbps mono, so 25 MB is about 52 minutes and a
+# `standard` one will not come close. It shares the general cap deliberately:
+# a narration long enough to need its own limit is a bug in the script stage.
 MAX_JSON_BODY_BYTES = 8 * 1024 * 1024
 MAX_REVIEW_BUNDLE_BYTES = 50 * 1024 * 1024
 
