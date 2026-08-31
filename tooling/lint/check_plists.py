@@ -141,10 +141,25 @@ def check_app_plist(problems: list[str]) -> None:
             f"orientations, found {sorted(orientations)}"
         )
 
-    # Reading and annotating never happen in the background, and asking for a
-    # background mode the app does not use is a review rejection.
-    if "UIBackgroundModes" in plist:
-        problems.append(f"{APP_PLIST.name}: UIBackgroundModes must not be declared")
+    # ─── AMENDED, AUGUST 2026 ────────────────────────────────────────────────
+    # This used to forbid `UIBackgroundModes` outright, on the reasoning that
+    # reading and annotating never happen in the background and that asking for
+    # a mode the app does not use is a review rejection. The first half is still
+    # true. The second is why this is a whitelist of one rather than a deletion:
+    # narration genuinely plays with the screen locked — that is most of what
+    # makes it a podcast rather than a page that talks — and `audio` is the mode
+    # it genuinely uses. Anything else is still the mistake the rule was written
+    # about.
+    modes = plist.get("UIBackgroundModes", [])
+    if not isinstance(modes, list):
+        problems.append(f"{APP_PLIST.name}: UIBackgroundModes must be an array")
+    else:
+        for mode in modes:
+            if mode != "audio":
+                problems.append(
+                    f"{APP_PLIST.name}: UIBackgroundModes may only contain 'audio', "
+                    f"not {mode!r} — see the note above this check."
+                )
 
 
 def check_extension_plist(problems: list[str]) -> None:

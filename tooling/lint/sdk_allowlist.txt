@@ -138,6 +138,17 @@ SpeechAnalyzer SpeechTranscriber SFSpeechRecognizer SFSpeechRecognitionRequest
 AnalyzerInput AssetInventory finalizeAndFinishThroughEndOfInput
 AVAudioEngine AVAudioSession AVAudioPCMBuffer
 
+# ── MediaPlayer ──────────────────────────────────────────────────────────────
+# The lock screen and AirPods. `MPNowPlayingInfoCenter` takes a dictionary keyed
+# by these string constants, so they are values the SDK hands us rather than
+# names we chose, and there is no other spelling of any of them.
+MPNowPlayingInfoCenter MPRemoteCommandCenter MPRemoteCommandHandlerStatus
+MPMediaItemPropertyTitle MPMediaItemPropertyArtist
+MPMediaItemPropertyPlaybackDuration
+MPNowPlayingInfoPropertyElapsedPlaybackTime
+MPNowPlayingInfoPropertyPlaybackRate
+MPSkipIntervalCommandEvent MPChangePlaybackPositionCommandEvent
+
 # ── UIKit and the ObjC runtime ───────────────────────────────────────────────
 # The gesture spellings are parts of selectors — `gestureRecognizer` and
 # `shouldRecognizeSimultaneouslyWith` are the base name and the argument label

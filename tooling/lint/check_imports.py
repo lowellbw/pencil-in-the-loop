@@ -37,9 +37,14 @@ POLICY = {
         "Core", "Storage", "PDFKit", "UIKit", "CoreGraphics", "CoreText",
         "ImageIO", "UniformTypeIdentifiers", "Markdown",
     },
+    # `MediaPlayer` is here for the same reason `AVFoundation` is: Annotate owns
+    # the audio session, so it owns the narration player, and a player that does
+    # not appear on the lock screen or answer an AirPod pinch is a broken one.
+    # Nothing else in the module may touch it — it is the Now Playing surface of
+    # the one player, not a general licence.
     "Annotate": UNIVERSAL | {
         "Core", "Storage", "PencilKit", "Speech", "UIKit", "AVFoundation",
-        "CoreGraphics", "NaturalLanguage",
+        "MediaPlayer", "CoreGraphics", "NaturalLanguage",
     },
     "Export": UNIVERSAL | {
         "Core", "Storage", "Ingest", "PDFKit", "PencilKit", "UIKit",

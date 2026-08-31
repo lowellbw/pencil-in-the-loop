@@ -12,6 +12,7 @@
 //
 
 import Foundation
+import Annotate
 import Core
 @testable import AppUI
 
@@ -32,6 +33,7 @@ struct AppUITestEnvironment: AppEnvironment {
     let bundleBuilder: any ReviewBundleBuilding
     let returnPathResolver: any ReturnPathResolving
     let settings: any SettingsStoring
+    let narrationPlayer: NarrationPlayer = NarrationPlayer()
     let groups: any DocumentGrouping
 
     /// - Parameter transcriber: an engine that stays open until `stop()`, for

@@ -43,6 +43,7 @@
 //
 
 import Foundation
+import Annotate
 import Core
 
 /// Everything the UI is allowed to depend on.
@@ -85,6 +86,13 @@ public protocol AppEnvironment: Sendable {
 
     /// Persisted user settings (docs/02-spec.md § S6).
     var settings: any SettingsStoring { get }
+
+    /// Plays a document's narration (docs/02-spec.md § S2).
+    ///
+    /// One player for the app, not one per screen: there is one audio session
+    /// and one pair of ears, so a second narration starting must stop the
+    /// first rather than talk over it.
+    var narrationPlayer: NarrationPlayer { get }
 
     /// Which group each document is filed under (docs/02-spec.md § S1).
     ///
@@ -129,6 +137,7 @@ public struct PreviewEnvironment: AppEnvironment {
     public let bundleBuilder: any ReviewBundleBuilding
     public let returnPathResolver: any ReturnPathResolving
     public let settings: any SettingsStoring
+    public let narrationPlayer: NarrationPlayer = NarrationPlayer()
     public let groups: any DocumentGrouping
 
     /// - Parameters:
@@ -311,6 +320,8 @@ public actor PreviewDocumentStore: DocumentStoring {
 
 /// A sync coordinator that never finds anything and never writes anything.
 public struct PreviewSyncCoordinator: SyncCoordinating {
+
+    public func requestNarration(forFolderName folderName: String, depth: String) async throws {}
 
     public init() {}
 

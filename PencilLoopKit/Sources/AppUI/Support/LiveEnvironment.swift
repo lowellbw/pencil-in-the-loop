@@ -89,6 +89,10 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
     /// does. One actor rather than two because both halves write the same
     /// `UserDefaults` blob (`AppSettingsStore`).
     public var groups: any DocumentGrouping { settingsStore }
+
+    /// The one player. Its remote-control handlers are process-wide and
+    /// accumulate, so they are wired once, here, rather than per sheet.
+    public let narrationPlayer: NarrationPlayer = NarrationPlayer()
     /// - Parameter store: injectable so a test or a demo can run the real UI
     ///   against an in-memory library. The app passes nothing and gets
     ///   `DocumentStore.live()`.
@@ -121,6 +125,8 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
         self.recogniser = InkRecogniserFactory.make()
 
         self.corrector = TermListCorrector()
+        let player = self.narrationPlayer
+        Task { await player.connectRemoteControls() }
         self.bundleBuilder = ReviewBundleBuilder()
         self.returnPathResolver = ReturnPathResolver()
 
