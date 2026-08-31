@@ -188,7 +188,7 @@ the route answers 404 and the device does nothing.
 A malformed `groups.json` reads as nothing filed. A broken map must not stop
 documents being sent.
 
-## 4a · Clips — a better transcript for a voice comment
+## 4b · Clips — a better transcript for a voice comment
 
 A voice comment is transcribed on the iPad and saved immediately, so there is
 always text and dictation works with no signal. These two routes exist to make a
@@ -252,6 +252,80 @@ path in this feature.
 The provider call is a blocking request handled in a worker thread. That is
 deliberate: the iPad is draining a background queue and nobody is waiting on it,
 so one request per comment buys a design with no job store and nothing to poll.
+
+## 4c · Narration — a document you can listen to
+
+```
+POST /v1/documents/{folder}/narration   {"depth": "standard", "hosts": 2}
+  → 202 {"state": "working"}
+GET  /v1/documents/{folder}/narration
+  → {"state": "ready", "minutes": 14.2, "turns": 38, "bytes": 6_812_400,
+     "scriptModel": "gpt-4o", "voiceModel": "eleven_multilingual_v2",
+     "provider": "elevenlabs", "missedSections": []}
+```
+
+It writes `narration.mp3` into the document's bundle, where `reconcile()` indexes it and the
+change feed advertises it with size and hash like every other file. The device fetches it on
+its next scan. See `docs/05-file-contracts.md` § `narration.mp3` for why it is not a
+*pinnable* file.
+
+**Not verbatim, and not a summary.** A two-host adaptation that covers every section in the
+document's own order, keeps the names, numbers and argument, and drops the apparatus —
+footnote markers, reference lists, gridlines, captions that only mean anything next to a
+figure. `depth` sets how much detail survives, never what gets skipped: `brief` aims at a
+quarter of the document's reading time, `standard` at a half, `deep` at three quarters.
+`hosts` is 1 or 2.
+
+**Made in two stages.** A model writes the script from `source.md`; then each turn is spoken
+by `POST /v1/text-to-speech/{voice_id}`, with `previous_text` and `next_text` from the
+neighbouring turns so the joins carry prosody rather than resetting it. The MP3 frames are
+appended byte-wise. That is deliberate and not laziness: this relay boots with nothing
+installed but Starlette, and pulling in ffmpeg to join same-format frames is a dependency for
+a problem every player already tolerates. If a join is ever audible, ffmpeg via the Railway
+build is the escalation — a config change, not a redesign.
+
+**ElevenLabs' own podcast API is not what this uses, on purpose.** GenFM
+(`POST /v1/studio/podcasts`) does exactly this, and its docs say the Studio API is available
+*only upon request* through sales. Building the feature on something that may 403 is worse
+than writing the script ourselves — and writing it ourselves is what makes `depth` ours, and
+what lets one pipeline serve one host or two.
+
+**The failure this would have quietly** is a narration that sounds fluent and silently drops
+the document's third section. So the script is checked against the source's headings before a
+single character is spoken, and `missedSections` reports any whose distinctive words never
+appear. It is reported rather than enforced: a heading a host legitimately paraphrased is not
+a bug, and a caller that gets a non-empty list can decide.
+
+**Config**, following the STT precedent exactly. `OPENAI_API_KEY` writes the script and
+`PENCIL_NARRATION_SCRIPT_MODEL` overrides that model. Speech goes to whichever of
+`ELEVENLABS_API_KEY` or `OPENAI_API_KEY` is present, in that order, or to
+`PENCIL_TTS_PROVIDER` when it names one; `PENCIL_TTS_MODEL`, `PENCIL_TTS_HOST_VOICE` and
+`PENCIL_TTS_GUEST_VOICE` override the rest. **The keys live here and never reach the iPad**,
+which is the same reason the relay does the transcribing.
+
+**The state machine** is a `.narration.json` sidecar — dot-prefixed, so every scanner here
+already skips it, and it never appears in the feed:
+
+| `state` | Means |
+|---|---|
+| `none` | no sidecar and no file; nothing has been asked for |
+| `working` | a generation is running; a second `POST` returns 202 and starts nothing |
+| `ready` | the audio is written whole, *then* this was written — so a reader that sees `ready` is looking at a complete file |
+| `unconfigured` | no key is set; retrying will not help |
+| `failed` | `error` says why; retrying might help |
+
+A missing sidecar beside an existing `narration.mp3` reads as `ready`, so a file restored by
+hand is not invisible.
+
+Generation is a blocking call in a worker thread, like the clip route and for the same
+reason: nobody is waiting on it. The iPad asks and returns immediately, and the audio arrives
+on a later scan exactly as a document does — which is what keeps the reader off the network's
+clock (CLAUDE.md non-negotiable 1).
+
+**Cost is worth knowing before narrating a library.** ElevenLabs bills one credit per
+character on `eleven_multilingual_v2`. A `standard` narration of a 5,000-word paper is
+roughly fifteen minutes, about 15,000 characters, about an eighth of a $22 Creator month.
+That is why the MCP tool's description names the price of `deep`.
 
 ## 5 · Idempotency
 

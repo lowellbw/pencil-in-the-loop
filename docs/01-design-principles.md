@@ -50,6 +50,12 @@ colour and offers the folder picker.
 **7. Restraint in feedback.** Haptics: `.light` on Pencil Pro squeeze, `.success` when a
 comment saves, nothing else. No animation that isn't a system transition. No sounds.
 
+*"No sounds" means no chrome sounds* — no click on a save, no whoosh on a sheet, nothing
+the app makes on its own behalf. A narration is not that. It is content the user asked to
+hear, it plays only after a tap, and it stops when they say so; the rule against sounds
+exists so the app never speaks unbidden, and being read a document you chose is the
+opposite of unbidden. The app still makes no sound of its own, ever.
+
 **8. Accessibility is not optional.** Dynamic Type throughout the app chrome. VoiceOver
 labels on every control. The document itself is a PDF and doesn't reflow — that's the
 accepted trade for stable ink — but the comment list, library and review sheet all must.

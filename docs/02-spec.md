@@ -192,7 +192,7 @@ dimmed and non-openable rather than failing on tap.
 Full-bleed continuous-scroll PDF. Chrome auto-hides on scroll, returns on tap.
 
 **Toolbar (when visible):** Library, title, comment count, a Page menu, tool-picker toggle,
-Review button.
+Listen, Review button.
 
 **The Page menu** holds what the open page looks like and what it is called: Rename, the
 page tint, and — for a notebook — the paper it is ruled with and Add Pages. The tint is
@@ -221,6 +221,29 @@ everywhere (`04-flows.md` § F3), so a build or a page without it leaves the not
 | Two-finger tap | Undo (system standard) |
 
 **Comment markers** sit in the page margin at the vertical position of their anchor.
+
+**Listen** (`headphones`) turns the document into something you can hear. It has three
+states and none of them is a spinner:
+
+| Narration | The button does |
+|---|---|
+| present on device | opens the player |
+| none, and none asked for | asks the relay; the button reads *Preparing…* |
+| asked for, not arrived | *Preparing…*; tapping again does nothing |
+
+The middle state is the whole design. Making one takes minutes, and the reader is a
+protected path — CLAUDE.md non-negotiable 1 ends "a feature that blocks either path on a
+request still does not ship". So Listen enqueues and returns immediately, the audio arrives
+on a later scan exactly as a document does, and every failure leaves the reader as it was.
+With the relay unreachable it says so once and changes nothing.
+
+**The player** is a sheet with a medium detent and a grabber (§ 3 of the design
+principles): title, scrubber, back 30, play/pause, forward 15. Not a floating transport bar
+— § 4 rules out persistent chrome over the page, and this toolbar auto-hides on scroll, so
+a control living only here would vanish mid-listen. It plays with the screen locked and
+answers the lock screen and AirPods, and dictating a comment ducks it and hands it back
+(`AudioSessionArbiter`). What it plays is a two-host adaptation, not a reading —
+`docs/12-relay.md` § 4c.
 
 **The long-press is a stroke until it isn't.** A Pencil held still for 0.4s is, as far as
 `PKCanvasView` is concerned, a perfectly good stroke — a dot — and it has already been

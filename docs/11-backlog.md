@@ -201,6 +201,34 @@ file is last-write-wins, and a lost group *name* is a lost hint rather than lost
 data; if that ever matters it becomes `groups/<deviceId>.json` and a union on
 read, which is not worth building first.
 
+### B13 · The narration, and the three things it deliberately is not
+Listening ships (`docs/12-relay.md` § 4c). Three obvious extensions did not, each
+for a reason rather than for lack of time.
+
+**Per-paragraph highlighting synced to playback** — the page following the voice.
+It needs a per-turn timing map, which means the TTS provider's character-level
+timestamps, a mapping from spoken turn back to source range, and a rendered rect
+for that range. Every one of those exists here already (`sourcemap.json` is
+exactly the last of them), which is what makes it tempting. What kills it for now
+is that the script is an *adaptation*, not a reading: a turn covering three
+paragraphs has no single anchor, and highlighting the wrong one is worse than
+highlighting nothing. It becomes buildable if a verbatim mode is ever added.
+
+**Speed control beyond the system's.** `AVAudioPlayer` gives us `rate` for free
+and it would be four lines. Left out because the player is already at the limit
+of what `docs/01` § 4 tolerates over a reading surface, and because the useful
+version of this is a remembered preference — which is a settings row, a
+persistence decision, and a second place for the number to live. If listening at
+1.5× turns out to be how it is actually used, that is the argument for building
+it, and it will be a real one.
+
+**Generating a narration anywhere but the relay.** Not deferred — ruled out. The
+device must never make one, because `PinnedDocumentWriter.commit` replaces a
+document directory wholesale on a re-pin, and audio with no canonical copy
+elsewhere would simply vanish. That the relay always holds it is what makes the
+re-pin safe and the fetch idempotent (`docs/05-file-contracts.md`). It is also
+where the keys are, and they do not belong on the iPad.
+
 ---
 
 ## Rejected, with reasons

@@ -61,6 +61,17 @@ Full spec in `docs/`. Read `docs/07-build-plan.md` to find the current milestone
 5. **Anchors are quoted text, never line numbers.** Documents get regenerated.
 6. **It should look like Apple made it.** System fonts, SF Symbols, system colours,
    standard containers. If a screen looks designed, it's wrong.
+7. **No speculative background modes.** `tooling/lint/check_plists.py` used to forbid
+   `UIBackgroundModes` outright, on the grounds that "reading and annotating never happen
+   in the background, and asking for a background mode the app does not use is a review
+   rejection".
+
+   **Amended, August 2026, and narrowed rather than dropped**, exactly like non-negotiable
+   1 above. The app now genuinely plays a document's narration, and audio that stops at the
+   lock button is not a feature. So the lint allows **`audio` and nothing else** and still
+   rejects a second mode. What was worth protecting was never "no background modes" — it
+   was that the app never claims a capability it does not use. That still holds, and the
+   lint is still the thing that enforces it.
 
 ## Stack
 
