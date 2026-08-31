@@ -290,6 +290,56 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
         XCTAssertTrue(waiting.isEmpty, "A delivered bundle must leave the queue")
     }
 
+    func testARefusedReviewDoesNotBlockTheOnesBehindIt() async throws {
+        // The bug: `flushQueue` returned on any failure, which is right for a
+        // bad line and wrong for a 4xx. A server saying "I will not take this"
+        // says it again on every poll, so one refused review stopped every
+        // review queued after it from ever being sent — silently, and for good.
+        await transport.set(mode: .offline)
+        let subject = coordinator()
+        _ = try await subject.send(Self.reviewPayload())
+        _ = try await subject.send(Self.reviewPayload(named: "2026-08-19-second-paper"))
+
+        await transport.set(mode: .routed)
+        await emptyFeed()
+        // The first is refused for good; the second would be accepted.
+        await transport.route(
+            "/v1/documents/2026-08-18-auth-refactor-plan/review",
+            json: "{}", status: 422
+        )
+        await routeReviewUpload(for: "2026-08-19-second-paper")
+
+        _ = try await subject.refresh()
+
+        let waiting = OutboxQueue(rootURL: queueRoot).queuedPayloads().map(\.directoryName)
+        XCTAssertFalse(
+            waiting.contains("2026-08-19-second-paper.review"),
+            "A review the server would have taken must not be held back by one it refused"
+        )
+        XCTAssertTrue(
+            waiting.contains("2026-08-18-auth-refactor-plan.review"),
+            "The refused bundle stays on the iPad rather than being thrown away"
+        )
+    }
+
+    func testABadLineStillStopsTheFlush() async throws {
+        // The other half. A queue drained against a dead network is a queue of
+        // pointless retries, so anything that is not a refusal still stops it.
+        await transport.set(mode: .offline)
+        let subject = coordinator()
+        _ = try await subject.send(Self.reviewPayload())
+        _ = try await subject.send(Self.reviewPayload(named: "2026-08-19-second-paper"))
+
+        // The feed fetch fails first when the line is down, which is the point:
+        // nothing is flushed and nothing is dropped.
+        _ = try? await subject.refresh()
+
+        XCTAssertEqual(
+            OutboxQueue(rootURL: queueRoot).queuedPayloads().count, 2,
+            "Both are still waiting for the network to come back"
+        )
+    }
+
     func testTheServerQueueIsSeparateFromTheFolderQueue() {
         XCTAssertNotEqual(
             HTTPSyncCoordinator.defaultQueueRootURL(),
@@ -358,25 +408,27 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
     /// Every file in the bundle is uploaded, review.md included: the server
     /// writes only manifest.json, because it is the one file the manifest does
     /// not hash.
-    private func routeReviewUpload() async {
-        await transport.route("/v1/documents/2026-08-18-auth-refactor-plan/review", json: "{}")
+    private func routeReviewUpload(for folder: String = "2026-08-18-auth-refactor-plan") async {
+        await transport.route("/v1/documents/\(folder)/review", json: "{}")
         for path in ["review.md", "ink/page-01.png"] {
             await transport.route(
-                "/v1/reviews/2026-08-18-auth-refactor-plan/files/\(path)",
+                "/v1/reviews/\(folder)/files/\(path)",
                 json: "{}"
             )
         }
     }
 
-    private static func reviewPayload() -> OutboxPayload {
+    private static func reviewPayload(
+        named folder: String = "2026-08-18-auth-refactor-plan"
+    ) -> OutboxPayload {
         let review = Data("# Review — Auth refactor plan\n".utf8)
         let ink = Data("\u{89}PNG fake".utf8)
         let manifest = Data("""
-        {"version":1,"documentId":"F7A1","reviewFolder":"2026-08-18-auth-refactor-plan.review",
+        {"version":1,"documentId":"F7A1","reviewFolder":"\(folder).review",
          "files":[{"path":"review.md"},{"path":"ink/page-01.png"}]}
         """.utf8)
         return OutboxPayload(
-            directoryName: "2026-08-18-auth-refactor-plan.review",
+            directoryName: "\(folder).review",
             documentId: UUID(),
             files: [
                 BundleFile(relativePath: "review.md", data: review),

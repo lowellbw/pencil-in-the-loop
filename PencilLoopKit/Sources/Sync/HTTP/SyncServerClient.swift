@@ -225,8 +225,9 @@ public struct SyncServerClient: Sendable {
         if (400..<500).contains(statusCode) {
             if call == .upload {
                 return .outboxWriteFailed(
-                    reason: "The server would not accept the review (\(statusCode)). "
-                        + "It is still on this iPad, and can be shared or saved from the review sheet."
+                    reason: SyncServerClient.refusedPrefix
+                        + " (\(statusCode)). It is still on this iPad, and can be "
+                        + "shared or saved from the review sheet."
                 )
             }
             return .folderUnavailable(
@@ -236,6 +237,25 @@ public struct SyncServerClient: Sendable {
         return .folderUnavailable(
             reason: "The server answered with \(statusCode), which this app does not understand."
         )
+    }
+
+    /// The opening of every "this will never work" upload failure.
+    ///
+    /// The queue matches on it to tell a refusal from a bad line, which is a
+    /// distinction the caller cannot otherwise make: both arrive as
+    /// `outboxWriteFailed`, and only one is worth retrying. Matching on a
+    /// message is not lovely — the alternative was a new `PencilLoopError` case,
+    /// which every exhaustive switch in the app would have to grow a branch for
+    /// to express something only one call site acts on.
+    static let refusedPrefix = "The server would not accept the review"
+
+    /// Whether an upload failure is the server refusing rather than the network
+    /// failing. A refusal will be refused again on every future poll.
+    public static func isRefusal(_ error: any Error) -> Bool {
+        guard case let .outboxWriteFailed(reason)? = error as? PencilLoopError else {
+            return false
+        }
+        return reason.hasPrefix(SyncServerClient.refusedPrefix)
     }
 
     /// What a thrown transport error means.

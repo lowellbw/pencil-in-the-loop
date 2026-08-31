@@ -458,6 +458,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     private func flushQueue() async {
         let waiting = queue.queuedPayloads()
         guard waiting.isEmpty == false else { return }
+        var refused = 0
         for payload in waiting {
             do {
                 let written = try await upload(payload)
@@ -465,9 +466,38 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
                 await recordDelivery(of: written)
                 emit(.reviewWritten(documentId: written.documentId, directoryURL: written.directoryURL))
             } catch {
+                // **A refusal must not block the queue behind it.**
+                //
+                // This used to `return` on any failure, which is right for a bad
+                // line — the next poll retries the lot — and wrong for a 4xx.
+                // The server saying "I will not take this" means it will say the
+                // same on every future poll, so one refused review stopped every
+                // review queued after it from ever being sent, silently and for
+                // good. The bundle is still on the iPad either way; what was
+                // lost was everything standing behind it.
+                //
+                // So a refusal is stepped over and counted, and anything else
+                // still stops the flush, because a queue drained against a dead
+                // network is a queue of pointless retries.
+                if SyncServerClient.isRefusal(error) {
+                    refused += 1
+                    SyncLog.coordinator.error(
+                        "The server refused a queued review; it stays on this iPad. \(error.localizedDescription, privacy: .public)"
+                    )
+                    continue
+                }
                 SyncLog.coordinator.notice("A queued review is still waiting to be sent.")
                 return
             }
+        }
+        if refused > 0 {
+            emit(.folderUnavailable(
+                reason: refused == 1
+                    ? "One review could not be sent, and will not go through on its own. "
+                        + "It is still on this iPad — open it and use Share to get it out."
+                    : "\(refused) reviews could not be sent, and will not go through on "
+                        + "their own. They are still on this iPad."
+            ))
         }
     }
 
