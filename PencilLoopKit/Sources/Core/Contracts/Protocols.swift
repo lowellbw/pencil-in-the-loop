@@ -298,6 +298,18 @@ public protocol SyncCoordinating: Sendable {
     ///   document to read.
     func requestNarration(forFolderName folderName: String, depth: String) async throws
 
+    /// What the relay says about this document's narration.
+    ///
+    /// The device cannot answer this itself. A local "I asked for one" flag is
+    /// gone the moment the app relaunches, and the reader would then be offered
+    /// a narration that is already halfway made. The relay is the one that
+    /// remembers, so this asks it.
+    ///
+    /// - Throws: `.folderUnavailable` when the relay cannot be reached. A
+    ///   caller that cannot ask shows what it last knew, and never an error
+    ///   that stops the document being read.
+    func narrationStatus(forFolderName folderName: String) async throws -> NarrationStatus
+
     /// Turns an agent's `reply.md` into a new document, with the origin
     /// inherited — the "Open as document" action on the Sent screen
     /// (docs/04-flows.md § F6).

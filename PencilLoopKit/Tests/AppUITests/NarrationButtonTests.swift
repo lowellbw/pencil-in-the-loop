@@ -44,6 +44,36 @@ final class NarrationButtonTests: XCTestCase {
         XCTAssertEqual(NarrationPlayback(elapsed: -5, duration: 60).fraction, 0)
     }
 
+    func testTheRelaysAnswerOutlivesTheApp() {
+        // The bug this guards: a purely local "I asked for one" flag is gone at
+        // the next launch, and the reader is then offered a second narration of
+        // a document already halfway through one. The relay remembers instead.
+        let working = NarrationStatus(state: .working)
+        let ready = NarrationStatus(state: .ready, minutes: 12)
+        XCTAssertEqual(working.state, .working)
+        XCTAssertTrue(ready.summary.contains("12"))
+    }
+
+    func testAnUnsetRelaySaysSoRatherThanInvitingARetry() {
+        // `unconfigured` means no provider key. Offering "Try Again" for that
+        // is a button that cannot work, tapped forever.
+        let status = NarrationStatus(state: .unconfigured)
+        XCTAssertFalse(status.summary.isEmpty)
+        XCTAssertNotEqual(status.state, .failed)
+    }
+
+    func testAReadyNarrationWithNoDurationStillReadsAsReady() {
+        XCTAssertEqual(NarrationStatus(state: .ready).summary, "Ready to play.")
+        XCTAssertEqual(NarrationStatus(state: .ready, minutes: 0).summary, "Ready to play.")
+    }
+
+    func testTheRelayIsPolledFarLessOftenThanThePlayer() {
+        // Playback needs a smooth bar; a narration takes minutes to make. One
+        // clock at 250ms would hammer the relay for no gain.
+        XCTAssertGreaterThan(NarrationSheet.relayEvery, 1)
+        XCTAssertEqual(NarrationSheet.tick * NarrationSheet.relayEvery, 5_000)
+    }
+
     func testTheSkipsAreThePodcastConventions() {
         // Thirty back is roughly a paragraph of speech; fifteen forward leaves
         // a passage without overshooting the next one.

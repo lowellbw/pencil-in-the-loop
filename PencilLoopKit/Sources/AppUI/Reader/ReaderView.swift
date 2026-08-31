@@ -264,47 +264,43 @@ public struct ReaderView: View {
     /// Hoisted out of `body`: the modifier chain there is long enough that
     /// inlining another expression pushes the type-checker over its budget.
     private var narrationSheet: NarrationSheet {
-        let title: String = self.model.detail?.title ?? "Listening"
-        return NarrationSheet(player: self.environment.narrationPlayer, title: title)
+        NarrationSheet(player: self.environment.narrationPlayer, model: self.model)
     }
 
-    /// Listen to this document, or ask for a version to listen to.
+    /// Listen to this document.
     ///
-    /// Three states, and the middle one is the reason this is not a spinner.
-    /// Generating a narration takes minutes, so asking returns immediately and
-    /// the audio arrives on a later scan like a document does — the reader is a
-    /// protected path and never waits on a request (CLAUDE.md non-negotiable 1).
-    @ViewBuilder private var listenButton: some View {
-        if self.model.hasNarration {
-            Button {
-                Task {
-                    if await self.model.playNarration() {
-                        self.isListening = true
-                    }
+    /// **One button, one behaviour: it opens the sheet.** It used to have three
+    /// states in the toolbar — play, a grey "Preparing" word, and ask — and the
+    /// middle one was unreadable: a tap turned Listen into a disabled label that
+    /// then did nothing for several minutes, with no way to find out why. So the
+    /// states moved into the sheet, which has room to say what is happening, and
+    /// the toolbar went back to being a button that opens something.
+    ///
+    /// The icon still carries the one distinction worth making at a glance:
+    /// `headphones.circle.fill` when there is audio on the device to play right
+    /// now, the outline when there is not.
+    ///
+    /// Asking still never blocks the reader. The sheet is dismissible, the
+    /// request returns immediately, and the audio arrives on a later scan
+    /// exactly as a document does (CLAUDE.md non-negotiable 1).
+    private var listenButton: some View {
+        Button {
+            Task {
+                if self.model.hasNarration {
+                    await self.model.playNarration()
                 }
-            } label: {
-                Label("Listen", systemImage: "headphones")
+                self.isListening = true
             }
-            .accessibilityLabel("Listen")
-            .disabled(self.model.isReady == false)
-        } else if self.model.isPreparingNarration {
-            // Not a progress view: there is no progress to report, and a
-            // spinner in a toolbar reads as "the app is stuck" rather than
-            // "something is happening elsewhere".
-            Label("Preparing", systemImage: "headphones")
-                .labelStyle(.titleAndIcon)
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Preparing a version to listen to")
-        } else {
-            Button {
-                Task { await self.model.requestNarration() }
-            } label: {
-                Label("Listen", systemImage: "headphones")
-            }
-            .accessibilityLabel("Make a version to listen to")
-            .disabled(self.model.isReady == false)
+        } label: {
+            Label(
+                "Listen",
+                systemImage: self.model.hasNarration
+                    ? "headphones.circle.fill"
+                    : "headphones"
+            )
         }
+        .accessibilityLabel(self.model.hasNarration ? "Listen" : "Listen — none made yet")
+        .disabled(self.model.isReady == false)
     }
 
     private var pageMenu: some View {

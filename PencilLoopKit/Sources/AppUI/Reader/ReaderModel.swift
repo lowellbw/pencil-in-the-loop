@@ -49,9 +49,43 @@ public final class ReaderModel {
         return NarrationFetcher.hasNarration(forFolderName: folderName)
     }
 
-    /// True between asking for a narration and one arriving. Not persisted:
-    /// it is a fact about this screen, and the relay is the one that remembers.
-    public private(set) var isPreparingNarration = false
+    /// What the relay last said about this document's narration. Nil until it
+    /// has been asked, and after a relay it could not reach.
+    public private(set) var narrationStatus: NarrationStatus?
+
+    /// Set the instant Listen is tapped, so the sheet has something to show
+    /// before the first round trip lands. The relay's own `working` takes over
+    /// from it and outlives the app being relaunched, which this cannot.
+    private var didJustAsk = false
+
+    /// Whether a narration is being made right now.
+    ///
+    /// The relay's answer wins, and it is the one that survives a relaunch: an
+    /// app that had only its own flag would offer to make a second narration of
+    /// a document already halfway through one.
+    public var isPreparingNarration: Bool {
+        if narrationStatus?.state == .working { return true }
+        if narrationStatus == nil { return didJustAsk }
+        return didJustAsk && narrationStatus?.state == .none
+    }
+
+    /// Asks the relay where the narration has got to.
+    ///
+    /// **Never throws into the reader.** An unreachable relay leaves the last
+    /// answer standing rather than replacing it with an error — the document is
+    /// still perfectly readable, which is the whole posture here.
+    public func refreshNarrationStatus() async {
+        guard let folderName = detail?.folderName, let environment else { return }
+        do {
+            narrationStatus = try await environment.sync.narrationStatus(
+                forFolderName: folderName
+            )
+        } catch {
+            ReaderLog.reader.notice(
+                "Could not read the narration state: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
 
     /// Asks the relay for a spoken version, and returns immediately.
     ///
@@ -61,11 +95,13 @@ public final class ReaderModel {
     /// has (CLAUDE.md non-negotiable 1).
     public func requestNarration(depth: String = "standard") async {
         guard let folderName = detail?.folderName, isPreparingNarration == false else { return }
-        isPreparingNarration = true
+        didJustAsk = true
         do {
             try await environment?.sync.requestNarration(forFolderName: folderName, depth: depth)
+            await refreshNarrationStatus()
         } catch {
-            isPreparingNarration = false
+            didJustAsk = false
+            narrationStatus = NarrationStatus(state: .failed)
             ReaderLog.reader.notice(
                 "Could not ask for a narration: \(error.localizedDescription, privacy: .public)"
             )

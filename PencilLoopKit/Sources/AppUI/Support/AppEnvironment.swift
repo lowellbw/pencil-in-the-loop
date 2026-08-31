@@ -323,6 +323,12 @@ public struct PreviewSyncCoordinator: SyncCoordinating {
 
     public func requestNarration(forFolderName folderName: String, depth: String) async throws {}
 
+    public func narrationStatus(
+        forFolderName folderName: String
+    ) async throws -> NarrationStatus {
+        NarrationStatus(state: .none)
+    }
+
     public init() {}
 
     public nonisolated func start() async {}

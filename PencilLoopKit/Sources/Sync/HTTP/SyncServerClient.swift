@@ -280,6 +280,39 @@ public struct SyncServerClient: Sendable {
         let depth: String
     }
 
+    /// `GET /v1/documents/{folder}/narration` — how far along one is.
+    ///
+    /// Read rather than remembered. The relay is where a narration is made and
+    /// therefore the only place that knows whether one is being made; a flag on
+    /// the device is lost at the next launch.
+    ///
+    /// - Throws: `.folderUnavailable` when the relay cannot be reached.
+    public func narrationStatus(
+        forFolderName folderName: String
+    ) async throws -> NarrationStatus {
+        let request = signed(.get, path: "v1/documents/\(folderName)/narration")
+        let (data, response) = try await perform(request)
+        if let failure = SyncServerClient.failure(forStatusCode: response.statusCode, in: .fetch) {
+            throw failure
+        }
+        let body = try ContractCoding.decoder().decode(NarrationStateBody.self, from: data)
+        return NarrationStatus(
+            state: NarrationStatus.State(rawValue: body.state) ?? .failed,
+            minutes: body.minutes,
+            missedSections: body.missedSections ?? []
+        )
+    }
+
+    /// The body of `GET …/narration`.
+    ///
+    /// `error` is deliberately not decoded. It is written for whoever runs the
+    /// relay, and `NarrationStatus.summary` says what a reader can act on.
+    private struct NarrationStateBody: Decodable {
+        let state: String
+        let minutes: Double?
+        let missedSections: [String]?
+    }
+
     /// `GET /v1/groups` — which group each document should be filed under.
     ///
     /// A suggestion, not an instruction. The caller applies it through

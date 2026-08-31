@@ -23,6 +23,14 @@ actor AppUITestSyncCoordinator: SyncCoordinating {
         narrationRequests.append((folderName, depth))
     }
 
+    /// What `narrationStatus(forFolderName:)` reports. Settable so a test can
+    /// stand the sheet in front of any of the relay's five states.
+    var narrationState = NarrationStatus(state: .none)
+
+    func narrationStatus(forFolderName folderName: String) async throws -> NarrationStatus {
+        narrationState
+    }
+
     /// What the next `send(_:)` reports.
     private let isQueued: Bool
 

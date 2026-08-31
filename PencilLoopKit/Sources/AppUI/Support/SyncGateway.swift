@@ -168,6 +168,13 @@ public actor SyncGateway: SyncCoordinating {
         try await coordinator.requestNarration(forFolderName: folderName, depth: depth)
     }
 
+    public func narrationStatus(
+        forFolderName folderName: String
+    ) async throws -> NarrationStatus {
+        guard let coordinator else { throw SyncGateway.noFolder }
+        return try await coordinator.narrationStatus(forFolderName: folderName)
+    }
+
     @discardableResult
     public func ingestReply(fromReviewDirectory reviewDirectoryName: String) async throws -> UUID {
         guard let coordinator else { throw SyncGateway.noFolder }

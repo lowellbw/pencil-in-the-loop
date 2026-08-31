@@ -222,27 +222,43 @@ everywhere (`04-flows.md` § F3), so a build or a page without it leaves the not
 
 **Comment markers** sit in the page margin at the vertical position of their anchor.
 
-**Listen** (`headphones`) turns the document into something you can hear. It has three
-states and none of them is a spinner:
+**Listen** turns the document into something you can hear. **One button, one behaviour: it
+opens the sheet**, whether or not there is anything to play yet. The icon carries the only
+distinction worth making at a glance — `headphones.circle.fill` when there is audio on the
+device, the outline when there is not.
 
-| Narration | The button does |
+The sheet is where the states live, because they need room:
+
+| What the relay says | The sheet shows |
 |---|---|
-| present on device | opens the player |
-| none, and none asked for | asks the relay; the button reads *Preparing…* |
-| asked for, not arrived | *Preparing…*; tapping again does nothing |
+| nothing asked for | a length picker — Brief, Standard, In depth — and **Make One** |
+| being made | what it is doing, and that it carries on if you leave |
+| ready, and on the device | the player |
+| it failed | why, and **Try Again** |
+| no key on the relay | that it isn't set up, and *no* retry button — one that cannot work is worse than none |
 
-The middle state is the whole design. Making one takes minutes, and the reader is a
-protected path — CLAUDE.md non-negotiable 1 ends "a feature that blocks either path on a
-request still does not ship". So Listen enqueues and returns immediately, the audio arrives
-on a later scan exactly as a document does, and every failure leaves the reader as it was.
-With the relay unreachable it says so once and changes nothing.
+An earlier version put these in the toolbar, and the middle one was unreadable: a tap turned
+Listen into a greyed-out word that then did nothing for several minutes with no way to find
+out why. The states moved into the sheet and the toolbar went back to being a button that
+opens something.
 
-**The player** is a sheet with a medium detent and a grabber (§ 3 of the design
-principles): title, scrubber, back 30, play/pause, forward 15. Not a floating transport bar
-— § 4 rules out persistent chrome over the page, and this toolbar auto-hides on scroll, so
-a control living only here would vanish mid-listen. It plays with the screen locked and
-answers the lock screen and AirPods, and dictating a comment ducks it and hands it back
-(`AudioSessionArbiter`). What it plays is a two-host adaptation, not a reading —
+**The state comes from the relay, not from the app.** A local "I asked for one" flag is gone
+at the next launch, and the reader would then be offered a second narration of a document
+already halfway through one. The relay is where the work happens, so it is the thing that
+remembers; the sheet asks it every five seconds while it is open.
+
+**This is not the spinner non-negotiable 1 forbids.** That rule is about reading and
+annotating never *waiting* on the network. The sheet is something the reader deliberately
+opened and can dismiss with a swipe, asking returns immediately, the audio arrives on a later
+scan exactly as a document does, and the document behind it is untouched throughout. With the
+relay unreachable, the last known answer stands and nothing changes.
+
+**The player** is that same sheet once there is audio — medium detent and a grabber (§ 3 of
+the design principles): title, scrubber, back 30, play/pause, forward 15. Not a floating
+transport bar — § 4 rules out persistent chrome over the page, and this toolbar auto-hides on
+scroll, so a control living only there would vanish mid-listen. It plays with the screen
+locked and answers the lock screen and AirPods, and dictating a comment ducks it and hands it
+back (`AudioSessionArbiter`). What it plays is a two-host adaptation, not a reading —
 `docs/12-relay.md` § 4c.
 
 **The long-press is a stroke until it isn't.** A Pencil held still for 0.4s is, as far as

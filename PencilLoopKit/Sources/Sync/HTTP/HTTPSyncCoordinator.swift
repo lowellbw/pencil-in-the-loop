@@ -488,6 +488,12 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     ///
     /// The audio arrives on a later scan through `NarrationFetcher`, which is
     /// why nothing here waits and nothing here reports progress.
+    public func narrationStatus(
+        forFolderName folderName: String
+    ) async throws -> NarrationStatus {
+        try await client.narrationStatus(forFolderName: folderName)
+    }
+
     public func requestNarration(forFolderName folderName: String, depth: String) async throws {
         try await client.requestNarration(forFolderName: folderName, depth: depth)
         // So a narration finished while the poll was idling is collected now
