@@ -439,12 +439,13 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         SyncLog.coordinator.error(
             "The queued manifest did not describe its own files; rebuilding it before sending."
         )
-        object["files"] = actual.keys.sorted().map { path in
-            [
+        object["files"] = actual.keys.sorted().compactMap { path -> [String: Any]? in
+            guard let data = actual[path] else { return nil }
+            return [
                 "path": path,
-                "bytes": actual[path]!.count,
-                "sha256": RemoteDocumentPinner.sha256Hex(actual[path]!),
-            ] as [String: Any]
+                "bytes": data.count,
+                "sha256": RemoteDocumentPinner.sha256Hex(data),
+            ]
         }
         return BundleFile(
             relativePath: BundleManifest.fileName,
