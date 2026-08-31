@@ -43,22 +43,22 @@ import Core
 /// The player, and everything that happens before there is one to play.
 public struct NarrationSheet: View {
 
-    private let player: NarrationPlayer
-    private let model: ReaderModel
+    private let narration: NarrationController
 
     @State private var playback = NarrationPlayback()
     @State private var depth = "standard"
     @Environment(\.dismiss) private var dismiss
 
-    public init(player: NarrationPlayer, model: ReaderModel) {
-        self.player = player
-        self.model = model
+    private var player: NarrationPlayer { narration.player }
+
+    public init(narration: NarrationController) {
+        self.narration = narration
     }
 
     public var body: some View {
         NavigationStack {
             Group {
-                if model.hasNarration {
+                if narration.hasNarration {
                     self.transport
                 } else {
                     self.waiting
@@ -66,7 +66,7 @@ public struct NarrationSheet: View {
             }
             .padding(.vertical, 28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .navigationTitle(model.hasNarration ? "Listening" : "Listen")
+            .navigationTitle(narration.hasNarration ? "Listening" : "Listen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -83,7 +83,7 @@ public struct NarrationSheet: View {
 
     private var transport: some View {
         VStack(spacing: 28) {
-            Text(model.detail?.title ?? "")
+            Text(narration.title)
                 .font(.title3)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
@@ -145,24 +145,24 @@ public struct NarrationSheet: View {
     /// reader's side they are the same question with different answers.
     @ViewBuilder private var waiting: some View {
         VStack(spacing: 20) {
-            Image(systemName: model.isPreparingNarration ? "waveform" : "headphones")
+            Image(systemName: narration.isPreparing ? "waveform" : "headphones")
                 .font(.system(size: 44))
                 .foregroundStyle(.secondary)
-                .symbolEffect(.variableColor, isActive: model.isPreparingNarration)
+                .symbolEffect(.variableColor, isActive: narration.isPreparing)
                 .accessibilityHidden(true)
 
-            if model.isPreparingNarration {
+            if narration.isPreparing {
                 ProgressView()
                     .progressViewStyle(.circular)
             }
 
-            Text(model.narrationStatus?.summary ?? NarrationSheet.unknown)
+            Text(narration.status?.summary ?? NarrationSheet.unknown)
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 32)
 
-            if model.isPreparingNarration == false {
+            if narration.isPreparing == false {
                 self.ask
             }
         }
@@ -176,7 +176,7 @@ public struct NarrationSheet: View {
     /// make. All three cover every section; they differ in how much detail
     /// survives (`docs/12-relay.md` § 4c).
     @ViewBuilder private var ask: some View {
-        if model.narrationStatus?.state == .unconfigured {
+        if narration.status?.state == .unconfigured {
             EmptyView()
         } else {
             VStack(spacing: 16) {
@@ -189,9 +189,9 @@ public struct NarrationSheet: View {
                 .padding(.horizontal, 40)
 
                 Button {
-                    Task { await model.requestNarration(depth: depth) }
+                    Task { await narration.request(depth: depth) }
                 } label: {
-                    Text(model.narrationStatus?.state == .failed ? "Try Again" : "Make One")
+                    Text(narration.status?.state == .failed ? "Try Again" : "Make One")
                         .frame(maxWidth: 220)
                 }
                 .buttonStyle(.borderedProminent)
@@ -211,10 +211,10 @@ public struct NarrationSheet: View {
     private func follow() async {
         var ticks = 0
         while Task.isCancelled == false {
-            if model.hasNarration {
+            if narration.hasNarration {
                 playback = await player.playback()
             } else if ticks % NarrationSheet.relayEvery == 0 {
-                await model.refreshNarrationStatus()
+                await narration.refresh()
             }
             ticks += 1
             try? await Task.sleep(for: .milliseconds(NarrationSheet.tick))

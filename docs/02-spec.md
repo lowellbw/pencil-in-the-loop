@@ -30,8 +30,15 @@ to be set up, which is the point. Second run goes straight to the library.
 
 Behaviours: search across document text *and* recognised handwriting; sort by date added
 or title; group by status or by group; swipe left to archive; swipe right to pin or un-pin;
-touch and hold a row to file it; pull to force a folder re-scan. Tapping a row opens the
-reader in the detail column, and the sidebar collapses so the document has the screen.
+touch and hold a row to file it **or to listen to it**; pull to force a folder re-scan.
+Tapping a row opens the reader in the detail column, and the sidebar collapses so the
+document has the screen.
+
+**One chevron in the top left, not two.** The system puts its own sidebar toggle in the
+detail column's toolbar, next to ours. Ours is the one that stays, because it clears the
+selection as well as showing the column — which is what closing a document means here — and
+because a Pencil dragged over the page is ink, so the system's edge swipe draws a line
+instead of navigating (§ 5 of the design principles).
 
 **Pinned** holds whatever the user has put there, above everything else, and does not
 appear at all when nothing is pinned. A pinned document is drawn there and *only* there —
@@ -222,8 +229,12 @@ everywhere (`04-flows.md` § F3), so a build or a page without it leaves the not
 
 **Comment markers** sit in the page margin at the vertical position of their anchor.
 
-**Listen** turns the document into something you can hear. **One button, one behaviour: it
-opens the sheet**, whether or not there is anything to play yet. The icon carries the only
+**Listen** turns the document into something you can hear, **from the reader's toolbar or
+from a row's context menu in the library** — starting a paper playing and then reading
+something else is the obvious way to use this, and reaching it only through the open document
+made listening feel like a property of having that document open. Both go to the same sheet.
+**One button, one behaviour: it opens the sheet**, whether or not there is anything to play
+yet. The icon carries the only
 distinction worth making at a glance — `headphones.circle.fill` when there is audio on the
 device, the outline when there is not.
 

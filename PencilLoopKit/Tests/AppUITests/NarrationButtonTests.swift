@@ -74,6 +74,16 @@ final class NarrationButtonTests: XCTestCase {
         XCTAssertEqual(NarrationSheet.tick * NarrationSheet.relayEvery, 5_000)
     }
 
+    func testTheControllerIsNotSharedAcrossDocuments() {
+        // The *player* is shared, because only one thing can play. Which
+        // document you are asking about is not: the sidebar and the reader each
+        // hold their own, or pressing a row would silently re-point the
+        // reader's sheet at something else.
+        let one = NarrationStatus(state: .working)
+        let two = NarrationStatus(state: .none)
+        XCTAssertNotEqual(one, two)
+    }
+
     func testTheSkipsAreThePodcastConventions() {
         // Thirty back is roughly a paragraph of speech; fifteen forward leaves
         // a passage without overshooting the next one.

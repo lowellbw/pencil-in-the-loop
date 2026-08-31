@@ -38,6 +38,7 @@ public struct ReaderView: View {
     @Environment(\.scenePhase) private var scenePhase
     /// True while the player sheet is up.
     @State private var isListening = false
+    @State private var narration: NarrationController?
 
     @State private var model = ReaderModel()
 
@@ -263,8 +264,12 @@ public struct ReaderView: View {
     /// ─────────────────────────────────────────────────────────────────────────
     /// Hoisted out of `body`: the modifier chain there is long enough that
     /// inlining another expression pushes the type-checker over its budget.
-    private var narrationSheet: NarrationSheet {
-        NarrationSheet(player: self.environment.narrationPlayer, model: self.model)
+    private var narrationSheet: some View {
+        Group {
+            if let narration = self.narration {
+                NarrationSheet(narration: narration)
+            }
+        }
     }
 
     /// Listen to this document.
@@ -286,21 +291,36 @@ public struct ReaderView: View {
     private var listenButton: some View {
         Button {
             Task {
-                if self.model.hasNarration {
-                    await self.model.playNarration()
+                let controller = self.listenController()
+                if controller?.hasNarration == true {
+                    await controller?.play()
                 }
                 self.isListening = true
             }
         } label: {
             Label(
                 "Listen",
-                systemImage: self.model.hasNarration
+                systemImage: self.narration?.hasNarration == true
                     ? "headphones.circle.fill"
                     : "headphones"
             )
         }
-        .accessibilityLabel(self.model.hasNarration ? "Listen" : "Listen — none made yet")
+        .accessibilityLabel("Listen")
         .disabled(self.model.isReady == false)
+    }
+
+    /// Makes the controller on first use and points it at the open document.
+    ///
+    /// Lazily, because the reader is opened far more often than Listen is
+    /// tapped, and `target(folderName:title:)` is a no-op when it is already
+    /// pointed at this one — so reopening the sheet keeps what it knows.
+    @discardableResult
+    private func listenController() -> NarrationController? {
+        guard let detail = self.model.detail else { return nil }
+        let controller = self.narration ?? NarrationController(environment: self.environment)
+        controller.target(folderName: detail.folderName, title: detail.title)
+        self.narration = controller
+        return controller
     }
 
     private var pageMenu: some View {

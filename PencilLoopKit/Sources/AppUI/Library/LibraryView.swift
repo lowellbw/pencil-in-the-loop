@@ -8,6 +8,7 @@
 
 import SwiftUI
 import Core
+import Sync
 
 /// The library sidebar and the split view that holds it.
 ///
@@ -48,6 +49,8 @@ public struct LibraryView<Detail: View>: View {
     /// collapses the sidebar on launch — leaving a first run staring at "No
     /// Document Selected" with the library hidden behind a button.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var isListening = false
+    @State private var narration: NarrationController?
     @State private var isShowingSettings = false
 
     /// True while a new note is being made, which is long enough to press the
@@ -91,6 +94,13 @@ public struct LibraryView<Detail: View>: View {
         } detail: {
             if let summary = model.summary(id: selection) {
                 detail(summary)
+                    // The system puts its own sidebar toggle in the detail
+                    // column's toolbar, so with `libraryButton` beside it there
+                    // were two chevrons in the top left doing almost-but-not-
+                    // quite the same thing. Ours is the one that stays: it
+                    // clears the selection as well as showing the column, which
+                    // is what closing a document actually means here.
+                    .toolbar(removing: .sidebarToggle)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             libraryButton
@@ -100,6 +110,11 @@ public struct LibraryView<Detail: View>: View {
                 Text("No Document Selected")
                     .font(.body)
                     .foregroundStyle(.secondary)
+            }
+        }
+        .sheet(isPresented: $isListening) {
+            if let narration = self.narration {
+                NarrationSheet(narration: narration)
             }
         }
         .onChange(of: selection) { _, chosen in
@@ -421,7 +436,48 @@ public struct LibraryView<Detail: View>: View {
             }
             .contextMenu {
                 groupMenu(for: summary)
+                listenMenu(for: summary)
             }
+    }
+
+    /// Listen to a row without opening it.
+    ///
+    /// Starting a paper playing and then reading something else is the obvious
+    /// way to use this, and going through the reader to reach it made listening
+    /// feel like a property of the open document rather than of the document.
+    /// So the sidebar gets the same sheet, pointed at the row that was pressed.
+    @ViewBuilder private func listenMenu(for summary: DocumentSummary) -> some View {
+        Button {
+            Task {
+                let controller = self.listenController(for: summary)
+                if controller.hasNarration {
+                    await controller.play()
+                }
+                self.isListening = true
+            }
+        } label: {
+            Label(
+                NarrationFetcher.hasNarration(forFolderName: summary.folderName)
+                    ? "Listen"
+                    : "Listen…",
+                systemImage: NarrationFetcher.hasNarration(forFolderName: summary.folderName)
+                    ? "headphones.circle.fill"
+                    : "headphones"
+            )
+        }
+        .disabled(summary.isLocal == false)
+    }
+
+    /// Makes the controller on first use and points it at the pressed row.
+    ///
+    /// One controller for the whole sidebar rather than one per row:
+    /// `target(folderName:title:)` re-points it and clears what it knew, and
+    /// only one sheet is ever open, so a second is state nobody reads.
+    private func listenController(for summary: DocumentSummary) -> NarrationController {
+        let controller = self.narration ?? NarrationController(environment: self.environment)
+        controller.target(folderName: summary.folderName, title: summary.title)
+        self.narration = controller
+        return controller
     }
 
     /// The wash behind a row: green for pinned, its group's colour inside a
