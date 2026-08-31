@@ -115,7 +115,7 @@ jobs:
             -destination "platform=iOS Simulator,name=$SIMULATOR" \
             CODE_SIGNING_ALLOWED=NO
         env:
-          SIMULATOR: iPad Pro 13-inch (M4)
+          SIMULATOR: iPad Pro 13-inch (M5)
 
   check:
     name: Project checks (Linux)
