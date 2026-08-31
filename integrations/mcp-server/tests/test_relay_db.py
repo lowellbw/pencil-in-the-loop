@@ -298,5 +298,59 @@ class ReindexTests(IndexTestCase):
         self.assertEqual(self.index.changes_since(0), [])
 
 
+class NoteFileAddedTests(IndexTestCase):
+    """A file the server wrote into a document it already knows about.
+
+    `reconcile()` cannot do this: it skips a directory already in the index, by
+    design, because it is for adopting whole bundles. So there has to be a way
+    to add one file to an indexed document and have a device hear about it.
+    """
+
+    def _document(self) -> str:
+        folder = "2026-08-26-a-paper"
+        (self.inbox / folder).mkdir(parents=True, exist_ok=True)
+        (self.inbox / folder / "source.md").write_text("# A paper\n")
+        self.index.reconcile(self.root)
+        return folder
+
+    def test_the_file_and_the_sequence_number_move_together(self) -> None:
+        folder = self._document()
+        before = self.index.document(folder).seq
+
+        seq = self.index.note_file_added(
+            folder, "narration.mp3", byte_count=17, sha256="deadbeef"
+        )
+
+        self.assertGreater(seq, before, "a device that has seen this must see it again")
+        self.assertEqual(self.index.document(folder).seq, seq)
+        names = {f["name"] for f in self.index.files_for(folder)}
+        self.assertIn("narration.mp3", names)
+
+    def test_it_appears_to_a_device_that_had_already_caught_up(self) -> None:
+        folder = self._document()
+        caught_up = self.index.cursor
+
+        self.index.note_file_added(
+            folder, "narration.mp3", byte_count=17, sha256="deadbeef"
+        )
+
+        changed = [row.folder_name for row in self.index.changes_since(caught_up)]
+        self.assertIn(folder, changed)
+
+    def test_writing_it_twice_updates_rather_than_duplicates(self) -> None:
+        folder = self._document()
+        self.index.note_file_added(
+            folder, "narration.mp3", byte_count=17, sha256="old"
+        )
+        self.index.note_file_added(
+            folder, "narration.mp3", byte_count=99, sha256="new"
+        )
+
+        audio = [f for f in self.index.files_for(folder) if f["name"] == "narration.mp3"]
+        self.assertEqual(len(audio), 1)
+        self.assertEqual(audio[0]["bytes"], 99)
+        self.assertEqual(audio[0]["sha256"], "new")
+
+
 if __name__ == "__main__":
     unittest.main()

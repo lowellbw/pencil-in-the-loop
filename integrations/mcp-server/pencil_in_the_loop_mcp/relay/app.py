@@ -391,9 +391,20 @@ def create_app(
             _write_narration_state(folder_name, {"state": "failed", "error": str(error)})
             return
 
-        # Written whole, then the state — so a reader that sees "ready" is
-        # looking at a file that is entirely there.
-        (directory / relay_files.NARRATION_FILE).write_bytes(made.audio)
+        # Written whole, then indexed, then the state — so a reader that sees
+        # "ready" is looking at a file that is entirely there *and* that the
+        # feed already advertises. Writing it to the volume is not enough on its
+        # own: `reconcile()` only adopts bundles it has never seen, so a file
+        # appearing inside an indexed document reaches no device until the index
+        # is told and the document is re-stamped into the feed.
+        path = directory / relay_files.NARRATION_FILE
+        path.write_bytes(made.audio)
+        index.note_file_added(
+            folder_name,
+            relay_files.NARRATION_FILE,
+            byte_count=len(made.audio),
+            sha256=relay_files.sha256_of(path),
+        )
         state = {"state": "ready", **made.as_dict()}
         _write_narration_state(folder_name, state)
 

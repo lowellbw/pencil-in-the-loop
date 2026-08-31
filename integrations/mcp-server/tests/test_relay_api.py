@@ -905,6 +905,36 @@ class NarrationTests(RelayApiTestCase):
             b"ID3-pretend-mp3",
         )
 
+    def test_the_finished_audio_is_advertised_on_the_feed(self) -> None:
+        """Writing it to the volume is not delivering it.
+
+        This is the bug this test exists for. `reconcile()` adopts bundles it
+        has never seen and deliberately skips a directory it already knows, so a
+        file written *inside* an indexed document is invisible to it — and the
+        feed answers from `documents.seq`, so a device that has already seen the
+        document never asks again. Narrations were generated, written and
+        reported ready while no device was ever told. The disk assertion above
+        passed the whole time, which is exactly why this one is here.
+        """
+        folder = self.folder()
+        before = self.client.get("/v1/changes", headers=self.auth).json()["cursor"]
+        self.ask(folder)
+        self.wait_ready(folder)
+
+        feed = self.client.get(
+            f"/v1/changes?since={before}", headers=self.auth
+        ).json()
+        entry = next(
+            (d for d in feed["documents"] if d["folderName"] == folder), None
+        )
+        self.assertIsNotNone(entry, "the document must re-enter the feed")
+        audio = next(
+            (f for f in entry["files"] if f["name"] == "narration.mp3"), None
+        )
+        self.assertIsNotNone(audio, "the feed is how the iPad learns it exists")
+        self.assertEqual(audio["bytes"], len(b"ID3-pretend-mp3"))
+        self.assertEqual(audio["sha256"], sha(b"ID3-pretend-mp3"))
+
     def test_the_finished_audio_can_be_downloaded_like_any_other_file(self) -> None:
         folder = self.folder()
         self.ask(folder)

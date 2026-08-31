@@ -273,6 +273,43 @@ class Index:
                 (folder_name, name, byte_count, sha256),
             )
 
+    def note_file_added(
+        self, folder_name: str, name: str, *, byte_count: int, sha256: str
+    ) -> int:
+        """Record a file the server itself wrote, and re-enter the feed.
+
+        **Both halves, or neither, which is why this is one call.** `reconcile()`
+        adopts whole bundles that are not in the index; it deliberately skips a
+        directory it already knows, so a file appearing *inside* an indexed
+        document is invisible to it. And a `document_files` row on its own is
+        invisible too: the feed answers from `documents.seq`, so a device that
+        has already seen this document never asks again and never learns the
+        file exists.
+
+        That was a real bug, not a hypothetical: narrations were generated,
+        written to the volume and reported ready, and no device was ever told.
+
+        The seq is re-stamped for the same reason `complete_document` re-stamps
+        it — the document enters the feed at the moment it became newly
+        readable, not the moment it was first announced.
+
+        - Returns: the new sequence number.
+        """
+        with self.transaction():
+            self.connection.execute(
+                "INSERT INTO document_files (folder_name, name, bytes, sha256, present) "
+                "VALUES (?, ?, ?, ?, 1) "
+                "ON CONFLICT(folder_name, name) DO UPDATE SET "
+                "bytes = excluded.bytes, sha256 = excluded.sha256, present = 1",
+                (folder_name, name, byte_count, sha256),
+            )
+            seq = self.next_seq()
+            self.connection.execute(
+                "UPDATE documents SET seq = ?, updated_at = ? WHERE folder_name = ?",
+                (seq, core.utc_now_iso(), folder_name),
+            )
+        return seq
+
     def missing_files(self, folder_name: str) -> list[str]:
         rows = self.connection.execute(
             "SELECT name FROM document_files WHERE folder_name = ? AND present = 0 "

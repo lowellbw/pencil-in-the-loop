@@ -264,9 +264,15 @@ GET  /v1/documents/{folder}/narration
      "provider": "elevenlabs", "missedSections": []}
 ```
 
-It writes `narration.mp3` into the document's bundle, where `reconcile()` indexes it and the
-change feed advertises it with size and hash like every other file. The device fetches it on
-its next scan. See `docs/05-file-contracts.md` § `narration.mp3` for why it is not a
+It writes `narration.mp3` into the document's bundle, then tells the index
+(`note_file_added`), and the change feed then advertises it with size and hash like every
+other file. The device fetches it on its next scan.
+
+**Both steps, and the second one is not optional.** `reconcile()` adopts bundles it has never
+seen and deliberately skips a directory it already knows, so a file written *inside* an
+indexed document is invisible to it; and the feed answers from `documents.seq`, so a device
+that has already seen the document never asks again. Writing the bytes and re-stamping the
+document are one call for that reason — either half alone delivers nothing. See `docs/05-file-contracts.md` § `narration.mp3` for why it is not a
 *pinnable* file.
 
 **Not verbatim, and not a summary.** A two-host adaptation that covers every section in the
