@@ -91,16 +91,21 @@ public struct LibraryView<Detail: View>: View {
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
+                // The system puts its own sidebar toggle in the detail column's
+                // toolbar, so with `libraryButton` beside it there were two
+                // chevrons in the top left doing almost-but-not-quite the same
+                // thing. Ours is the one that stays: it clears the selection as
+                // well as showing the column, which is what closing a document
+                // actually means here.
+                //
+                // **It goes on the sidebar's content, not the detail's**, even
+                // though the button it removes appears over the detail. That is
+                // the API's shape and not an obvious one: put on `detail` it
+                // compiles, changes nothing, and leaves both chevrons there.
+                .toolbar(removing: .sidebarToggle)
         } detail: {
             if let summary = model.summary(id: selection) {
                 detail(summary)
-                    // The system puts its own sidebar toggle in the detail
-                    // column's toolbar, so with `libraryButton` beside it there
-                    // were two chevrons in the top left doing almost-but-not-
-                    // quite the same thing. Ours is the one that stays: it
-                    // clears the selection as well as showing the column, which
-                    // is what closing a document actually means here.
-                    .toolbar(removing: .sidebarToggle)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             libraryButton
