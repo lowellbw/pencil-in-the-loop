@@ -11,7 +11,6 @@
 
 import SwiftUI
 import UIKit
-import UniformTypeIdentifiers
 import Core
 import Annotate
 
@@ -27,10 +26,8 @@ import Annotate
 public struct SettingsView: View {
 
     @State private var model: SettingsModel
-    @State private var isChoosingFolder = false
     @State private var serverURLText = ""
     @State private var serverToken = ""
-    @State private var shownTransport: SyncTransport?
     @State private var isConfirmingPurge = false
 
     @Environment(\.dismiss) private var dismiss
@@ -63,9 +60,6 @@ public struct SettingsView: View {
             .task {
                 await model.load()
             }
-            .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
-                self.handle(result)
-            }
         }
     }
 
@@ -77,75 +71,27 @@ public struct SettingsView: View {
     @ViewBuilder
     private var folderSection: some View {
         Section("Sync") {
-            Picker("Documents arrive from", selection: transportBinding) {
-                ForEach(SyncTransport.allCases, id: \.self) { transport in
-                    Text(transport.displayName).tag(transport)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            if (shownTransport ?? model.settings.transport) == .folder {
-                ValueRow(
-                    title: "Folder",
-                    value: model.settings.syncFolderDisplayName ?? "Not chosen"
-                )
-                Button("Change Folder…") {
-                    isChoosingFolder = true
-                }
-            } else {
-                ValueRow(
-                    title: "Relay",
-                    value: model.settings.serverDisplayName ?? "Not connected"
-                )
-            }
-        }
-
-        if (shownTransport ?? model.settings.transport) == .server {
-            SyncServerForm(
-                urlText: $serverURLText,
-                token: $serverToken,
-                isBusy: model.isConnectingToServer,
-                problem: model.statusMessage,
-                onConnect: {
-                    Task {
-                        await model.adoptServer(urlText: serverURLText, token: serverToken)
-                        // Never keep a credential in view state a moment longer
-                        // than the request needs it.
-                        serverToken = ""
-                    }
-                }
+            ValueRow(
+                title: "Relay",
+                value: model.settings.serverDisplayName ?? "Not connected"
             )
         }
-    }
 
-    /// Switching to the folder re-attaches it immediately; switching to the
-    /// relay only reveals the form, because there is nothing to attach until an
-    /// address and token have been typed.
-    /// Which pane the section is showing.
-    ///
-    /// Held in view state rather than read straight from settings, because
-    /// choosing "Server" has to reveal the form *before* anything is persisted
-    /// — there is nothing to save until an address and a token have been typed.
-    /// Reading the persisted transport in the getter is the bug this replaces:
-    /// the setter changed no value the getter looked at, so the picker snapped
-    /// back and Server could not be selected at all.
-    private var transportBinding: Binding<SyncTransport> {
-        Binding(
-            get: { shownTransport ?? model.settings.transport },
-            set: { chosen in
-                shownTransport = chosen
-                guard chosen != model.settings.transport else { return }
-                if chosen == .folder {
-                    Task { await model.useFolderTransport() }
-                } else {
-                    serverURLText = model.settings.serverBaseURLString
-                        ?? RelayDefaults.baseURL?.absoluteString
-                        ?? ""
+        SyncServerForm(
+            urlText: $serverURLText,
+            token: $serverToken,
+            isBusy: model.isConnectingToServer,
+            problem: model.statusMessage,
+            onConnect: {
+                Task {
+                    await model.adoptServer(urlText: serverURLText, token: serverToken)
+                    // Never keep a credential in view state a moment longer
+                    // than the request needs it.
+                    serverToken = ""
                 }
             }
         )
     }
-
     // The page tint is not here any more. It is on the page it tints
     // (`ReaderView.pageMenu`), which is the only screen where the difference
     // between Cream and Sepia can be seen while it is being chosen. It is still
@@ -266,15 +212,6 @@ public struct SettingsView: View {
     /// transcribe and hid ones it could.
     private static func languageName(_ identifier: String) -> String {
         Locale.current.localizedString(forIdentifier: identifier) ?? identifier
-    }
-
-    private func handle(_ result: Result<URL, any Error>) {
-        switch result {
-        case let .success(url):
-            Task { await self.model.adoptFolder(url) }
-        case let .failure(error):
-            model.report(SyncFolderChoice.describe(error))
-        }
     }
 
     // MARK: - Rows

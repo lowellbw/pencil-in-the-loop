@@ -162,7 +162,16 @@ public struct AppSettings: Codable, Sendable, Hashable {
     /// install that predates the relay lands here, and so does any settings
     /// blob a future build writes a transport this build has never heard of.
     public var transport: SyncTransport {
-        syncTransport ?? .folder
+        // **Always the relay now.** The folder transport was removed, so a blob
+        // still saying `.folder` — every install that chose it, and every one
+        // written before the relay existed — names a transport this build
+        // cannot honour. Answering `.folder` would strand those devices on a
+        // transport that is not there, with nothing on screen to say why, which
+        // is the exact failure `transportChosenByUser` was added to fix.
+        //
+        // The case is kept rather than deleted so an older blob still decodes
+        // and a rollback still reads it; it simply stops being an answer.
+        .server
     }
 
     /// The groups in force.

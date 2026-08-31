@@ -117,7 +117,7 @@ final class ReviewSheetModel {
     /// True once *this sheet* has recorded its send against the document.
     ///
     /// One delivery, one writer. The sheet records the bundle its own Send
-    /// press put in `outbox/`; `SyncCoordinator.flushQueue` records a queued
+    /// press put in `outbox/`; `HTTPSyncCoordinator.flushQueue` records a queued
     /// bundle that reached `outbox/` later, because a flush waits on the
     /// network and usually happens long after this sheet has gone. Nothing on
     /// the event path writes here, so this guards one route rather than
@@ -210,7 +210,7 @@ final class ReviewSheetModel {
             outcome?.delivery = .written(at: now)
 
             // A queue that has just been flushed — the one delivery this sheet
-            // does not own. `SyncCoordinator.flushQueue` records it against the
+            // does not own. `HTTPSyncCoordinator.flushQueue` records it against the
             // document *before* emitting this event, because it is the only
             // component still there when a flush lands hours after the sheet
             // was closed. So by the time this arrives the store already says
@@ -617,7 +617,7 @@ final class ReviewSheetModel {
     /// `.reviewing` — sent-pending, which is neither sent nor un-reviewed — and
     /// the Sent screen says "Will send when online" over the same fact.
     ///
-    /// The queued bundle is recorded by `SyncCoordinator.flushQueue` at the
+    /// The queued bundle is recorded by `HTTPSyncCoordinator.flushQueue` at the
     /// moment it reaches `outbox/`, whether or not this sheet still exists —
     /// and it usually does not, since a flush waits on the network. This sheet
     /// only reflects it, on `SyncEvent.reviewWritten`.

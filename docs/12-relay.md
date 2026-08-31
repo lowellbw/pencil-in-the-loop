@@ -8,25 +8,25 @@ this document specifies only envelopes, cursors and status codes.
 The relay's storage *is* a sync root: a volume holding the same `inbox/` and `outbox/`
 layout, which is why `integrations/mcp-server/pencil_in_the_loop_mcp/core.py` runs against
 it unchanged. `GET /v1/export.tar` produces a tarball you can untar into a Dropbox folder,
-and the folder transport picks up exactly where the relay left off. Migration in either
-direction is a `tar`.
+and the layout is the one `docs/05-file-contracts.md` specifies, unchanged. The bytes are
+still yours without the app; getting them out is a `tar`.
 
-**It is second in the order it was built, and first in the order it is offered.** A build
-that ships pointed at a relay (`Config/Local.xcconfig` → `RelayDefaults`) adopts it without
-asking, because the folder needs a file provider configured at both ends and that is the
+**It is second in the order it was built, and now the only one there is.** A build that
+ships pointed at a relay (`Config/Local.xcconfig` → `RelayDefaults`) adopts it without
+asking, because the folder needed a file provider configured at both ends and that is the
 friction this exists to remove.
 
-That does not demote what the folder is for. It needs no network, no account and no uptime
-from anyone, it is fully supported, and it is one tap away in Settings; a build with no
-relay configured still starts there. If the relay is down, a device that has already synced
-loses nothing either way: every document it holds is pinned in its own container and opens
-on a plane exactly as before.
+**The folder transport was removed in August 2026.** It had been the reference path and then,
+for months, the one nobody used. What it was for is worth stating, because it is what was
+given up: it needed no network, no account and nobody's uptime. Getting a new document onto
+the iPad now needs this relay to be up.
 
----
+What did not change: every document is still downloaded in full and pinned into the app's own
+container, so a device that has already synced loses nothing when the relay is down. The
+library opens on a plane exactly as before. That property never came from the transport — it
+comes from `PinnedDocumentWriter`, which both transports used and which one still does.
 
-## 1 · Why it exists
-
-The folder transport requires a file provider configured on both ends. That is one
+The folder transport required a file provider configured on both ends. That was one
 setting, and it is the setting that turned out to stop the loop working at all: iCloud
 Drive switched off on a Mac means the shared folder does not exist, the iPad's library
 stays empty for ever, and nothing anywhere says why.
@@ -261,7 +261,7 @@ the same id to retry; send no id to mean a second document.** Idempotency is abo
 retrying one call, not deduplicating intent.
 
 `folderName` is derived and *server-allocated*, using the same `-2`/`-3` collision ladder
-as the folder transport, because two callers can want one name and only the server can
+as the folder transport used, because two callers can want one name and only the server can
 arbitrate. Never guess it; use what the response returns.
 
 For reviews the key is the hash of `manifest.json`, and there are three cases:

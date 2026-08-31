@@ -7,7 +7,7 @@
 //  twice in two files is how two screens end up disagreeing about what a valid
 //  address is.
 //
-//  The sibling of `SyncFolderChoice`, and deliberately the same shape.
+//  Once the sibling of the folder picker, and the only one of the two left.
 //
 
 import Foundation
@@ -74,7 +74,7 @@ public enum SyncServerChoice {
 
     /// One line a person can read, for a status row or an inline message.
     ///
-    /// The same treatment `SyncFolderChoice` gives folder errors, so the two
+    /// The same treatment `SyncFailure` gives every other error, so the two
     /// paths report failure in one voice.
     public nonisolated static func describe(_ error: any Error) -> String {
         if let known = error as? PencilLoopError {

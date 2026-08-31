@@ -182,7 +182,7 @@ public actor DocumentStore: DocumentStoring {
     /// - **The row exists and its pinned bytes are still on disk.** The reason
     ///   is recorded as a *refresh* failure and `localState` is left alone, so
     ///   the row stays readable. A pin that fails leaves the previous copy in
-    ///   place (`InboxItemPinner.swap(staging:into:)`), so those bytes are
+    ///   place (`PinnedDocumentWriter.commit(staging:snapshot:)`), so those bytes are
     ///   exactly the ones the user read yesterday, and "losing the folder costs
     ///   you new documents, never existing ones" (docs/02-spec.md
     ///   § Cross-cutting) has to hold for a provider hiccup too.
@@ -731,7 +731,7 @@ public actor DocumentStore: DocumentStoring {
         // it — `knownFolderNames()` never returns the new one, so the scanner
         // treats it as new for ever, and `documentId(forFolderName:)` cannot
         // match a `reply.md` written into `<new folder>.review` back to it
-        // (SyncCoordinator.collectReplies).
+        // (HTTPSyncCoordinator, the replies it announces).
         //
         // Safe against the `@Attribute(.unique)` on `folderName`: `upsert`
         // looks a row up by folder name first, so reaching this line with a

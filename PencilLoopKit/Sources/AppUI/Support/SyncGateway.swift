@@ -6,7 +6,7 @@
 //  it may or may not have yet.
 //
 //  ─── WHY THERE IS A THING IN FRONT OF SYNC AT ALL ────────────────────────────
-//  `SyncCoordinator` is built around a resolved `SyncFolder`. The app is not:
+//  `HTTPSyncCoordinator` is built around a reachable relay. The app is not:
 //  it launches before the folder is picked (S0), and it launches perfectly well
 //  when the folder has gone away — an ejected volume, a signed-out provider, a
 //  bookmark that will not resolve. Losing the folder costs you *new* documents,

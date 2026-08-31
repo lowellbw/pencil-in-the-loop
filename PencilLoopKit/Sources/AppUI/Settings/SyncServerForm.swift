@@ -4,7 +4,7 @@
 //
 //  Two fields and a button. Shared by first run and Settings so that the only
 //  place in the app where a relay address is typed is this one — the folder
-//  path learned that lesson through `SyncFolderChoice`, and the same reasoning
+//  path learned that lesson through the folder picker it replaced, and the same reasoning
 //  applies to a form.
 //
 //  There is deliberately no account here, no sign-up and no logo. A relay is

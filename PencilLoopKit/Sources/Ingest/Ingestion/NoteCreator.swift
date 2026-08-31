@@ -11,7 +11,7 @@
 //  locally a moment earlier.
 //
 //  ─── WHY NOT THROUGH THE SYNC FOLDER ─────────────────────────────────────────
-//  `SyncCoordinator.ingestReply` synthesises a document in-process already, and
+//  `HTTPSyncCoordinator` synthesises a document in-process already, and
 //  it would have been the obvious thing to copy. It writes into the user's
 //  `inbox/` and lets the scanner find it, which is wrong twice here: a note
 //  could then only be created when a folder had been adopted — so not on a
@@ -231,7 +231,7 @@ public struct NoteCreator: Sendable {
         let created = try await ingestor.ingest(item)
 
         // `DocumentIngestor` reads meta.json but does not copy it: for a
-        // document that arrived, `InboxItemPinner` has already put it in the
+        // document that arrived, `RemoteDocumentPinner` has already put it in the
         // container. A note has no pinner, so without this the directory has
         // no meta.json at all — and re-ingesting it later, which is what
         // adding pages and re-ruling do, would mint a fresh id and orphan every

@@ -33,7 +33,7 @@
 //  `DocumentFileNames` — `document.pdf`, `source.md`, `sourcemap.json`,
 //  `meta.json` — plus Sync's `.pinned.json` completion sidecar, written last.
 //  A directory without that sidecar is a copy that did not finish and is
-//  re-pinned rather than trusted (`InboxItemPinner`).
+//  re-pinned rather than trusted (`RemoteDocumentPinner`).
 //
 
 import Foundation

@@ -166,7 +166,7 @@ final class Document {
     /// Separate from `localState` on purpose. A failed *refresh* of a document
     /// whose pinned bytes are still on disk does not make the document
     /// unreadable — the pin either replaced the previous copy or rolled it back
-    /// (`InboxItemPinner`) — so the row keeps `.local` and carries this note
+    /// (`RemoteDocumentPinner`) — so the row keeps `.local` and carries this note
     /// instead. Writing `.unavailable` there would dim a row the user could
     /// read offline yesterday, which docs/02-spec.md § Cross-cutting forbids.
     var refreshFailureReason: String?

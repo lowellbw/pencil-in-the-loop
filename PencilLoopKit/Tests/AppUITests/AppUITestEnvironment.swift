@@ -33,7 +33,6 @@ struct AppUITestEnvironment: AppEnvironment {
     let returnPathResolver: any ReturnPathResolving
     let settings: any SettingsStoring
     let groups: any DocumentGrouping
-    let folderAccess: any FolderAccessing
 
     /// - Parameter transcriber: an engine that stays open until `stop()`, for
     ///   the tests about what a released hold does. The default finishes its
@@ -57,11 +56,7 @@ struct AppUITestEnvironment: AppEnvironment {
         let settingsStore = PreviewSettingsStore(settings: settings)
         self.settings = settingsStore
         self.groups = settingsStore
-        self.folderAccess = PreviewFolderAccess()
     }
-
-    /// Nothing to attach: these tests never resolve a folder.
-    func adoptFolder(_ folder: SyncFolder) async {}
 
     /// Inert, like `adoptFolder`. Nothing in AppUITests exercises adoption —
     /// the address and token are checked by `SyncServerChoiceTests` before this

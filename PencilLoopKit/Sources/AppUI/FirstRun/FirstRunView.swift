@@ -2,73 +2,64 @@
 //  FirstRunView.swift
 //  AppUI · FirstRun
 //
-//  S0. One screen, one job (docs/02-spec.md § S0).
+//  S0. One screen, one job — and in the ordinary case nobody sees it
+//  (docs/02-spec.md § S0).
 //
 
 import SwiftUI
-import UniformTypeIdentifiers
 import Core
 import Sync
 
-/// Settle the sync folder. That is the whole screen, and in the ordinary case
-/// nobody reads it.
+/// Settle the relay. That is the whole screen.
 ///
-/// **It tries the default first.** The app's own iCloud container needs no
-/// picking and is visible on the Mac as `iCloud Drive/PencilLoop`
-/// (`DefaultSyncFolder`), so on a device with iCloud Drive on, this screen
-/// resolves it, adopts it and is gone — one line of status, no decision, no
-/// account, no carousel, no logo (docs/01-design-principles.md § 6).
+/// **It tries the shipped relay first.** A build that ships pointed at one
+/// (`Config/Local.xcconfig` → `RelayDefaults`) adopts it without asking: no
+/// address, no token, no account, no decision, no carousel, no logo
+/// (docs/01-design-principles.md § 6). For most installs first run is a status
+/// line that is gone before it is read.
 ///
-/// **The picker is the fallback, not the flow.** iCloud Drive can be off, the
-/// device can be signed out, and somebody may simply keep their documents
-/// somewhere else. Then the button appears, with the reason above it, and S0 is
-/// what it always was. Settings offers the same picker afterwards (S6), so the
-/// default is a default rather than a decision made on the user's behalf.
+/// **The form is the fallback, not the flow.** Two builds reach it: one made
+/// from a checkout with no `Config/Local.xcconfig`, which knows the address but
+/// not the token and so asks only for that; and one with neither, which asks
+/// for both. Settings offers the same form afterwards (S6).
 ///
-/// Either way the bookmark is stored and `inbox/`/`outbox/` are created by
-/// `SyncFolderChoice.adopt(_:folderAccess:settings:)` — one path for a picked
-/// folder and a defaulted one, so there is no second way to be half-set-up.
-/// Once `AppSettings.hasCompletedFirstRun` is set the shell shows the library
-/// instead and this screen is never seen again.
+/// This screen used to settle a *folder*, with the relay as the quiet second
+/// option. The folder transport is gone and the two have swapped places — there
+/// is now one way to be set up, which is the point.
 ///
-/// **On failure:** the reason appears in secondary text and the button stays.
-/// There is no dead end here — the only way out of this screen is a folder, so
+/// **On failure:** the reason appears in secondary text and the form stays.
+/// There is no dead end here — the only way out of this screen is a relay, so
 /// it must always be possible to try again.
 public struct FirstRunView: View {
 
     private let environment: any AppEnvironment
-    private let onFinish: (SyncFolder) -> Void
 
-    /// Called when the user connected a relay instead of picking a folder.
-    /// Takes no folder, because there is not one — `adoptServer` has already
-    /// attached the coordinator by the time this fires.
+    /// Called once a relay is connected. Takes no argument: `adoptServer` has
+    /// already attached the coordinator by the time this fires.
     private let onAdoptedServer: () -> Void
 
-    @State private var isChoosingFolder = false
     @State private var isPreparing = false
     @State private var problem: String?
 
-    /// Nil until the default has been tried. Until then the screen shows the
-    /// status line alone: offering a picker for half a second and then taking
-    /// it away as iCloud answers would be worse than showing nothing.
+    /// Nil until the shipped relay has been tried. Until then the screen shows
+    /// the status line alone: offering a form for half a second and then taking
+    /// it away would be worse than showing nothing.
     @State private var hasTriedDefault = false
     @State private var isChoosingServer = false
     @State private var serverURLText = ""
     @State private var serverToken = ""
 
     /// - Parameters:
-    ///   - environment: settings are written through it, the folder is prepared
-    ///     through its `folderAccess`, and the one-time speech asset download
-    ///     is started through its transcriber (docs/03-architecture.md § 4).
-    ///   - onFinish: called with the prepared folder, so the shell can start
-    ///     syncing it without re-reading settings.
+    ///   - environment: settings are written through it, the relay is adopted
+    ///     through it, and the one-time speech asset download is started
+    ///     through its transcriber (docs/03-architecture.md § 4).
+    ///   - onAdoptedServer: called once the relay is attached, so the shell can
+    ///     show the library without re-reading settings.
     public init(
         environment: any AppEnvironment,
-        onFinish: @escaping (SyncFolder) -> Void = { _ in },
         onAdoptedServer: @escaping () -> Void = {}
     ) {
         self.environment = environment
-        self.onFinish = onFinish
         self.onAdoptedServer = onAdoptedServer
     }
 
@@ -80,22 +71,13 @@ public struct FirstRunView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
 
-            // Only once the default has been tried and did not work. Before
-            // that there is nothing to choose and nothing worth tapping.
+            // Only once the shipped relay has been tried and did not work.
+            // Before that there is nothing to enter and nothing worth tapping.
             if hasTriedDefault {
-                Button("Choose Folder…") {
-                    isChoosingFolder = true
-                }
-                .font(.body)
-                .disabled(isPreparing)
-
-                // The second way out, and deliberately the quieter one. A
-                // folder needs no network, no account and nobody's uptime, and
-                // stays the path this app was designed around.
-                Button("Use a relay instead…") {
+                Button("Connect a Relay…") {
                     isChoosingServer = true
                 }
-                .font(.footnote)
+                .font(.body)
                 .disabled(isPreparing)
             }
 
@@ -109,11 +91,8 @@ public struct FirstRunView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
-            self.handle(result)
-        }
         .task {
-            await self.adoptDefaultFolder()
+            await self.adoptShippedRelay()
         }
         .sheet(isPresented: $isChoosingServer) {
             NavigationStack {
@@ -137,7 +116,7 @@ public struct FirstRunView: View {
         }
     }
 
-    /// Connect a relay from first run.
+    /// Connect a relay the user typed in.
     ///
     /// The token is cleared as soon as the call returns, whichever way it went:
     /// a credential should not sit in view state waiting to be screenshotted.
@@ -161,35 +140,26 @@ public struct FirstRunView: View {
         isPreparing = false
     }
 
-    /// What the screen says, which depends only on whether the default is still
-    /// being tried.
+    /// What the screen says, which depends only on how far the build got.
     private var explanation: String {
         if RelayDefaults.isPartiallyConfigured {
-            return "This build knows your relay's address but not its access token. Enter the token to connect, or choose a folder instead."
+            return "This build knows your relay's address but not its access token. Enter the token to connect."
         }
         if hasTriedDefault {
-            return "Choose a folder this iPad shares with your computer. Documents put there appear in your library, and the reviews you send go back the same way."
+            return "Connect the relay your documents are sent to. Its address and access token are in the relay's setup output."
         }
-        if RelayDefaults.isConfigured {
-            return "Connecting to your library."
-        }
-        return "Setting up your folder in iCloud Drive. Documents put there appear in your library, and the reviews you send go back the same way."
+        return "Connecting to your library."
     }
 
-    /// Resolve the app's iCloud folder and adopt it, falling back to the picker.
+    /// Adopt the relay this build ships with, if it ships with one.
     ///
-    /// The resolve is `Task.detached` because
-    /// `url(forUbiquityContainerIdentifier:)` blocks, for seconds on a first
-    /// call — running it on the main actor would hold the frame this screen is
-    /// currently drawing (`DefaultSyncFolder`, file header).
-    private func adoptDefaultFolder() async {
+    /// This is the whole of first run for anyone using a configured build: no
+    /// address, no token, no screen they have to understand before they can
+    /// read anything.
+    private func adoptShippedRelay() async {
         guard hasTriedDefault == false, isPreparing == false else { return }
         isPreparing = true
 
-        // A build that ships pointed at a relay has nothing to ask. This is the
-        // whole of first run for anyone using one: no folder, no address, no
-        // token, no screen they have to understand before they can read
-        // anything.
         if RelayDefaults.isConfigured,
            let baseURL = RelayDefaults.baseURL,
            let token = RelayDefaults.token {
@@ -200,18 +170,15 @@ public struct FirstRunView: View {
                 onAdoptedServer()
                 return
             } catch {
-                // Fall through to the folder. A relay that will not take us is
-                // a reason to offer the other transport, not to stop.
+                // Stated rather than apologised for, with the form underneath.
+                // There is no other transport to fall back to now.
                 problem = SyncServerChoice.describe(error)
             }
         }
 
         // The address without the token — a checkout built without
-        // `Config/Local.xcconfig`. The documents are on that relay, so
-        // adopting a folder by default would sync an empty elsewhere while
-        // everything sent from a session quietly misses this iPad. Ask for
-        // the token instead, address already filled in; the folder stays one
-        // tap behind Cancel.
+        // `Config/Local.xcconfig`. Ask for the token with the address already
+        // filled in, rather than an empty form.
         if RelayDefaults.isPartiallyConfigured, let baseURL = RelayDefaults.baseURL {
             serverURLText = baseURL.absoluteString
             hasTriedDefault = true
@@ -219,57 +186,9 @@ public struct FirstRunView: View {
             isChoosingServer = true
             return
         }
-        do {
-            let url = try await Task.detached(priority: .userInitiated) {
-                try DefaultSyncFolder.locate()
-            }.value
-            try await self.finish(adopting: url)
-        } catch {
-            // Not an error the user did anything about, so it is stated rather
-            // than apologised for, and the picker appears underneath it.
-            self.problem = SyncFolderChoice.describe(error)
-            self.hasTriedDefault = true
-        }
+
+        hasTriedDefault = true
         isPreparing = false
-    }
-
-    private func handle(_ result: Result<URL, any Error>) {
-        switch result {
-        case let .success(url):
-            adopt(url)
-        case let .failure(error):
-            problem = SyncFolderChoice.describe(error)
-        }
-    }
-
-    private func adopt(_ url: URL) {
-        isPreparing = true
-        problem = nil
-        Task {
-            do {
-                try await self.finish(adopting: url)
-            } catch {
-                self.problem = SyncFolderChoice.describe(error)
-            }
-            self.isPreparing = false
-        }
-    }
-
-    /// Adopt a folder, however it was arrived at.
-    ///
-    /// The picked and the defaulted paths share this so that there is exactly
-    /// one place `hasCompletedFirstRun` is set and one place the speech assets
-    /// are queued.
-    private func finish(adopting url: URL) async throws {
-        let folder = try await SyncFolderChoice.adopt(
-            url,
-            folderAccess: self.environment.folderAccess,
-            settings: self.environment.settings
-        )
-        // Queued, not awaited to completion: the download runs in the
-        // background and Settings reports it (docs/03-architecture.md § 4).
-        await self.environment.transcriber.prepareAssets()
-        self.onFinish(folder)
     }
 }
 

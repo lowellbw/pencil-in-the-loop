@@ -206,7 +206,7 @@ public final class LibraryModel {
             apply(fetched)
             isLoaded = true
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
             isLoaded = true
         }
     }
@@ -225,7 +225,7 @@ public final class LibraryModel {
                 ? "No new documents"
                 : "\(ingested) new " + (ingested == 1 ? "document" : "documents")
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
         await load()
     }
@@ -240,7 +240,7 @@ public final class LibraryModel {
             try await environment.store.setState(.read, documentId: summary.id)
             await load()
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 
@@ -252,7 +252,7 @@ public final class LibraryModel {
             try await environment.store.setState(.archived, documentId: summary.id)
             apply(rows.filter { $0.id != summary.id })
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 
@@ -273,7 +273,7 @@ public final class LibraryModel {
                 return updated
             })
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 
@@ -294,7 +294,7 @@ public final class LibraryModel {
             try await environment.groups.setGroupName(name, forFolderName: folderName)
             await reapplyGroups()
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 
@@ -308,7 +308,7 @@ public final class LibraryModel {
             try await environment.groups.renameGroup(name, to: newName)
             await reapplyGroups()
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 
@@ -345,7 +345,7 @@ public final class LibraryModel {
         do {
             try await environment.store.reorderPinned(ids)
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
             // The write is the thing that lasts, so if it failed the list has to
             // go back to what is actually stored rather than keep a drag nobody
             // recorded.
@@ -366,7 +366,7 @@ public final class LibraryModel {
             try await environment.groups.reorderGroups(names)
             await reapplyGroups()
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 
@@ -404,7 +404,7 @@ public final class LibraryModel {
             await load()
             return summary.id
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
             return nil
         }
     }

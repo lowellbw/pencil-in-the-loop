@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import UniformTypeIdentifiers
 import Core
 
 /// The library sidebar and the split view that holds it.
@@ -49,7 +48,6 @@ public struct LibraryView<Detail: View>: View {
     /// collapses the sidebar on launch — leaving a first run staring at "No
     /// Document Selected" with the library hidden behind a button.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var isChoosingFolder = false
     @State private var isShowingSettings = false
 
     /// True while a new note is being made, which is long enough to press the
@@ -249,9 +247,6 @@ public struct LibraryView<Detail: View>: View {
                 await self.model.load()
                 self.selection = requested
             }
-        }
-        .fileImporter(isPresented: $isChoosingFolder, allowedContentTypes: [.folder]) { result in
-            self.adopt(result)
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(environment: environment)
@@ -637,15 +632,6 @@ public struct LibraryView<Detail: View>: View {
                     }
                     .font(.body)
                     .disabled(isCreatingNote)
-                    // The folder picker is only on the folder transport.
-                    // Offering it to someone whose documents come from a relay
-                    // sends them to fix something that is not broken.
-                    if model.transport == .folder {
-                        Button("Choose Folder…") {
-                            isChoosingFolder = true
-                        }
-                        .font(.body)
-                    }
                 } else {
                     Text("No Results")
                         .font(.body)
@@ -657,28 +643,6 @@ public struct LibraryView<Detail: View>: View {
         }
     }
 
-    private func adopt(_ result: Result<URL, any Error>) {
-        switch result {
-        case let .success(url):
-            Task {
-                do {
-                    let folder = try await SyncFolderChoice.adopt(
-                        url,
-                        folderAccess: self.environment.folderAccess,
-                        settings: self.environment.settings
-                    )
-                    // Persisting the bookmark is half of it; this is what makes
-                    // documents start arriving (AppEnvironment.adoptFolder).
-                    await self.environment.adoptFolder(folder)
-                    await self.model.refresh()
-                } catch {
-                    self.model.report(SyncFolderChoice.describe(error))
-                }
-            }
-        case let .failure(error):
-            model.report(SyncFolderChoice.describe(error))
-        }
-    }
 }
 
 #Preview("Library") {

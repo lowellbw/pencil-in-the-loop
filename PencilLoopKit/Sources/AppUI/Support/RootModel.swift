@@ -118,9 +118,17 @@ public final class RootModel {
         // So it asks the question it actually means. `transportChosenByUser` is
         // set only by the two Settings actions that are a choice, so nil means
         // nobody has decided and the shipped default may still speak.
+        //
+        // ─── AND WHY IT NO LONGER ASKS AT ALL ────────────────────────────────
+        // The folder transport is gone, so there is no longer a second thing
+        // for a choice to have selected. An install that pressed "Folder" has
+        // `transportChosenByUser == true` and a transport this build cannot
+        // honour; respecting that choice would strand it on a transport that
+        // does not exist, permanently, with nothing on screen to say why —
+        // exactly the failure the paragraph above was written about. So the
+        // two conditions that read the old choice are gone and the shipped
+        // relay is adopted for anyone who has not already got one.
         if settings.hasCompletedFirstRun,
-           settings.transportChosenByUser != true,
-           settings.transport != .server,
            RelayDefaults.isConfigured,
            let baseURL = RelayDefaults.baseURL,
            let token = RelayDefaults.token {
@@ -129,8 +137,9 @@ public final class RootModel {
                 settings = await built.settings.settings
                 ReaderLog.shell.notice("Adopted the relay this build ships with.")
             } catch {
-                // Keep whatever transport was already working. A relay that
-                // will not take us is not a reason to lose a folder.
+                // Nothing else to fall back to now, so this is reported rather
+                // than swallowed: the guard below sends the reader to the
+                // server form, which is the only way out.
                 ReaderLog.shell.error("Could not adopt the shipped relay: \(error.localizedDescription)")
             }
         }
@@ -150,15 +159,9 @@ public final class RootModel {
             return
         }
 
-        guard settings.hasCompletedFirstRun, let bookmark = settings.syncFolderBookmark else {
-            phase = .firstRun
-            return
-        }
-
-        // The library first, the folder second. In that order the reader is
-        // usable before a file provider has been asked anything at all.
-        phase = .library
-        await attach(bookmark: bookmark, in: built)
+        // No relay, or first run never finished: there is one screen left and
+        // it asks for a relay.
+        phase = .firstRun
     }
 
     /// Builds the environment away from the main thread.
@@ -179,29 +182,20 @@ public final class RootModel {
         }.value
     }
 
-    /// First run finished, or Settings changed the folder: start syncing it and
-    /// show the library.
-    public func adopt(_ folder: SyncFolder) async {
-        guard let live else { return }
-        await live.adoptFolder(folder)
-        phase = .library
-    }
-
-    /// First run finished by adopting a relay rather than a folder.
+    /// First run finished by adopting a relay.
     ///
     /// `adoptServer` has already attached the coordinator and started it, so
     /// there is nothing left to do but show the library — which is why this
-    /// takes no argument and does not go through `adopt(_:)`.
+    /// takes no argument.
     public func showLibrary() {
         phase = .library
     }
 
     /// The scene became active.
     ///
-    /// Two jobs, both cheap: re-scan, because file coordination does not
-    /// reliably see every change a provider made while we were away
-    /// (docs/02-spec.md § S1), and retry the folder if it was not there at
-    /// launch — a volume gets remounted, a provider signs back in, and nothing
+    /// Two jobs, both cheap: re-scan, because the relay may have taken
+    /// documents while we were away (docs/02-spec.md § S1), and retry the relay
+    /// if it could not be reached at launch — a network comes back, and nothing
     /// else in the app is watching for that.
     public func noteActive() async {
         guard let live, case .library = phase else { return }
@@ -209,9 +203,7 @@ public final class RootModel {
             await live.sync.start()
             return
         }
-        let settings = await live.settings.settings
-        guard let bookmark = settings.syncFolderBookmark else { return }
-        await attach(bookmark: bookmark, in: live)
+        _ = await live.adoptPersistedServer()
     }
 
     /// The scene went away. Stops the watcher; the library stays fully usable.
@@ -220,43 +212,9 @@ public final class RootModel {
         await live.sync.stop()
     }
 
-    // MARK: - The folder
-
-    /// The documented resolution ladder (Protocols.swift § FolderAccessing).
-    ///
-    /// 1. Resolve the bookmark.
-    /// 2. A stale bookmark still yields a usable folder — take it from
-    ///    `refreshedFolder(bookmark:)`, which also mints a replacement, and
-    ///    persist that so the *next* launch does not have to do this.
-    /// 3. Anything else: one sentence in the status line, and carry on. The
-    ///    library is already on screen and every document in it opens.
-    private func attach(bookmark: Data, in live: LiveEnvironment) async {
-        do {
-            let folder = try live.folderAccess.resolveFolder(bookmark: bookmark)
-            await live.adoptFolder(folder)
-        } catch let error as PencilLoopError {
-            guard case .bookmarkStale = error else {
-                await report(error, in: live)
-                return
-            }
-            do {
-                let folder = try live.folderAccess.refreshedFolder(bookmark: bookmark)
-                try? await live.settingsStore.setSyncFolder(
-                    bookmark: folder.bookmark,
-                    displayName: folder.displayName
-                )
-                await live.adoptFolder(folder)
-            } catch {
-                await report(error, in: live)
-            }
-        } catch {
-            await report(error, in: live)
-        }
-    }
-
-    /// Puts a folder problem where folder problems belong: the library's status
+    /// Puts a sync problem where sync problems belong: the library's status
     /// line, through the same event stream a running coordinator would use.
     private func report(_ error: any Error, in live: LiveEnvironment) async {
-        await live.gateway.reportFolderUnavailable(SyncFolderChoice.describe(error))
+        await live.gateway.reportFolderUnavailable(SyncFailure.describe(error))
     }
 }

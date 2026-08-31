@@ -123,7 +123,11 @@ final class AppSettingsInkResetTests: XCTestCase {
 
         XCTAssertEqual(settings.ink, .standard, "the ink did reset")
         XCTAssertEqual(settings.transportChosenByUser, true, "and the choice did not")
-        XCTAssertEqual(settings.transport, .folder)
+        XCTAssertEqual(
+            settings.transport,
+            .server,
+            "The choice is still recorded, but there is no second transport for it to select any more."
+        )
     }
 
     /// A blob already at this generation is somebody's deliberate choice.

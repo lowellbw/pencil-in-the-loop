@@ -266,7 +266,7 @@ public final class ReaderModel {
         } catch {
             // The notebook is exactly as it was, so reopening below puts the
             // reader back on it rather than leaving an empty detail column.
-            self.unavailableMessage = SyncFolderChoice.describe(error)
+            self.unavailableMessage = SyncFailure.describe(error)
         }
         await self.open(documentId: growing, environment: environment)
     }
@@ -301,7 +301,7 @@ public final class ReaderModel {
         } catch {
             // The notebook is exactly as it was, so reopening below puts the
             // reader back on it with the old ruling rather than nothing.
-            self.unavailableMessage = SyncFolderChoice.describe(error)
+            self.unavailableMessage = SyncFailure.describe(error)
         }
         await self.open(documentId: changing, environment: environment)
     }

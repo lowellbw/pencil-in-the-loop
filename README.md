@@ -25,27 +25,28 @@ place, and sending the whole review back to the conversation the document came f
 
 ## The one-paragraph version
 
-The app watches a user-chosen folder. Anything that lands in `inbox/` shows up in the
-library and is readable offline. You annotate with the Pencil and press-and-hold to
-speak comments anchored to specific passages. When you're done, the app writes a
-review bundle to `outbox/` and pokes the originating session so the review arrives in
-the same thread. Every integration — Cowork, Claude Code, Codex — reads and writes that
-same folder. There is no account, and no format beyond the files themselves.
+The app talks to a small hosted relay over HTTPS. Anything sent to it shows up in the
+library, downloaded in full and readable offline. You annotate with the Pencil and
+press-and-hold to speak comments anchored to specific passages. When you're done, the app
+sends a review bundle back and pokes the originating session so the review arrives in the
+same thread. Every integration — Cowork, Claude Code, Codex — reads and writes the same
+`inbox/` and `outbox/` layout the relay stores. There is no account, and no format beyond
+the files themselves.
 
-A shared folder needs a file provider configured at both ends, which turns out to be a
-real barrier, so there is now a second way to move the same files: an opt-in hosted
-relay the iPad talks to over HTTPS. It stores and serves the identical `inbox/` and
-`outbox/` layout, it is new and unproven, and nothing depends on it — the folder
-transport is the reference path and keeps working untouched.
+It began as a shared folder, and that is still the layout on disk. But a shared folder
+needs a file provider configured at both ends, which turned out to be a real barrier — the
+loop could not run end to end on the first machine it was tried on. The relay was built as
+a second transport, became the default, and in August 2026 the folder was removed. One
+transport is one thing to keep working.
 
 ## Non-negotiables
 
 1. **Offline first.** Every feature except the initial sync and the send-back works on a
    plane. No network call is ever on the critical path of reading or annotating.
 2. **The files are the API.** No proprietary format. If a tool can write a file, it can
-   send you a document. A build that ships pointed at a relay uses it by default; the
-   folder is fully supported, is one tap away in Settings, and remains the path that
-   works with no network at all. Both carry exactly the same bytes.
+   send you a document. The relay stores and serves that layout unchanged, and
+   `GET /v1/export.tar` hands the whole thing back as a directory — the bytes are yours
+   without the app.
 3. **One mode.** Finger scrolls, Pencil draws. The user never switches tools to annotate.
 4. **Anchors survive regeneration.** Comments attach to quoted text, never to line numbers.
 5. **Native, not branded.** See `docs/01-design-principles.md`. If a screen looks like it

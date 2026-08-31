@@ -75,7 +75,6 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
     public let bundleBuilder: any ReviewBundleBuilding
     public let returnPathResolver: any ReturnPathResolving
     public let settings: any SettingsStoring
-    public let folderAccess: any FolderAccessing
 
     /// The gateway, concretely, so `RootModel` can attach a coordinator to it.
     /// The same object as `sync`; this is only a spelling that does not need a
@@ -90,13 +89,6 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
     /// does. One actor rather than two because both halves write the same
     /// `UserDefaults` blob (`AppSettingsStore`).
     public var groups: any DocumentGrouping { settingsStore }
-
-    /// The folder access, concretely. `SyncCoordinator` takes this type rather
-    /// than `any FolderAccessing`: it opens a security scope in one method and
-    /// closes it in another, which the protocol's scoped `withAccess` cannot
-    /// express (Sync/Folder/SyncFolderAccess.swift).
-    public let syncFolderAccess: SyncFolderAccess
-
     /// - Parameter store: injectable so a test or a demo can run the real UI
     ///   against an in-memory library. The app passes nothing and gets
     ///   `DocumentStore.live()`.
@@ -132,35 +124,6 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
         self.bundleBuilder = ReviewBundleBuilder()
         self.returnPathResolver = ReturnPathResolver()
 
-        let access = SyncFolderAccess()
-        self.syncFolderAccess = access
-        self.folderAccess = access
-    }
-
-    // MARK: - The sync loop
-
-    /// Builds the coordinator for a resolved folder, puts it behind the gateway
-    /// and starts it.
-    ///
-    /// Called by `RootModel` at launch when a bookmark resolves, and again when
-    /// the user picks a folder in first run or changes it in Settings. Attaching
-    /// a second time replaces the first coordinator and stops it.
-    ///
-    /// The ingester writes into `DocumentContainer.documentsRoot()` — the app
-    /// container's one document layout, which is also where Sync pins and what
-    /// Storage records paths relative to. Three Wave 1 units each invented their
-    /// own and the cost was documents recorded by absolute path, which stop
-    /// opening after a reinstall (STYLE.md § 9).
-    public func adoptFolder(_ folder: SyncFolder) async {
-        let coordinator = SyncCoordinator(
-            folder: folder,
-            store: store,
-            ingester: DocumentIngestor(),
-            access: syncFolderAccess,
-            groups: settingsStore
-        )
-        await gateway.attach(coordinator)
-        await gateway.start()
     }
 
     /// Adopt a relay: remember it, keep its token in the Keychain, attach.
@@ -203,9 +166,9 @@ public nonisolated struct LiveEnvironment: AppEnvironment {
 
     /// The nine lines that make a relay the app's sync loop.
     ///
-    /// Kept beside `adoptFolder` on purpose: this file is the one place in the
-    /// app where a concrete type from another module is named, and having both
-    /// coordinators constructed here is what keeps that true.
+    /// This file is the one place in the app where a concrete type from another
+    /// module is named, and the coordinator being constructed here is what
+    /// keeps that true.
     private func attachServerCoordinator(baseURL: URL, token: String) async {
         let client = SyncServerClient(baseURL: baseURL, token: token)
         let coordinator = HTTPSyncCoordinator(

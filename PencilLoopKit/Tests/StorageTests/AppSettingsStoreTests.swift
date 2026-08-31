@@ -64,39 +64,6 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.ink.tool, .marker)
         XCTAssertEqual(reloaded.ink.tintHex, "#0A84FF")
     }
-
-    func testBookmarkRoundTrips() async throws {
-        let store = AppSettingsStore(suiteName: suiteName)
-        let bookmark = Data("a security-scoped bookmark".utf8)
-
-        try await store.setSyncFolder(bookmark: bookmark, displayName: "Pencil Loop")
-
-        let stored = await store.syncFolderBookmark
-        XCTAssertEqual(stored, bookmark)
-        let settings = await store.settings
-        XCTAssertEqual(settings.syncFolderDisplayName, "Pencil Loop")
-
-        let reopened = AppSettingsStore(suiteName: suiteName)
-        let reloaded = await reopened.settings
-        XCTAssertEqual(reloaded.syncFolderBookmark, bookmark)
-        XCTAssertEqual(reloaded.syncFolderDisplayName, "Pencil Loop")
-    }
-
-    func testForgettingTheFolderKeepsEveryOtherSetting() async throws {
-        let store = AppSettingsStore(suiteName: suiteName)
-        var settings = await store.settings
-        settings.pageTint = .cream
-        try await store.update(settings)
-        try await store.setSyncFolder(bookmark: Data([0x01]), displayName: "Pencil Loop")
-
-        try await store.setSyncFolder(bookmark: nil, displayName: nil)
-
-        let after = await store.settings
-        XCTAssertNil(after.syncFolderBookmark, "no bookmark sends the app back to first run")
-        XCTAssertNil(after.syncFolderDisplayName)
-        XCTAssertEqual(after.pageTint, .cream)
-    }
-
     func testCompletingFirstRunIsIdempotent() async throws {
         let store = AppSettingsStore(suiteName: suiteName)
         try await store.completeFirstRun()
@@ -145,7 +112,11 @@ final class AppSettingsStoreTests: XCTestCase {
             settings.hasCompletedFirstRun,
             "losing this sends an existing user back to the first-run picker"
         )
-        XCTAssertEqual(settings.transport, .folder, "an upgrade never changes transport")
+        XCTAssertEqual(
+            settings.transport,
+            .server,
+            "The folder transport is gone, so a blob that predates the relay reads as the relay — anything else strands the device on a transport this build cannot honour."
+        )
         XCTAssertNil(settings.syncTransport)
         XCTAssertNil(settings.serverBaseURLString)
         XCTAssertNil(settings.serverBaseURL)
@@ -183,7 +154,7 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertEqual(settings.ink, InkDefaults.standard)
         XCTAssertEqual(settings.transcriptionLocaleIdentifier, "en-GB")
         XCTAssertTrue(settings.sendInkedPagesAsImages)
-        XCTAssertEqual(settings.transport, .folder)
+        XCTAssertEqual(settings.transport, .server, "there is only one transport left to fall back to")
     }
 
     // MARK: - The server transport
@@ -205,14 +176,12 @@ final class AppSettingsStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.serverDisplayName, "The relay")
     }
 
-    func testAdoptingAServerKeepsTheFolderAndKeepsTheTokenOutOfDefaults() async throws {
+    func testAdoptingAServerKeepsTheTokenOutOfDefaults() async throws {
         let keychain = KeychainDouble()
         let store = AppSettingsStore(
             suiteName: suiteName,
             tokenKeychain: SyncTokenKeychain(items: keychain.items)
         )
-        try await store.setSyncFolder(bookmark: Data([0x01, 0x02]), displayName: "Pencil")
-
         try await store.setSyncServer(
             baseURLString: "https://relay.example.com",
             displayName: "The relay",
@@ -221,12 +190,6 @@ final class AppSettingsStoreTests: XCTestCase {
 
         let settings = await store.settings
         XCTAssertEqual(settings.transport, .server)
-        XCTAssertEqual(
-            settings.syncFolderBookmark,
-            Data([0x01, 0x02]),
-            "adopting a server must never cost the user their folder"
-        )
-        XCTAssertEqual(settings.syncFolderDisplayName, "Pencil")
 
         let token = await store.syncServerToken(forHost: "Relay.Example.com")
         XCTAssertEqual(token, "a-bearer-token", "a host is matched case-insensitively")
@@ -253,7 +216,7 @@ final class AppSettingsStoreTests: XCTestCase {
         }
 
         let settings = await store.settings
-        XCTAssertEqual(settings.transport, .folder)
+        XCTAssertEqual(settings.transport, .server)
         XCTAssertNil(settings.serverBaseURLString)
         XCTAssertEqual(keychain.calls, [], "nothing is written when the address is refused")
     }

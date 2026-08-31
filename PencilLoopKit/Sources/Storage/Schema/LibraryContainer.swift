@@ -37,7 +37,7 @@ public enum LibraryContainer {
         //
         // SwiftData turns CloudKit syncing on by itself whenever the app has an
         // iCloud entitlement — and this app has one, for the default sync folder
-        // in its own container (Sync/Folder/DefaultSyncFolder.swift). CloudKit
+        // in its own container. CloudKit
         // then demands a schema it can mirror: every attribute optional or
         // defaulted, every relationship optional, and no unique constraints.
         // This schema is none of those — `folderName` and `id` are unique on

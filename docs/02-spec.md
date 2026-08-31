@@ -4,11 +4,20 @@ Screens in the order a user meets them. Visual reference: `ui/mockups.html`.
 
 ## S0 · First run
 
-One screen, one job: pick the sync folder. A short line of explanation, a "Choose
-Folder…" button opening `fileImporter`, and nothing else. Store a security-scoped
-bookmark. Create `inbox/` and `outbox/` inside it if absent.
+One screen, one job — and in the ordinary case nobody sees it. A build that ships pointed at
+a relay (`Config/Local.xcconfig` → `RelayDefaults`) adopts it without asking: no address, no
+token, no account, no onboarding carousel. First run is a status line that is gone before it
+is read.
 
-No account, no login, no onboarding carousel. Second run goes straight to the library.
+Two builds get a form instead. One made from a checkout with no `Config/Local.xcconfig`
+knows the relay's address but not its token, so it asks for the token with the address
+already filled in. One with neither asks for both. Settings offers the same form afterwards
+(S6), and there is no dead end: the only way out of this screen is a relay, so it must always
+be possible to try again.
+
+**This screen used to settle a folder**, with the relay as the quiet second option. The
+folder transport was removed in August 2026 and the two swapped places; there is now one way
+to be set up, which is the point. Second run goes straight to the library.
 
 ## S1 · Library
 
@@ -281,9 +290,9 @@ Never a dead end.
 
 ## S6 · Settings
 
-Deliberately short. Sync folder (change), ink defaults, transcription language, "Send inked
-pages as images" default, and a Storage row showing cache size with a purge button. Nothing
-else.
+Deliberately short. The relay (address and access token), ink defaults, transcription
+language, "Send inked pages as images" default, and a Storage row showing cache size with a
+purge button. Nothing else.
 
 Shorter by one row than it was: the page tint is chosen on the page it tints (§ S2). A
 setting whose whole point is how something looks does not belong two taps away from the
@@ -305,8 +314,9 @@ demand, not thumbnails-until-tapped, and never evicted by the system.
   spinner on a plane, which defeats the entire point.
 - The library shows a per-document local state, and Settings shows total storage with a
   purge control. The user decides what leaves the device; the system never does.
-- Nothing may become unreadable because the sync folder is unreachable. Losing the folder
-  costs you *new* documents, never existing ones.
+- Nothing may become unreadable because the relay is unreachable. Losing it costs you *new*
+  documents, never existing ones — every document is pinned in the app's own container and
+  opens on a plane.
 
 Budget: a 60-page PDF is a few MB. A thousand documents is comfortably within a 128GB
 iPad. There is no reason to be clever here — keep everything.

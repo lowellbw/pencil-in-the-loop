@@ -103,7 +103,7 @@ public final class SettingsModel {
         do {
             storageBytes = try await environment.store.storageBytes()
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 
@@ -130,7 +130,7 @@ public final class SettingsModel {
                 ? "Nothing to remove"
                 : freed.formatted(.byteCount(style: .file)) + " removed"
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 
@@ -151,25 +151,6 @@ public final class SettingsModel {
         guard let kept = try? await environment.store.knownFolderNames() else { return }
         try? await environment.groups.pruneGroups(keeping: kept)
     }
-
-    /// Adopts a folder the user picked in Settings, and re-reads what changed.
-    public func adoptFolder(_ url: URL) async {
-        do {
-            let folder = try await SyncFolderChoice.adopt(
-                url,
-                folderAccess: environment.folderAccess,
-                settings: environment.settings
-            )
-            // A folder chosen in Settings that only takes effect after a
-            // relaunch is a folder the user will assume did not work.
-            await environment.adoptFolder(folder)
-            settings = await environment.settings.settings
-            statusMessage = nil
-        } catch {
-            statusMessage = SyncFolderChoice.describe(error)
-        }
-    }
-
     /// Points the app at a relay, and proves it before saying it worked.
     ///
     /// The proof is a `refresh()`, not a dedicated ping endpoint. It is the same
@@ -196,34 +177,6 @@ public final class SettingsModel {
             statusMessage = SyncServerChoice.describe(error)
         }
     }
-
-    /// Goes back to the folder the user picked, which was never forgotten.
-    ///
-    /// **On failure:** the reason goes in `statusMessage`. A folder whose
-    /// bookmark has gone stale leaves the app on the relay rather than on
-    /// nothing.
-    public func useFolderTransport() async {
-        do {
-            var updated = await environment.settings.settings
-            guard let bookmark = updated.syncFolderBookmark else {
-                statusMessage = "No folder has been chosen on this iPad yet."
-                return
-            }
-            updated.syncTransport = .folder
-            // Said out loud, so the shipped relay is not adopted over the top
-            // of it on the next launch (`AppSettings.transportChosenByUser`).
-            updated.transportChosenByUser = true
-            try await environment.settings.update(updated)
-            settings = updated
-
-            let folder = try environment.folderAccess.resolveFolder(bookmark: bookmark)
-            await environment.adoptFolder(folder)
-            statusMessage = nil
-        } catch {
-            statusMessage = SyncFolderChoice.describe(error)
-        }
-    }
-
     /// Marks the transport now in force as the user's own choice.
     ///
     /// Only the two Settings actions call this. The relay a build ships pointed
@@ -248,7 +201,7 @@ public final class SettingsModel {
             try await environment.settings.update(updated)
             statusMessage = nil
         } catch {
-            statusMessage = SyncFolderChoice.describe(error)
+            statusMessage = SyncFailure.describe(error)
         }
     }
 }

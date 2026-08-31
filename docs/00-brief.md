@@ -93,8 +93,10 @@ not to be true on the first machine it was tried on, the loop could not run end 
 all. So a small hosted relay was built as a second, opt-in transport, and this list is
 amended rather than quietly contradicted. It stores and serves the exact `inbox/` and
 `outbox/` layout of `05-file-contracts.md` — it is a place to put the same files, not a
-service with a data model of its own. The folder transport is unchanged and remains the
-reference path, reading and annotating still never touch the network, and documents are
+service with a data model of its own. **The folder transport was then removed in August
+2026** — it had been the reference path and then the one nobody used, and one transport is
+one thing to keep working. Reading and annotating still never wait on the network, and
+documents are
 still downloaded in full and pinned on arrival: a relay makes fetch-on-open tempting and
 that is precisely the thing that would gut the app. `11-backlog.md` records the
 reconsideration; `12-relay.md` specifies the thing.

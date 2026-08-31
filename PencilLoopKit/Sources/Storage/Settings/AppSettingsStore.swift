@@ -5,12 +5,12 @@
 //  `SettingsStoring`, and with it the security-scoped bookmark for the sync
 //  folder (`AppSettings.syncFolderBookmark`).
 //
-//  ─── WHERE THE BOOKMARK LIVES, AND WHERE IT DOES NOT ─────────────────────────
-//  Storage *stores* the bookmark bytes. It does not mint them, resolve them, or
-//  open a security scope: that is `FolderAccessing`, which is declared under
-//  `// MARK: - Sync` in Core/Contracts/Protocols.swift and belongs to the Sync
-//  unit. Storage cannot implement it anyway — `prepareFolder(at:)` has to create
-//  `inbox/` and `outbox/` inside a scope only Sync opens.
+//  ─── THE BOOKMARK IS HISTORY, AND IS KEPT ANYWAY ─────────────────────────────
+//  `syncFolderBookmark` and `syncFolderDisplayName` are still in `AppSettings`
+//  and nothing reads them: the folder transport is gone. They stay because
+//  removing a field is the one settings change that cannot be undone — a build
+//  that writes the blob without them takes the bookmark out of it for good, and
+//  a rollback then lands the user on first run. Unread bytes cost nothing.
 //
 //  So the split is: Sync mints, Storage keeps, Sync resolves on next launch.
 //  ─────────────────────────────────────────────────────────────────────────────
@@ -98,31 +98,6 @@ public actor AppSettingsStore: SettingsStoring, DocumentGrouping {
     }
 
     // MARK: - Bookmark storage
-
-    /// Stores the security-scoped bookmark Sync minted, with the folder's
-    /// display name for the Settings row.
-    ///
-    /// Passing nil for `bookmark` forgets the folder entirely, which sends the
-    /// app back to first run (`AppSettings.syncFolderBookmark` nil ⇒ S0). Every
-    /// other setting is preserved.
-    ///
-    /// - Throws: `PencilLoopError.storeWriteFailed`, as `update(_:)` does.
-    public func setSyncFolder(bookmark: Data?, displayName: String?) throws {
-        var next = stored
-        next.syncFolderBookmark = bookmark
-        next.syncFolderDisplayName = displayName
-        try update(next)
-    }
-
-    /// The stored bookmark, or nil on first run.
-    ///
-    /// Sync resolves it with `FolderAccessing.resolveFolder(bookmark:)`; a stale
-    /// bookmark is normal, and the recovery is to mint a fresh one and call
-    /// `setSyncFolder(bookmark:displayName:)` again.
-    public var syncFolderBookmark: Data? {
-        stored.syncFolderBookmark
-    }
-
     // MARK: - Server storage
     //
     // Deliberately not on `SettingsStoring`. That protocol lives in Core and is

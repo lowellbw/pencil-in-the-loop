@@ -94,38 +94,6 @@ public protocol AppEnvironment: Sendable {
     /// files a document is not handed the whole of the user's configuration to
     /// write one string.
     var groups: any DocumentGrouping { get }
-
-    /// Security-scoped access to the user's sync folder.
-    ///
-    /// Here because two screens need `prepareFolder(at:)` and there was no
-    /// route to it: first run (docs/02-spec.md § S0) *is* the folder picker,
-    /// and Settings § S6 changes it. Both took it as an extra initialiser
-    /// parameter as a stopgap, which meant three views with two dependencies
-    /// each and three call sites to keep in step.
-    ///
-    /// Everything else the folder is needed for — scanning, pinning, writing —
-    /// belongs to `sync`, which holds its own access. A view should reach for
-    /// this only to adopt a folder the user has just picked, and
-    /// `SyncFolderChoice.adopt(_:folderAccess:settings:)` is the one place that
-    /// happens.
-    var folderAccess: any FolderAccessing { get }
-
-    /// Point the app's sync loop at a folder the user has just chosen, and
-    /// start it.
-    ///
-    /// The other half of `SyncFolderChoice.adopt(_:folderAccess:settings:)`:
-    /// that persists the bookmark, this is what makes documents start arriving.
-    /// Both first run (§ S0) and Settings (§ S6) call it, because a folder
-    /// chosen in Settings that only takes effect after a relaunch is a folder
-    /// the user will assume did not work.
-    ///
-    /// **On failure:** nothing to report. Attaching cannot fail — a folder that
-    /// turns out to be unreachable surfaces as `SyncEvent.folderUnavailable` in
-    /// the library's status line, which is where a folder problem belongs.
-    /// Idempotent: adopting the same folder twice replaces the first
-    /// coordinator rather than running two.
-    func adoptFolder(_ folder: SyncFolder) async
-
     /// Point the app's sync loop at a hosted relay, and start it.
     ///
     /// The token goes to the Keychain, the address and the transport to
@@ -162,7 +130,6 @@ public struct PreviewEnvironment: AppEnvironment {
     public let returnPathResolver: any ReturnPathResolving
     public let settings: any SettingsStoring
     public let groups: any DocumentGrouping
-    public let folderAccess: any FolderAccessing
 
     /// - Parameters:
     ///   - summaries: rows the previewed library shows.
@@ -187,12 +154,10 @@ public struct PreviewEnvironment: AppEnvironment {
         let settingsStore = PreviewSettingsStore(settings: settings)
         self.settings = settingsStore
         self.groups = settingsStore
-        self.folderAccess = PreviewFolderAccess()
     }
 
-    /// Nothing to attach: a preview's folder is imaginary and its sync
+    /// Nothing to attach: a preview's relay is imaginary and its sync
     /// coordinator never finds anything.
-    public func adoptFolder(_ folder: SyncFolder) async {}
     public func adoptServer(baseURL: URL, token: String) async throws {}
 }
 

@@ -5,10 +5,10 @@
 //  Container discipline, with no opinion about where the bytes came from.
 //
 //  ─── WHY THIS IS ITS OWN TYPE ────────────────────────────────────────────────
-//  `InboxItemPinner` does two separable jobs. One is iCloud materialisation —
-//  ask a file provider for a download and wait until the bytes are really here
-//  — which is meaningless over HTTP. The other is *container discipline*, and
-//  it is where all the subtlety lives:
+//  Pinning was once two separable jobs. One was iCloud materialisation — ask a
+//  file provider for a download and wait until the bytes are really here —
+//  which was meaningless over HTTP and went with the folder transport. The
+//  other is *container discipline*, and it is where all the subtlety lives:
 //
 //    · stage into a hidden sibling, so a half-written copy is never mistaken
 //      for a document;
@@ -22,11 +22,12 @@
 //    · the whole-second comparison in `isPinnedAndCurrent`, whose absence
 //      re-downloads the entire library every fifteen seconds.
 //
-//  A second transport that wrote its own version of that would give
-//  CLAUDE.md non-negotiable 2 two implementations free to drift apart, and the
-//  drift would show up as a document that stops opening on a plane. So the
-//  discipline is here, once, and both transports call it: `InboxItemPinner`
-//  after a provider download, `RemoteDocumentPinner` after an HTTP one.
+//  A transport that wrote its own version of that would give CLAUDE.md
+//  non-negotiable 2 a second implementation free to drift, and the drift would
+//  show up as a document that stops opening on a plane. So the discipline is
+//  here, once, and `RemoteDocumentPinner` calls it after an HTTP download. It
+//  stayed its own type when the second caller went away: the separation is what
+//  makes the discipline testable without a network.
 //  ─────────────────────────────────────────────────────────────────────────────
 //
 
@@ -239,7 +240,7 @@ public struct PinnedDocumentWriter: Sendable {
     /// directory — a `document.pdf` rendered from markdown, a `sourcemap.json`
     /// — goes with it. That is correct: a re-pin only happens when the source
     /// changed, and the caller re-ingests immediately afterwards, which
-    /// regenerates exactly those files (SyncCoordinator.ingest(_:)).
+    /// regenerates exactly those files (HTTPSyncCoordinator.ingest(_:)).
     ///
     /// - Returns: the pinned directory, which is where every URL handed on to
     ///   Ingest must now point.

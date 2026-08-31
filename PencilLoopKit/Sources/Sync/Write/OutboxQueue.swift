@@ -92,7 +92,7 @@ public struct OutboxQueue: Sendable {
 
         do {
             try manager.createDirectory(at: staging, withIntermediateDirectories: true)
-            for file in OutboxWriter.writeOrder(for: payload.files) {
+            for file in OutboxQueue.writeOrder(for: payload.files) {
                 let target = staging.appendingPathComponent(file.relativePath, isDirectory: false)
                 let parent = target.deletingLastPathComponent()
                 if parent.path != staging.path {
@@ -191,6 +191,21 @@ public struct OutboxQueue: Sendable {
             guard let data = try? Data(contentsOf: url) else { continue }
             files.append(BundleFile(relativePath: relative, data: data))
         }
-        return OutboxWriter.writeOrder(for: files.sorted { $0.relativePath < $1.relativePath })
+        return OutboxQueue.writeOrder(for: files.sorted { $0.relativePath < $1.relativePath })
+    }
+
+    // MARK: - Ordering
+
+    /// The payload's files, with `manifest.json` moved to the end.
+    ///
+    /// Everything else keeps the order the builder chose — the builder knows
+    /// which file a reader reaches for first, and this queue does not.
+    ///
+    /// Moved here from `OutboxWriter` when the folder transport was removed:
+    /// the writer went with it, and this is the only caller left.
+    static func writeOrder(for files: [BundleFile]) -> [BundleFile] {
+        let manifests = files.filter { $0.relativePath == BundleManifest.fileName }
+        let rest = files.filter { $0.relativePath != BundleManifest.fileName }
+        return rest + manifests
     }
 }

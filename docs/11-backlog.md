@@ -246,8 +246,12 @@ account, and that the app keeps working when the network does not. A relay that
 stores and serves the exact `inbox/` and `outbox/` layout of `docs/05` keeps all
 three, and costs nothing to keep: `meta.json`, `review.json` and `manifest.json`
 are the wire format, `GET /v1/export.tar` hands back a directory you can drop in
-Dropbox to go the other way, and the folder transport is untouched and still the
-reference path. The relay is opt-in and new, and nothing in the app assumes it.
+Dropbox to go the other way, and the folder transport was untouched and still the
+reference path — **until August 2026, when it was removed.** It had been the reference
+path and then, for months, the one nobody used; the relay had already become the default
+for the reason B12 gives. What that cost is written into CLAUDE.md non-negotiable 3 and
+`docs/12-relay.md`: getting a *new* document onto the iPad now needs a relay that is up.
+Everything already on the device still opens with no network at all. The relay is opt-in and new, and nothing in the app assumes it.
 
 What was *not* conceded, and is worth restating because a server makes both
 tempting: documents are still downloaded in full and pinned on arrival rather

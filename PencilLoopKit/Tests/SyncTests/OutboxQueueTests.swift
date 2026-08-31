@@ -18,7 +18,7 @@ final class OutboxQueueTests: XCTestCase {
         let temp = try SyncTemporaryFolder()
         defer { temp.removeAll() }
         let queue = OutboxQueue(rootURL: temp.queueRootURL)
-        let payload = OutboxWriterTests.payload()
+        let payload = OutboxQueueTests.payload()
 
         _ = try queue.enqueue(payload)
         let waiting = queue.queuedPayloads()
@@ -39,7 +39,7 @@ final class OutboxQueueTests: XCTestCase {
         defer { temp.removeAll() }
         let queue = OutboxQueue(rootURL: temp.queueRootURL)
 
-        _ = try queue.enqueue(OutboxWriterTests.payload())
+        _ = try queue.enqueue(OutboxQueueTests.payload())
         let waiting = queue.queuedPayloads()
 
         XCTAssertEqual(waiting[0].files.last?.relativePath, BundleManifest.fileName)
@@ -61,7 +61,7 @@ final class OutboxQueueTests: XCTestCase {
         let temp = try SyncTemporaryFolder()
         defer { temp.removeAll() }
         let queue = OutboxQueue(rootURL: temp.queueRootURL)
-        let payload = OutboxWriterTests.payload()
+        let payload = OutboxQueueTests.payload()
         _ = try queue.enqueue(payload)
 
         queue.remove(payload.directoryName)
@@ -74,12 +74,33 @@ final class OutboxQueueTests: XCTestCase {
         defer { temp.removeAll() }
         let queue = OutboxQueue(rootURL: temp.queueRootURL)
 
-        _ = try queue.enqueue(OutboxWriterTests.payload())
-        _ = try queue.enqueue(OutboxWriterTests.payload(reviewMarkdown: "# Review — revised\n"))
+        _ = try queue.enqueue(OutboxQueueTests.payload())
+        _ = try queue.enqueue(OutboxQueueTests.payload(reviewMarkdown: "# Review — revised\n"))
 
         let waiting = queue.queuedPayloads()
         XCTAssertEqual(waiting.count, 1)
         let review = waiting[0].files.first { $0.relativePath == "review.md" }
         XCTAssertEqual(review?.data, Data("# Review — revised\n".utf8))
+    }
+
+    // MARK: - Fixtures
+
+    /// A review bundle's worth of files.
+    ///
+    /// Moved here from `OutboxWriterTests` when the folder transport was
+    /// removed and that case went with it. This suite was already borrowing it,
+    /// and is now the only caller.
+    static func payload(reviewMarkdown: String = "# Review — Auth refactor plan\n") -> OutboxPayload {
+        let folderName = "2026-08-18-auth-refactor-plan"
+        return OutboxPayload(
+            directoryName: OutboxPayload.directoryName(forDocumentFolder: folderName),
+            documentId: UUID(uuidString: "F7A1C0DE-0000-4000-8000-000000000001") ?? UUID(),
+            files: [
+                BundleFile(relativePath: "review.md", data: Data(reviewMarkdown.utf8)),
+                BundleFile(relativePath: ReviewBundle.fileName, data: Data("{\"documentId\":\"F7A1\"}".utf8)),
+                BundleFile(relativePath: InkImage.fileName(forPageIndex: 0), data: Data("pretend png".utf8)),
+                BundleFile(relativePath: BundleManifest.fileName, data: Data("{\"version\":1}".utf8))
+            ]
+        )
     }
 }

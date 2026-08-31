@@ -39,17 +39,23 @@ Full spec in `docs/`. Read `docs/07-build-plan.md` to find the current milestone
    `docs/05-file-contracts.md`; those formats are a public contract, don't change them
    casually.
 
-   Two transports carry those bytes. A build that ships pointed at a relay
-   (`Config/Local.xcconfig` → `RelayDefaults`) **uses it by default**, because the folder
-   needs a file provider configured at both ends and that is what stopped the loop running
-   at all. The folder is not deprecated and not going anywhere: it is fully supported, it
-   is still the path that needs no network and no uptime from anyone, and it is one tap
-   away in Settings. A build with no relay configured still starts there.
+   **One transport carries those bytes: the relay** (`Config/Local.xcconfig` →
+   `RelayDefaults`). The folder transport was removed in August 2026, having been the
+   reference path and then, for months, the one nobody used — it needed a file provider
+   configured at both ends, which is what stopped the loop running at all, and the relay
+   had already become the default for that reason.
 
-   What is load-bearing is not which transport is default. It is that the files are the
-   whole contract, that nothing needs an account, and that the app keeps working when the
-   network does not — see `docs/11-backlog.md` § the relay, which made this distinction
-   before the default moved.
+   **What that did and did not concede.** The files are still the whole contract, nothing
+   still needs an account, and every document is still downloaded in full and pinned into
+   the app's own container on arrival — so the library still opens on a plane, and reading
+   and annotating still never wait on anything. `GET /v1/export.tar` still hands back a
+   directory in the `docs/05` layout, so the bytes are still yours without the app.
+
+   What was conceded, plainly: **getting a new document onto the iPad now needs a relay
+   that is up.** Previously a shared folder could do it with nobody's server involved.
+   That is a real loss and it is the price of one transport instead of two — see
+   `docs/11-backlog.md` § the relay, which drew this distinction when the default moved,
+   and § B12, which reopened the rule that made the relay possible at all.
 4. **One mode.** Finger scrolls, Pencil draws (`drawingPolicy = .pencilOnly`). The user
    never switches tools to annotate.
 5. **Anchors are quoted text, never line numbers.** Documents get regenerated.

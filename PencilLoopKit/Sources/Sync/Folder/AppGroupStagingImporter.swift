@@ -115,7 +115,7 @@ public struct AppGroupStagingImporter: Sendable {
             return []
         }
 
-        var existing = InboxScanner.folderNames(in: folder)
+        var existing = AppGroupStagingImporter.folderNames(in: folder)
         var imported: [String] = []
 
         for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
@@ -215,5 +215,36 @@ public struct AppGroupStagingImporter: Sendable {
         if suffix == "txt" { return .text }
         if suffix == "pdf" { return .pdf }
         return .unknown
+    }
+
+    /// Every directory name currently in `inbox/`.
+    ///
+    /// Synchronous, total, and the set `Slug.disambiguated(_:existing:)` is
+    /// given whenever this app writes a new directory of its own — an item
+    /// imported from the share extension's staging area. An unreadable inbox
+    /// answers with an empty set rather than failing: the worst case is a name
+    /// collision, and `Slug.disambiguated(_:existing:)` is what protects
+    /// against that.
+    ///
+    /// Moved here from `InboxScanner` when the folder transport was removed.
+    /// The scanner went with it; this importer is the only caller left, and it
+    /// still needs the set because the relay's staging inbox is a real
+    /// directory in the app's own container.
+    ///
+    /// - Parameter folder: the inbox's root. The caller must already hold
+    ///   access.
+    static func folderNames(in folder: SyncFolder) -> Set<String> {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: folder.inboxURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return Set(
+            entries
+                .map { $0.lastPathComponent }
+                .filter { SyncFileNames.isHidden($0) == false }
+        )
     }
 }

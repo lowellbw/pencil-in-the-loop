@@ -777,7 +777,7 @@ public struct RecognisedInk: Sendable, Hashable, Codable {
 /// The user-chosen sync root and the two folders inside it.
 ///
 /// Reaching any of these URLs requires the security scope to be open — always
-/// go through `FolderAccessing.withAccess(to:perform:)`, never touch `rootURL`
+/// go through the access the caller already holds, never touch `rootURL`
 /// directly.
 public struct SyncFolder: Sendable, Hashable {
 
@@ -883,74 +883,6 @@ public struct InboxItem: Sendable, Hashable, Identifiable {
     /// True when there is something to ingest at all.
     public var isIngestible: Bool { pdfURL != nil || sourceMarkdownURL != nil }
 }
-
-/// Something changed in the watched folder.
-///
-/// What one scan of `inbox/` found, and what it could not read.
-///
-/// `InboxScanning.scan(_:knownFolderNames:)` used to return a bare
-/// `[InboxItem]`, which left it no way to say that a subdirectory had been
-/// skipped — so the contract's promise that a bad folder is reported through
-/// `SyncEvent.ingestFailed` could not be kept by the one type that knew. A
-/// document that quietly never appears is the failure this project can least
-/// afford.
-public struct InboxScanResult: Sendable, Hashable {
-
-    /// One subdirectory the scan could not turn into an item, and why.
-    ///
-    /// A directory holding nothing ingestible — no `document.pdf` and no
-    /// `source.md` — is **not** a skip. That is a directory somebody is still
-    /// writing, and it is simply not there yet. A skip is a directory that
-    /// could not be read at all.
-    public struct Skipped: Sendable, Hashable {
-
-        /// The subdirectory's name, which is the folder name a library error
-        /// row is keyed by.
-        public var folderName: String
-
-        /// A sentence a person can read, for the error row.
-        public var reason: String
-
-        public init(folderName: String, reason: String) {
-            self.folderName = folderName
-            self.reason = reason
-        }
-    }
-
-    /// Items in folder-name order, which is chronological given the date
-    /// prefix.
-    public var items: [InboxItem]
-
-    /// Subdirectories that could not be read. Usually empty.
-    public var skipped: [Skipped]
-
-    public init(items: [InboxItem] = [], skipped: [Skipped] = []) {
-        self.items = items
-        self.skipped = skipped
-    }
-
-    /// Nothing found and nothing skipped.
-    public static let empty = InboxScanResult()
-}
-
-/// Emitted by `FolderWatching`, consumed by Sync. Deliberately coarse: a
-/// watcher's job is to say "look again", not to diff.
-public enum FolderEvent: Sendable, Hashable {
-    /// A directory under `inbox/` appeared or was rewritten.
-    case inboxChanged(directoryURL: URL)
-    /// A directory under `inbox/` went away. The document stays in the library
-    /// — losing the folder costs you new documents, never existing ones
-    /// (docs/02-spec.md § Cross-cutting).
-    case inboxRemoved(folderName: String)
-    /// `outbox/<slug>.review/reply.md` appeared (docs/04-flows.md § F6).
-    case replyAppeared(reviewFolderName: String, replyURL: URL)
-    /// The sync root became unreachable — ejected volume, revoked bookmark,
-    /// provider signed out. Reading and annotating carry on regardless.
-    case folderUnavailable(reason: String)
-    /// The root came back.
-    case folderRestored
-}
-
 /// What Sync tells the UI.
 public enum SyncEvent: Sendable, Hashable {
     /// A scan started. `pending` is how many folders will be examined.

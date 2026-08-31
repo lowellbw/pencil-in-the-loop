@@ -74,9 +74,6 @@ public struct RootView: View {
             if let environment = model.environment {
                 FirstRunView(
                     environment: environment,
-                    onFinish: { folder in
-                        Task { await self.model.adopt(folder) }
-                    },
                     onAdoptedServer: {
                         self.model.showLibrary()
                     }
