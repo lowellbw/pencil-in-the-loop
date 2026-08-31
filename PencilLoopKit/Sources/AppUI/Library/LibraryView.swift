@@ -57,16 +57,11 @@ public struct LibraryView<Detail: View>: View {
     @State private var isCreatingNote = false
 
     /// The group being named or renamed, or nil. One piece of state rather than
-    /// a bool and a payload, as `creating` is.
+    /// a bool and a payload, which cannot then disagree.
     @State private var naming: GroupNameSheet.Mode?
 
     /// True while the group-order sheet is up.
     @State private var isReorderingGroups = false
-
-    /// Which kind of document the New menu is making, and therefore whether
-    /// the sheet is up at all. One piece of state rather than a bool and a
-    /// kind, which cannot then disagree.
-    @State private var creating: NoteCreationView.Kind?
 
     /// - Parameters:
     ///   - environment: the one route to every dependency, the folder picker's

@@ -114,6 +114,7 @@ actor AppUITestStore: DocumentStoring {
 
     func setTitle(_ title: String, documentId: UUID) throws {
         writes.append(.title(title, documentId: documentId))
+    }
 
     func reorderPinned(_ documentIds: [UUID]) throws {
         writes.append(.pinnedOrder(documentIds))
