@@ -50,6 +50,11 @@ MAX_SOURCE_CHARS = 400_000
 # come close, and one that does is split.
 MAX_TURN_CHARS = 4_000
 
+#: How many times the script may be asked for again when it drops sections.
+#: A backstop, not the usual stopping point — the loop ends as soon as a pass
+#: stops improving coverage, which on real documents is what happens first.
+MAX_REPAIRS = 3
+
 HOST, GUEST = "host", "guest"
 
 
@@ -303,15 +308,27 @@ def write_script(
 
     turns = parse_turns(parsed, hosts=hosts)
 
-    # One repair pass, and only when it is needed. The first draft of a long
-    # document reliably drops sections — measured on a real 4,700-word paper it
-    # dropped fourteen of forty headings at `standard` and came in at half the
-    # requested length. That is the failure this feature would have quietly, so
-    # it is checked and fixed before a single character is spoken. Speech is the
-    # expensive stage; the script settles first.
+    # Repair while it is still helping, and stop the moment it is not. The
+    # first draft of a long document reliably drops sections — measured on a
+    # real 4,700-word paper it dropped fourteen of forty headings at `standard`
+    # and came in at half the requested length.
+    #
+    # This was one pass, on the reasoning that a second would be throwing good
+    # credits after bad. The measurement said otherwise: one pass took fourteen
+    # missing down to nine, which is a pass that was still working when it was
+    # cut off. So it repeats while coverage strictly improves, and `MAX_REPAIRS`
+    # is a backstop rather than the usual stopping point — a pass that gains
+    # nothing ends it, because that is the real signal that asking again has
+    # stopped paying.
+    #
+    # All of it happens before a single character is spoken. A script call is
+    # cheap next to speaking thirty turns, which is what makes iterating here
+    # the right place to spend.
     missed = missing_headings(markdown, turns)
-    if missed:
-        turns = repair_script(
+    for _ in range(MAX_REPAIRS):
+        if not missed:
+            break
+        revised = repair_script(
             markdown,
             turns,
             missed,
@@ -321,6 +338,10 @@ def write_script(
             hosts=hosts,
             timeout=timeout,
         )
+        still_missing = missing_headings(markdown, revised)
+        if len(still_missing) >= len(missed):
+            break
+        turns, missed = revised, still_missing
 
     return turns, model
 
@@ -338,11 +359,14 @@ def repair_script(
 ) -> list[Turn]:
     """Ask for the script again, naming what it left out.
 
-    Returns the revised turns **only if they cover more than the ones passed
-    in** — a repair that makes coverage worse is thrown away, and so is one that
-    fails outright. Either way the caller still has a script, which is why this
-    returns a list rather than raising: a narration missing two sections is worth
-    far more than no narration at all.
+    Returns the revised turns, or **the ones passed in** when the model fails or
+    comes back with nothing. It never raises: a narration missing two sections is
+    worth far more than no narration at all, which is why a failed repair is a
+    no-op rather than an error.
+
+    Whether the revision is actually an improvement is the caller's judgement —
+    `write_script` keeps it only if it covers more, and stops repeating the
+    moment one does not.
     """
     spoken = sum(len(turn.text.split()) for turn in turns)
     script = json.dumps(
@@ -398,11 +422,7 @@ def repair_script(
     except (TranscriptionError, KeyError, IndexError, TypeError, ValueError):
         return turns
 
-    if not revised:
-        return turns
-    if len(missing_headings(markdown, revised)) >= len(missed):
-        return turns
-    return revised
+    return revised or turns
 
 
 def parse_turns(parsed: Any, *, hosts: int = 2) -> list[Turn]:

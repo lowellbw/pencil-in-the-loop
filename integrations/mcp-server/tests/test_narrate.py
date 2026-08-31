@@ -261,6 +261,53 @@ class NarrateTests(unittest.TestCase):
         self.assertEqual(result.missed_sections, [])
         self.assertEqual(len(result.turns), 2)
 
+    def test_it_keeps_asking_while_each_pass_covers_more(self) -> None:
+        """Stopping at one pass was leaving coverage on the table.
+
+        Measured on a real paper: fourteen headings missing, one repair took it
+        to nine. That is a pass that was still working when it was cut off, so
+        the loop now ends on the first pass that gains nothing rather than on a
+        count.
+        """
+        def draft(*texts):
+            return {"choices": [{"message": {"content": json.dumps({"turns": [
+                {"speaker": "host", "text": t} for t in texts
+            ]})}}]}
+
+        one = draft("Traces in the Record.")
+        two = draft("Traces in the Record.", "Prevalence estimation.")
+        three = draft(
+            "Traces in the Record.",
+            "Prevalence estimation, and Pangram failure modes.",
+            "And corpus selection.",
+        )
+        with mock.patch.object(narrate, "_post", side_effect=[one, two, three]) as post, \
+             mock.patch.object(narrate, "_post_bytes", return_value=b"mp3"):
+            result = narrate.narrate(DOC)
+
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(result.missed_sections, [])
+
+    def test_it_stops_after_the_backstop_even_if_it_is_still_creeping(self) -> None:
+        """A model that gains one heading a pass forever is not worth paying."""
+        def draft(n):
+            texts = [
+                "Traces in the Record.",
+                "Prevalence estimation.",
+                "Pangram failure modes.",
+            ][:n]
+            return {"choices": [{"message": {"content": json.dumps({"turns": [
+                {"speaker": "host", "text": t} for t in texts
+            ]})}}]}
+
+        with mock.patch.object(
+            narrate, "_post", side_effect=[draft(1), draft(2), draft(3), draft(3)]
+        ) as post, mock.patch.object(narrate, "_post_bytes", return_value=b"mp3"):
+            result = narrate.narrate(DOC)
+
+        self.assertEqual(post.call_count, 1 + narrate.MAX_REPAIRS)
+        self.assertIn("Corpus selection", result.missed_sections)
+
     def test_a_repair_that_covers_less_is_thrown_away(self) -> None:
         """A second attempt is not automatically the better one."""
         good = {"choices": [{"message": {"content": json.dumps({"turns": [

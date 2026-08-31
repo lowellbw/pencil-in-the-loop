@@ -301,9 +301,14 @@ the document's third section. It is not hypothetical: measured on a real 4,700-w
 the first draft dropped fourteen of forty headings at `standard` and came in at half the
 requested length. So the script is checked against the source's headings, and if any are
 missing the model is asked again — handed its own draft, the list of what it left out, and
-the word count it undershot. The revision is kept **only if it covers more**; a repair that
-is worse, or that fails outright, is discarded and the first draft stands. Both passes happen
-before a single character is spoken, because speech is the expensive stage.
+the word count it undershot. The revision is kept **only if it covers more**, and it repeats
+while each pass keeps improving, up to a backstop of three. A repair that gains nothing ends
+it, and one that fails outright leaves the previous draft standing.
+
+Stopping at a single pass was leaving coverage on the table: on that same paper, one repair
+took fourteen missing headings down to nine — still improving when it was cut off. All of it
+happens before a single character is spoken, because speech is the expensive stage and a
+script call is cheap next to speaking thirty turns.
 
 `missedSections` is what survives that. It is reported rather than enforced beyond the one
 repair: a heading a host legitimately paraphrased is not a bug, a narration missing two
