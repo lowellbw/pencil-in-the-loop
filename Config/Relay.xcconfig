@@ -3,17 +3,17 @@
 // The app is meant to work the moment it is installed: no folder to pick, no
 // address to type. The address is committed here and included into every
 // build (`App.xcconfig` includes this file unconditionally): it is only a
-// hostname, and this repository is public, so it hides nothing the app bundle
-// would not already reveal.
+// hostname, and it hides nothing the app bundle would not already reveal.
 //
 // PENCILLOOP_RELAY_URL has no scheme on purpose. An xcconfig treats `//` as the
 // start of a comment, so `https://host` would silently become `https:` — a
 // value that looks right in the file and is wrong in the build. The app puts
 // the scheme back; it refuses anything that is not https anyway.
 //
-// The token is a credential and never goes in this file: the repository is
-// public, and a committed token is read/write access to the documents for
-// anyone who can read GitHub. It lives in Config/Local.xcconfig — copy
+// The token is a credential and never goes in this file, whatever the
+// repository's visibility today: a committed token is read/write access to
+// the documents, and it outlives every future visibility change, fork and
+// clone. It lives in Config/Local.xcconfig — copy
 // Local.xcconfig.example — which is not committed and is included after this
 // file, so it can override anything here. A checkout without it still builds
 // and still knows the address; first run asks for the token instead of
