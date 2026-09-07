@@ -164,15 +164,50 @@ def _deepgram(audio: bytes, keyterms: list[str], language: str, timeout: float) 
 # ---------------------------------------------------------------- ElevenLabs
 
 
+# What ElevenLabs will take as one keyterm: under fifty characters, at most
+# five words, and none of the characters it reserves. One bad term fails the
+# whole request rather than the one term, so the list is trimmed to fit here.
+ELEVENLABS_KEYTERM_MAX_CHARS = 50
+ELEVENLABS_KEYTERM_MAX_WORDS = 5
+_ELEVENLABS_FORBIDDEN = frozenset("<>{}[]\\")
+
+
+def elevenlabs_keyterms(keyterms: list[str]) -> list[str]:
+    """The terms ElevenLabs will accept, in the caller's ranked order."""
+    accepted: list[str] = []
+    for term in keyterms:
+        kept = "".join(ch for ch in term if ch not in _ELEVENLABS_FORBIDDEN)
+        value = " ".join(kept.split())
+        if not value or len(value) >= ELEVENLABS_KEYTERM_MAX_CHARS:
+            continue
+        if len(value.split()) > ELEVENLABS_KEYTERM_MAX_WORDS:
+            continue
+        if value not in accepted:
+            accepted.append(value)
+    return accepted[:MAX_KEYTERMS]
+
+
 def _elevenlabs(audio: bytes, keyterms: list[str], language: str, timeout: float) -> Transcript:
+    """Scribe, with the document's vocabulary as keyterms.
+
+    The key needs the *speech to text* permission. One made with ElevenLabs'
+    default scopes does not have it, and the 401 that comes back names the
+    missing permission -- worth reading before an afternoon goes on it.
+    """
     key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("ELEVEN_API_KEY")
     if not key:
         raise TranscriptionUnconfigured("ELEVENLABS_API_KEY is not set")
     model = os.environ.get("PENCIL_STT_MODEL") or "scribe_v2"
 
-    fields = {"model_id": model, "language_code": language.split("-")[0]}
-    if keyterms:
-        fields["keyterms"] = json.dumps(keyterms)
+    # One form field per term. This used to send the whole list JSON-encoded in
+    # a single field, which the API read as one keyword made of brackets and
+    # quotes and refused -- so every request that carried the document's
+    # vocabulary, which is every request, failed before it transcribed a word.
+    fields: list[tuple[str, str]] = [
+        ("model_id", model),
+        ("language_code", language.split("-")[0]),
+    ]
+    fields.extend(("keyterms", term) for term in elevenlabs_keyterms(keyterms))
     payload, content_type = _multipart(fields, "file", "clip.flac", "audio/flac", audio)
 
     body = _post(
@@ -252,7 +287,7 @@ def _post(url: str, payload: bytes, headers: dict[str, str], timeout: float) -> 
 
 
 def _multipart(
-    fields: dict[str, str],
+    fields: dict[str, str] | list[tuple[str, str]],
     file_field: str,
     filename: str,
     file_type: str,
@@ -262,10 +297,14 @@ def _multipart(
 
     By hand because the alternative is a dependency, and this package's whole
     posture is that the relay boots with nothing installed but Starlette.
+
+    ``fields`` may be a list of pairs, because a form field can repeat and a
+    dict cannot say so -- ElevenLabs takes its keyterms one field each.
     """
     boundary = "----pencil-loop-" + uuid.uuid4().hex
     parts: list[bytes] = []
-    for name, value in fields.items():
+    pairs = list(fields.items()) if isinstance(fields, dict) else list(fields)
+    for name, value in pairs:
         parts.append(f"--{boundary}\r\n".encode())
         parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
         parts.append(value.encode("utf-8") + b"\r\n")

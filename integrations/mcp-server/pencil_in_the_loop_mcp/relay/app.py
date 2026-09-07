@@ -619,9 +619,16 @@ def create_app(
             )
         except transcribe.TranscriptionUnconfigured as error:
             declared.unlink(missing_ok=True)
+            print(f"clip {clip_id} not upgraded: {error}", flush=True)
             raise ApiError(501, "not_configured", str(error)) from error
         except transcribe.TranscriptionError as error:
             # Left declared so a retry can re-upload without re-declaring.
+            #
+            # Said out loud, unlike the other refusals here: the iPad retries
+            # quietly for a day and then keeps its draft, so a provider that is
+            # down -- or a key with no credit behind it -- would otherwise be
+            # invisible from both ends. It was, for a fortnight.
+            print(f"clip {clip_id} not upgraded: {error}", flush=True)
             raise ApiError(502, "provider_failed", str(error)) from error
 
         # Stage 3: correct the transcript against the document's own words. It
@@ -635,6 +642,13 @@ def create_app(
         )
 
         declared.unlink(missing_ok=True)
+        # The id and the models, never the words: the transcript is the
+        # reader's, and the access log is off for the same reason.
+        print(
+            f"clip {clip_id} upgraded by {result.provider}/{result.model}; "
+            f"cleanup {'applied' if polished.applied else 'skipped'}",
+            flush=True,
+        )
         return JSONResponse({"ok": True, **result.as_dict(), **polished.as_dict()})
 
     def get_changes(request: Request) -> Response:

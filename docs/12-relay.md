@@ -440,6 +440,8 @@ and a config file on an ephemeral container is a file nobody can edit.
 | `PENCIL_DEVICE_TOKEN` | Required. Without it the service refuses to start. |
 | `PENCIL_MCP_TOKEN` | Optional. The MCP endpoint is only mounted when it is set. |
 | `PENCIL_ALLOWED_HOSTS` | Optional, comma-separated. Falls back to the platform's own domain variable. |
+| `PENCIL_STT_PROVIDER` | Optional: `openai`, `elevenlabs` or `deepgram`. Otherwise the first of `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY` that is set (§ 4b). An ElevenLabs key needs the *speech to text* permission, which one made with the default scopes does not have; an OpenAI key needs credit behind it. Either failure is a `502` to the iPad and one line in this service's log. |
+| `PENCIL_STT_MODEL`, `PENCIL_CLEANUP_MODEL`, `PENCIL_CLEANUP` | Optional. The transcription model, the correction model, and `off` to skip the correction pass (§ 4b). The correction pass uses `OPENAI_API_KEY` whichever provider transcribes. |
 | `PORT` | Given by the platform. Default 8080. |
 
 ```sh
