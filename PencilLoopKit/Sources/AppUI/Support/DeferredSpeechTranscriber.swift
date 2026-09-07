@@ -105,7 +105,8 @@ public actor DeferredSpeechTranscriber: SpeechTranscribing {
     private var recording: Recording?
 
     /// Where the next recording's audio is also written. Survives a rebuild of
-    /// the engine, which is why it is held here and not in one.
+    /// the engine, which is why it is held here and not in one — and handed to
+    /// whichever engine a recording resolves, by `beginRecording(_:)`.
     private var clipDestination: URL?
 
     public init(settings: any SettingsStoring) {
@@ -189,16 +190,11 @@ public actor DeferredSpeechTranscriber: SpeechTranscribing {
         }
     }
 
-    /// Ends whatever is recording and returns its final text.
-    ///
-    /// Addresses the engine the running stream resolved, never the field: those
-    /// were once allowed to be different engines and the difference cost the
-    /// user the comment they had just dictated. With nothing recording it still
-    /// stops the built engine, because a pre-warmed one holds the audio session
-    /// and leaving it open is how the microphone indicator stays on.
     /// Held here rather than pushed at a built engine, because the engine for
     /// the next recording may not exist yet — and when it is rebuilt for a
-    /// language change, the destination has to survive that.
+    /// language change, the destination has to survive that. A recording
+    /// already in flight is told directly; the next one is told as it begins
+    /// (`beginRecording(_:)`).
     public func setClipDestination(_ url: URL?) async {
         clipDestination = url
         if let recording { await recording.engine.setClipDestination(url) }
@@ -214,6 +210,13 @@ public actor DeferredSpeechTranscriber: SpeechTranscribing {
         return await build.task.value.finishedClip()
     }
 
+    /// Ends whatever is recording and returns its final text.
+    ///
+    /// Addresses the engine the running stream resolved, never the field: those
+    /// were once allowed to be different engines and the difference cost the
+    /// user the comment they had just dictated. With nothing recording it still
+    /// stops the built engine, because a pre-warmed one holds the audio session
+    /// and leaving it open is how the microphone indicator stays on.
     public func stop() async -> String {
         if let recording { return await recording.engine.stop() }
         guard let build else { return "" }
@@ -277,10 +280,25 @@ public actor DeferredSpeechTranscriber: SpeechTranscribing {
     }
 
     /// Resolves the engine for a new recording and records which one it is.
+    ///
+    /// The clip destination reaches the engine here, and not only in
+    /// `setClipDestination(_:)`. The popover sets it before the recording
+    /// exists — the contract says to (Protocols.swift § setClipDestination) —
+    /// and at that moment there is no recording to forward it to, so it waits
+    /// in `clipDestination` for this. It used to wait for ever: the field was
+    /// written and never read, no engine was told, no audio was kept, and no
+    /// voice comment was ever upgraded (ClipDestinationReachesEngineTests).
+    ///
+    /// `recording` is assigned before the forward suspends, so a destination
+    /// set while it is in flight is forwarded by `setClipDestination(_:)` as
+    /// well, and the later of the two is what the engine ends up with.
     private func beginRecording(_ recordingId: UUID) async -> any SpeechTranscribing {
         let resolved = await currentBuild()
         let engine = await resolved.task.value
         recording = Recording(id: recordingId, buildId: resolved.id, engine: engine)
+        if let clipDestination {
+            await engine.setClipDestination(clipDestination)
+        }
         return engine
     }
 

@@ -104,7 +104,12 @@ actor FakeSpeechEngine: SpeechTranscribing {
 
     func setClipDestination(_ url: URL?) async { clipDestination = url }
 
-    func finishedClip() async -> URL? { clipDestination }
+    /// Cleared on collection, as the contract says and the real engines do
+    /// (Protocols.swift § setClipDestination).
+    func finishedClip() async -> URL? {
+        defer { clipDestination = nil }
+        return clipDestination
+    }
 
     func stop() async -> String {
         guard isRunning else { return "" }

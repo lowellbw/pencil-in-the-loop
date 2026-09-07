@@ -735,6 +735,7 @@ public final class CommentCaptureModel {
         owner = .none
         streamTask?.cancel()
         streamTask = nil
+        discardUncollectedClip()
     }
 
     private func cancelEverything() {
@@ -747,6 +748,26 @@ public final class CommentCaptureModel {
         popover = nil
         machine = VoiceRecordingMachine()
         owner = .none
+        discardUncollectedClip()
+    }
+
+    /// Drops the recording's audio when the comment it was for is not saved.
+    ///
+    /// `queueClip(forCommentId:draft:source:)` collects the clip after a save
+    /// and clears `clipRecordingId` as it does; a popover closing any other way
+    /// — cancelled, nothing heard, switched to handwriting — would leave the
+    /// engine holding an open file that nothing will ever collect, and the
+    /// destination still set for whatever records next. Closing it here gives
+    /// the file back, and deleting it saves the queue's sweep the trouble.
+    private func discardUncollectedClip() {
+        guard clipRecordingId != nil else { return }
+        clipRecordingId = nil
+        let transcriber = environment.transcriber
+        Task {
+            if let abandoned = await transcriber.finishedClip() {
+                try? FileManager.default.removeItem(at: abandoned)
+            }
+        }
     }
 
     private func startTermExtraction() {

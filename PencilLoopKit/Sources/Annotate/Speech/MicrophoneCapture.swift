@@ -260,14 +260,32 @@ actor MicrophoneCapture {
 
         // The clip's own stream, drained by a task rather than written here:
         // the tap block is the render thread and must not touch a file.
+        //
+        // The recorder outlives the tap. `ContinuousTranscriber` restarts the
+        // engine whenever it finalises an utterance mid-comment, and every
+        // restart comes back through here. A fresh recorder each time would
+        // reopen the same file and keep only the last few seconds of the
+        // comment — which an upgrade would then confidently transcribe as the
+        // whole of it. So a recorder already writing to this destination is
+        // kept and appended to; only a *different* destination starts a file.
         var clipContinuation: AsyncStream<Chunk>.Continuation?
         if let clipURL {
-            let recorder = ClipRecorder(url: clipURL)
+            // Whatever the previous tap was still draining lands before this
+            // segment's first buffer, so the file stays in order.
+            await recordingTask?.value
+            recordingTask = nil
+            let recorder: ClipRecorder
+            if let current = self.recorder, current.url == clipURL {
+                recorder = current
+            } else {
+                await self.recorder?.discard()
+                recorder = ClipRecorder(url: clipURL)
+                self.recorder = recorder
+            }
             let (clipStream, continuation) = AsyncStream<Chunk>.makeStream(
                 bufferingPolicy: .bufferingNewest(64)
             )
             clipContinuation = continuation
-            self.recorder = recorder
             self.recordingContinuation = continuation
             self.recordingTask = Task {
                 guard await recorder.begin(format: format) else { return }
@@ -275,6 +293,13 @@ actor MicrophoneCapture {
                     await recorder.append(chunk.buffer)
                 }
             }
+        } else if let stale = self.recorder {
+            // A recording nobody collected — abandoned before it was saved.
+            // Its file is not this recording's and must not be handed on as it.
+            await recordingTask?.value
+            recordingTask = nil
+            await stale.discard()
+            self.recorder = nil
         }
 
         let logger = self.logger

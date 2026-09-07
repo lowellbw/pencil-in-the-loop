@@ -25,6 +25,9 @@
 //     word means the recorder was started after the tap rather than with it.
 //  3. Record for ninety seconds. Memory must stay flat: this streams to disk
 //     and holds one buffer, not the whole clip.
+//  4. Pause mid-sentence for a few seconds, then carry on. The clip must hold
+//     both halves: the recogniser finalises on the pause and the capture
+//     restarts, and a restart that reopened the file kept only the second.
 //  ─────────────────────────────────────────────────────────────────────────────
 //
 
@@ -47,8 +50,9 @@ actor ClipRecorder {
     private var file: AVAudioFile?
 
     /// Where it is being written. Kept so `finish()` can name it after the file
-    /// has been closed.
-    private let url: URL
+    /// has been closed, and so a capture restarting mid-recording can tell that
+    /// it is still the same clip (`MicrophoneCapture.start(clipURL:)`).
+    let url: URL
 
     private var framesWritten: AVAudioFramePosition = 0
 
@@ -69,9 +73,12 @@ actor ClipRecorder {
     /// the detail the model is listening for.
     ///
     /// - Returns: whether recording started. False means no clip, and the
-    ///   caller carries on with the draft alone.
+    ///   caller carries on with the draft alone. True again on a recorder that
+    ///   is already writing: the capture restarted mid-recording and keeps
+    ///   appending, because reopening the file would truncate it.
     func begin(format: AVAudioFormat) -> Bool {
-        guard file == nil, isSpoiled == false else { return false }
+        guard isSpoiled == false else { return false }
+        if file != nil { return true }
         // Mono at the microphone's own rate. The note asks for 48 kHz and never
         // for a downsample we do not have to do: a provider that wants 16 kHz
         // can do that conversion better than we can, and one that does not gets

@@ -61,7 +61,12 @@ actor AppUITestSpeechEngine: SpeechTranscribing {
 
     func setClipDestination(_ url: URL?) async { clipDestination = url }
 
-    func finishedClip() async -> URL? { clipDestination }
+    /// Cleared on collection, as the contract says and the real engines do
+    /// (Protocols.swift § setClipDestination).
+    func finishedClip() async -> URL? {
+        defer { clipDestination = nil }
+        return clipDestination
+    }
 
     func stop() async -> String {
         stopCount += 1
@@ -73,9 +78,13 @@ actor AppUITestSpeechEngine: SpeechTranscribing {
     /// Waits until a recording has actually started, so a test can change
     /// something underneath one. Bounded, so a failure is a failed assertion
     /// rather than a hung suite.
-    func waitUntilTranscribing() async {
+    ///
+    /// - Parameter times: which recording to wait for, counting from one. A
+    ///   test that records twice on one engine must say so, or the second
+    ///   wait returns at once on the strength of the first.
+    func waitUntilTranscribing(times: Int = 1) async {
         for _ in 0..<400 {
-            if transcribeCount > 0 { return }
+            if transcribeCount >= times { return }
             try? await Task.sleep(for: .milliseconds(5))
         }
     }
