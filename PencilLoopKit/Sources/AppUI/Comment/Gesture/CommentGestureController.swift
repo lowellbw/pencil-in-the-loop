@@ -65,6 +65,11 @@ public final class CommentGestureController: NSObject, UIGestureRecognizerDelega
     private var lastHoverPoint: CGPoint?
     private var lastHoverAt: Date?
 
+    /// Whether a squeeze in progress has warmed the microphone, so that one
+    /// that comes to nothing — cancelled, unanchored, or arriving under another
+    /// screen by the time it ends — gives it back rather than leaving it on.
+    private var squeezeWarmed = false
+
     /// - Parameters:
     ///   - resolver: the Reader's adapter. Held weakly — the Reader owns it.
     ///   - tuning: the dials; `.standard` unless a device session says
@@ -144,6 +149,7 @@ public final class CommentGestureController: NSObject, UIGestureRecognizerDelega
         hostView = nil
         lastHoverPoint = nil
         lastHoverAt = nil
+        squeezeWarmed = false
         canceller.disarm()
         isAttached = false
     }
@@ -308,9 +314,20 @@ public final class CommentGestureController: NSObject, UIGestureRecognizerDelega
         let ownsPopover = self.ownsPopover?() ?? false
         let handles = Self.shouldHandleSqueeze(isCovered: isCovered, ownsPopover: ownsPopover)
         plsq("reader squeeze phase=\(squeeze.phase) covered=\(isCovered) ownsPopover=\(ownsPopover) handles=\(handles)")
-        guard handles else { return }
+        guard handles else {
+            abandonWarmedSqueeze()
+            return
+        }
 
         switch squeeze.phase {
+        case .began:
+            // The click is a few hundred milliseconds away and the user will
+            // start talking on it. Warm the microphone now, so that when the
+            // squeeze completes the first word is already in the pre-roll
+            // (MicrophoneCapture § prewarm). Nothing is shown and nothing is
+            // decided: that is still the click's job, below.
+            squeezeWarmed = true
+            onTrigger?(.squeezeBegan)
         case .ended:
             // `ended` is the phase that means *recognised*: the header defines
             // it as a continuous gesture ending or a discrete one being
@@ -319,15 +336,29 @@ public final class CommentGestureController: NSObject, UIGestureRecognizerDelega
             // left live by an untidy gesture, so cancelling had to stop it;
             // here a cancelled squeeze is one the user never completed, and
             // toggling on the strength of it starts a recording nobody asked
-            // for. A toggle has no half-finished state to unwind.
-            guard let point = squeezeAnchorPoint else { return }
+            // for. A toggle has no half-finished state to unwind — but the
+            // pre-warm above is one, and a cancelled squeeze gives it back.
+            squeezeWarmed = false
+            guard let point = squeezeAnchorPoint else {
+                onTrigger?(.squeezeAbandoned)
+                return
+            }
             CommentHaptics.squeezeRecognised()
             onTrigger?(.squeezeToggled(point: point))
-        case .began, .changed, .cancelled:
+        case .cancelled:
+            abandonWarmedSqueeze()
+        case .changed:
             break
         @unknown default:
             break
         }
+    }
+
+    /// Gives back the microphone a squeeze warmed, if one did; otherwise nothing.
+    private func abandonWarmedSqueeze() {
+        guard squeezeWarmed else { return }
+        squeezeWarmed = false
+        onTrigger?(.squeezeAbandoned)
     }
 
     /// Whether a squeeze arriving now is the reader's to act on.

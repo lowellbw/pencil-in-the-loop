@@ -144,4 +144,63 @@ final class DeferredSpeechTranscriberTests: XCTestCase {
         let stops = await first.stopCount
         XCTAssertEqual(stops, 1, "The engine the language change replaced must be stopped exactly once.")
     }
+
+    // MARK: - Giving a pre-warm back
+
+    /// An arming press that lifted early: the engine it warmed is released.
+    func testReleasingAnIdlePrewarmReachesTheEngine() async throws {
+        let factory = AppUITestEngineFactory()
+        let transcriber = DeferredSpeechTranscriber(
+            settings: PreviewSettingsStore(),
+            makeEngine: factory.makeEngine()
+        )
+
+        await transcriber.prewarm()
+        await transcriber.releaseCapture()
+
+        let built = await factory.engine(1)
+        let engine = try XCTUnwrap(built)
+        let releases = await engine.releaseCount
+        XCTAssertEqual(releases, 1, "A pre-warm that never became a recording must be given back.")
+    }
+
+    /// A release that lands while a recording is running is a stale one, and
+    /// must not reach the engine that is recording.
+    func testAReleaseDuringARecordingDoesNothing() async throws {
+        let factory = AppUITestEngineFactory()
+        let transcriber = DeferredSpeechTranscriber(
+            settings: PreviewSettingsStore(),
+            makeEngine: factory.makeEngine()
+        )
+
+        let stream = transcriber.transcribe(contextualTerms: [])
+        let consumer = Task { for try await _ in stream {} }
+        await factory.waitForBuilds(1)
+        let built = await factory.engine(1)
+        let engine = try XCTUnwrap(built)
+        await engine.waitUntilTranscribing()
+
+        await transcriber.releaseCapture()
+
+        let releases = await engine.releaseCount
+        XCTAssertEqual(releases, 0, "Releasing during a recording must not touch the engine.")
+
+        _ = await transcriber.stop()
+        _ = await consumer.result
+    }
+
+    /// Nothing built means nothing warmed, and nothing to build in order to
+    /// find that out.
+    func testReleasingBeforeAnythingIsBuiltBuildsNothing() async {
+        let factory = AppUITestEngineFactory()
+        let transcriber = DeferredSpeechTranscriber(
+            settings: PreviewSettingsStore(),
+            makeEngine: factory.makeEngine()
+        )
+
+        await transcriber.releaseCapture()
+
+        let built = await factory.buildCount
+        XCTAssertEqual(built, 0)
+    }
 }

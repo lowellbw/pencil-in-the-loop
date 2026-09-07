@@ -29,6 +29,7 @@ actor AppUITestSpeechEngine: SpeechTranscribing {
     private(set) var stopCount = 0
     private(set) var prewarmCount = 0
     private(set) var transcribeCount = 0
+    private(set) var releaseCount = 0
 
     /// The running stream, kept open until `stop()` — exactly like a real
     /// engine between the first token and the lift, which is the window every
@@ -46,6 +47,10 @@ actor AppUITestSpeechEngine: SpeechTranscribing {
 
     func prewarm() async {
         prewarmCount += 1
+    }
+
+    func releaseCapture() async {
+        releaseCount += 1
     }
 
     func supportedLocales() async -> [Locale] { [] }

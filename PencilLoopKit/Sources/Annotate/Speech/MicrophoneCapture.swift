@@ -22,6 +22,12 @@
 //  5. Record for a minute and read the transcript back: repeated or garbled
 //     phrases are the tap's buffers being reused underneath a backlog, which is
 //     what `Chunk.copying(_:)` exists to rule out.
+//  6. Start talking the instant the popover appears — and, with a Pencil Pro,
+//     the instant the squeeze clicks. The first word must be in the transcript
+//     and in the clip: that is the pre-roll (`TapRouter`), and before it
+//     existed the first word was reliably lost to setup.
+//  7. Press and lift before the hold resolves. The recording indicator must go
+//     out: a pre-warm that never became a recording has been given back.
 //  ─────────────────────────────────────────────────────────────────────────────
 //
 
@@ -41,9 +47,10 @@ import Core
 /// what cannot.
 ///
 /// **The trade-off, stated plainly.** Pre-warming activates the audio session
-/// early, which ducks other audio and can show the system recording indicator
-/// before a word is said, and it holds the session until `stop()`. That is why
-/// `VoiceRecordingMachine` only pre-warms on a gesture that is already
+/// and starts the microphone early, which ducks other audio, shows the system
+/// recording indicator before a word is said, and keeps the newest second of
+/// audio in memory (`TapRouter`); it holds all of that until `stop()`. That is
+/// why `VoiceRecordingMachine` only pre-warms on a gesture that is already
 /// plausibly a comment, never on every Pencil touch, and why every path out of
 /// the machine ends in `.releaseCapture`.
 ///
@@ -112,9 +119,19 @@ actor MicrophoneCapture {
     private let engine = AVAudioEngine()
     private let logger = Logger(subsystem: "co.pencil-loop", category: "speech")
 
+    /// Where the tap's buffers go. The tap is installed once, at pre-warm, and
+    /// this is switched from buffering to a recording's stream without touching
+    /// it — the whole of how the first word survives (`TapRouter`).
+    private let router = TapRouter()
+
     private var isSessionActive = false
     private var isTapped = false
     private var continuation: AsyncStream<Chunk>.Continuation?
+
+    /// Bumped by `stop()`. A `prewarm()` that began before a stop must not
+    /// finish after it and leave the microphone running with nobody left to
+    /// give it back — a lift during session activation is a real sequence.
+    private var generation = 0
 
     /// The second consumer of every buffer: the file the clip is written to,
     /// so a better transcript can be made from it later
@@ -137,11 +154,31 @@ actor MicrophoneCapture {
     }
 
     /// Everything that can be done before the user commits: category, session
-    /// activation, and the engine's own graph preparation.
+    /// activation, the engine's own graph preparation — and, since the first
+    /// word kept going missing, the microphone itself.
+    ///
+    /// The tap goes up here and audio starts flowing into a one-second ring
+    /// (`TapRouter`). A recording that starts a moment later begins with what
+    /// is in the ring, so the word spoken as the hold resolves is in the
+    /// transcript rather than lost to setup. Nothing in the ring is ever
+    /// transcribed unless a recording follows; `stop()` throws it away.
     ///
     /// Idempotent, and cheap on the second call.
     func prewarm() async throws {
+        try await activateSessionIfNeeded()
+        guard isTapped == false else { return }
+        do {
+            try startTap()
+        } catch {
+            await stop()
+            throw error
+        }
+    }
+
+    /// The session half of `prewarm()`: category, activation, and the graph.
+    private func activateSessionIfNeeded() async throws {
         guard isSessionActive == false else { return }
+        let started = generation
 
         // **Everything below the permission check can kill the process.**
         // `AVAudioEngine` resolves its input node by asking the audio session
@@ -165,6 +202,12 @@ actor MicrophoneCapture {
         // running when the Pencil touched down would have gone silent
         // (`AudioSessionArbiter`).
         try await AudioSessionArbiter.shared.beginRecording()
+        guard generation == started else {
+            // Stopped while the session was being activated. Hand it straight
+            // back: nobody is left who would.
+            await AudioSessionArbiter.shared.endRecording()
+            throw CancellationError()
+        }
         let session = AVAudioSession.sharedInstance()
         isSessionActive = true
 
@@ -222,41 +265,37 @@ actor MicrophoneCapture {
         )
     }
 
-    /// Installs the tap and starts the engine, returning the buffer stream.
+    /// Begins a recording on the tap `prewarm()` put up, returning the buffer
+    /// stream — which starts with the pre-roll.
     ///
     /// Calling this while a capture is running replaces it: the previous stream
     /// is finished, because there is one microphone and one recording at a time
     /// (Protocols.swift § SpeechTranscribing, Lifecycle).
     ///
-    /// **It does not give the audio session back first.** Tearing the tap and
-    /// the engine down is cheap; `setActive(true)` and the route negotiation
-    /// behind it are the tens of milliseconds this class is split in two to
-    /// avoid, and deactivating a session `prewarm()` has already activated
-    /// would pay for them again here — with other audio unducking and re-ducking
-    /// between the press and the first word to show for it
-    /// (docs/03-architecture.md § Performance targets).
+    /// **It gives nothing back first.** `setActive(true)` and the route
+    /// negotiation behind it are the tens of milliseconds this class is split
+    /// in two to avoid, and the tap that has been running since pre-warm is
+    /// holding the second of audio the recording is about to start with.
+    /// Deactivating either would pay for the first again and throw the second
+    /// away (docs/03-architecture.md § Performance targets).
     ///
     /// - Parameter clipURL: where to also write the audio, or nil to keep none.
     ///   Writing is best-effort in one direction only: a clip that cannot be
     ///   written costs a later upgrade and never the recording in progress.
     func start(clipURL: URL? = nil) async throws -> AsyncStream<Chunk> {
-        stopCapture()
+        // A stream already running ends here. The tap stays up: tearing it
+        // down to put it straight back would cost the buffers in between.
+        continuation?.finish()
+        continuation = nil
         try await prewarm()
 
+        // Deep enough to hold the pre-roll and everything the tap delivers
+        // while the recogniser is still being built — which, cold, is seconds.
         let (stream, continuation) = AsyncStream<Chunk>.makeStream(
-            bufferingPolicy: .bufferingNewest(64)
+            bufferingPolicy: .bufferingNewest(128)
         )
         self.continuation = continuation
-
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            continuation.finish()
-            self.continuation = nil
-            throw PencilLoopError.speechUnavailable(
-                reason: "No microphone input is available."
-            )
-        }
+        let format = engine.inputNode.outputFormat(forBus: 0)
 
         // The clip's own stream, drained by a task rather than written here:
         // the tap block is the render thread and must not touch a file.
@@ -283,7 +322,7 @@ actor MicrophoneCapture {
                 self.recorder = recorder
             }
             let (clipStream, continuation) = AsyncStream<Chunk>.makeStream(
-                bufferingPolicy: .bufferingNewest(64)
+                bufferingPolicy: .bufferingNewest(128)
             )
             clipContinuation = continuation
             self.recordingContinuation = continuation
@@ -302,28 +341,48 @@ actor MicrophoneCapture {
             self.recorder = nil
         }
 
+        // Everything buffered since pre-warm goes first, then live audio, in
+        // one step under the router's lock — so a buffer arriving during the
+        // hand-over lands after the pre-roll and not among it.
+        let replayed = router.beginStreaming(engine: continuation, clip: clipContinuation)
+        if replayed > 0 {
+            logger.debug("Recording began with \(replayed, format: .fixed(precision: 2))s of pre-roll.")
+        }
+        return stream
+    }
+
+    /// Installs the tap and starts the engine, feeding the router.
+    ///
+    /// The tap block is the audio render thread. It copies the buffer and hands
+    /// it to the router, which takes one short lock; it must never do more.
+    private func startTap() throws {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw PencilLoopError.speechUnavailable(
+                reason: "No microphone input is available."
+            )
+        }
+        let router = self.router
         let logger = self.logger
         input.installTap(onBus: 0, bufferSize: 2048, format: format) { buffer, _ in
             guard let chunk = Chunk.copying(buffer) else {
                 logger.debug("A microphone buffer in an unsupported PCM layout was dropped.")
                 return
             }
-            continuation.yield(chunk)
-            // The same copy, handed to both. `Chunk` is only ever read, so one
-            // memcpy still covers the reuse the copy exists to prevent.
-            clipContinuation?.yield(chunk)
+            // One copy, and the router hands the same one to the recogniser
+            // and the clip. `Chunk` is only ever read, so one memcpy still
+            // covers the reuse the copy exists to prevent.
+            router.deliver(chunk)
         }
         isTapped = true
-
         do {
             try engine.start()
         } catch {
-            await stop()
             throw PencilLoopError.speechUnavailable(
                 reason: "The microphone could not be started. \(error.localizedDescription)"
             )
         }
-        return stream
     }
 
     /// Closes the clip and says where it landed.
@@ -371,6 +430,10 @@ actor MicrophoneCapture {
         if engine.isRunning {
             engine.stop()
         }
+        // Whatever the ring held is nobody's now, and a pre-warm still in
+        // flight must not bring the microphone back up (`generation`).
+        generation += 1
+        router.reset()
         continuation?.finish()
         continuation = nil
         // Not `finishClip()`: this is called from stream teardown and cannot

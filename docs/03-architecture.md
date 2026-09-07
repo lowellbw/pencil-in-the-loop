@@ -188,6 +188,15 @@ asset catalog — trigger this on first run, in the background, and surface a on
 Settings row if it hasn't completed. After that, dictation itself needs no network: the
 transcript is made on device and the comment is saved before anything else happens.
 
+**The first word is kept.** The microphone starts when a comment becomes plausible — the
+arming press, or the onset of a Pencil Pro squeeze — and keeps the newest second of audio;
+when the hold resolves, that second is replayed into the recogniser and into the clip ahead
+of live audio (`MicrophoneCapture`, `TapRouter`). Before that existed the first word was
+reliably lost to setup, on the squeeze especially, which had no lead time at all. The
+popover says "Listening…" only once the engine confirms the microphone is live, and
+"Starting…" until then. Nothing buffered is transcribed or written unless a recording
+follows; a press that lifts early gives the microphone straight back.
+
 **A queued upgrade may then improve it** (`notes/pencil-loop-cloud-dictation.md`). The
 recording is kept, sent to a model that can be told the document's own vocabulary, and the
 better text replaces the draft — unless the reader edited it meanwhile, in which case what

@@ -88,6 +88,23 @@ final class ContinuousTranscriberTests: XCTestCase {
         XCTAssertLessThanOrEqual(started, 4, "but it must not retry for ever")
     }
 
+    /// The engines send one empty update the moment the microphone is live.
+    /// That is not a word, and a segment that produced only that must count as
+    /// silent — or an engine failing just after capture starts would be
+    /// restarted for ever on the strength of its own greeting.
+    func testAnEmptyUpdateDoesNotCountAsSomethingSaid() async throws {
+        let engine = SegmentedTranscriberDouble(segments: ["", "", "", "", "", "", "", ""])
+        let transcriber = ContinuousTranscriber(engine: engine)
+
+        for try await update in transcriber.transcribe(contextualTerms: []) {
+            XCTAssertTrue(update.displayText.isEmpty, "the double only ever says nothing")
+        }
+
+        let started = await engine.startCount
+        XCTAssertGreaterThan(started, 0, "it should have tried")
+        XCTAssertLessThanOrEqual(started, 4, "empty updates must not keep a silent engine alive")
+    }
+
     /// An engine that cannot start will not start on the second attempt either,
     /// so the error goes straight through rather than being retried.
     func testAFailureIsPassedThroughRatherThanRetried() async {

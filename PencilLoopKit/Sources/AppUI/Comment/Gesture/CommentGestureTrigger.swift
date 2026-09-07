@@ -56,8 +56,21 @@ public enum CommentGestureTrigger: Sendable, Hashable {
     ///
     /// So a squeeze *toggles*: once to start talking, once to stop. Holding is
     /// still hold-to-talk, and it is still the long press, which is a gesture
-    /// the app owns end to end.
+    /// the app owns end to end. The onset is reported separately, as
+    /// `squeezeBegan`, for the microphone alone: it starts nothing and shows
+    /// nothing, which is what keeps the one-case rule above intact.
     case squeezeToggled(point: CGPoint)
+
+    /// A Pencil Pro squeeze has started. Not a comment yet — that is decided
+    /// when it ends — but plausible enough to pre-warm the microphone, which is
+    /// the few hundred milliseconds between the click and the first word that
+    /// used to go missing (MicrophoneCapture § prewarm). Nothing is shown.
+    case squeezeBegan
+
+    /// A squeeze that began and came to nothing: cancelled by the system, ended
+    /// where it could not be anchored, or arrived under another screen. Release
+    /// the microphone `squeezeBegan` warmed.
+    case squeezeAbandoned
 
     /// Where this trigger happened, when it happened somewhere.
     public var point: CGPoint? {
@@ -65,7 +78,7 @@ public enum CommentGestureTrigger: Sendable, Hashable {
         case let .armed(point): return point
         case let .holdBegan(point): return point
         case let .squeezeToggled(point): return point
-        case .armingEnded, .holdEnded, .holdCancelled:
+        case .armingEnded, .holdEnded, .holdCancelled, .squeezeBegan, .squeezeAbandoned:
             return nil
         }
     }

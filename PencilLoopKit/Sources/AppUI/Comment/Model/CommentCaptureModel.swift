@@ -286,6 +286,21 @@ public final class CommentCaptureModel {
 
         case .holdCancelled:
             send(.cancelled)
+
+        case .squeezeBegan:
+            // The click is coming; the microphone should be live before it.
+            // Nothing else changes — no popover, no machine event. A squeeze
+            // that will toggle a recording *off* wants no warming, and the
+            // engine ignores a warm during a recording anyway.
+            guard machine.isRecording == false else { break }
+            prewarm()
+
+        case .squeezeAbandoned:
+            // Warmed for a squeeze that came to nothing. Only an idle machine
+            // gives the microphone back here: an arming press owns its own
+            // pre-warm and releases it on its own lift.
+            guard case .idle = machine.phase else { break }
+            releasePrewarm()
         }
     }
 
@@ -604,6 +619,12 @@ public final class CommentCaptureModel {
             case .releaseCapture:
                 streamTask?.cancel()
                 streamTask = nil
+                // Nothing may still be holding the microphone after this: not
+                // a recording, which `stopTranscribing` ended, and not a
+                // pre-warm that never became one — an arming press that lifted
+                // early. The engine ignores this during a recording, so a late
+                // arrival cannot end the next one.
+                releasePrewarm()
             case let .commit(text):
                 guard let anchor = popover?.anchor else { break }
                 save(text: text, source: .voice, anchor: anchor, correcting: true)
@@ -619,6 +640,7 @@ public final class CommentCaptureModel {
     private func syncPopover() {
         guard var state = popover else { return }
         state.update = machine.update
+        state.isListening = machine.isListening
         switch machine.phase {
         case .idle, .arming, .discarded:
             state.stage = .waiting
@@ -641,6 +663,19 @@ public final class CommentCaptureModel {
             // Best-effort and never waited on: it is an optimisation, and
             // dictation works without it (Protocols.swift § prewarm).
             await transcriber.prewarm()
+        }
+    }
+
+    /// Gives back a microphone that was warmed for a recording that never
+    /// began. Safe to call at any time: the engine ignores it during a
+    /// recording (Protocols.swift § releaseCapture), and a warm still in
+    /// flight is abandoned by the capture rather than finished afterwards.
+    private func releasePrewarm() {
+        prewarmTask?.cancel()
+        prewarmTask = nil
+        let transcriber = environment.transcriber
+        Task {
+            await transcriber.releaseCapture()
         }
     }
 

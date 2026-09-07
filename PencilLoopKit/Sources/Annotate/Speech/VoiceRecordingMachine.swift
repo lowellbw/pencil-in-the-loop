@@ -149,6 +149,14 @@ public struct VoiceRecordingMachine: Sendable, Hashable {
     /// volatile tail dimmer (DTOs.swift § TranscriptionUpdate).
     public private(set) var update = TranscriptionUpdate(volatileText: "", finalisedText: "")
 
+    /// True once the engine has confirmed the microphone is live for this
+    /// recording. The engines send one empty update the moment capture starts,
+    /// and this is set on the first update of any kind; until then the popover
+    /// must not say "Listening…", because it is not, and a reader who takes
+    /// the word at face value starts talking into setup. What they say in that
+    /// window is what the pre-roll exists to keep (MicrophoneCapture § prewarm).
+    public private(set) var isListening = false
+
     public init() {}
 
     // MARK: Derived
@@ -188,7 +196,7 @@ public struct VoiceRecordingMachine: Sendable, Hashable {
     /// | idle | holdRecognised | recording | prewarmCapture, startTranscribing |
     /// | arming | holdRecognised | recording | startTranscribing |
     /// | arming | touchUp / cancelled | idle | releaseCapture |
-    /// | recording | transcriptUpdated | recording | — |
+    /// | recording | transcriptUpdated | recording | — (sets `isListening`) |
     /// | recording | touchUp (< 0.3s) | discarded(.misTouch) | stopTranscribing, releaseCapture, dismiss |
     /// | recording | touchUp (>= 0.3s) | finishing | stopTranscribing |
     /// | finishing | transcriptUpdated | finishing | — |
@@ -203,6 +211,7 @@ public struct VoiceRecordingMachine: Sendable, Hashable {
         case (.idle, .touchDown(let at)):
             phase = .arming(since: at)
             update = TranscriptionUpdate(volatileText: "", finalisedText: "")
+            isListening = false
             return [.prewarmCapture]
 
         // Defensive: a squeeze shortcut can reach the popover without a
@@ -211,10 +220,12 @@ public struct VoiceRecordingMachine: Sendable, Hashable {
         case (.idle, .holdRecognised(let at)):
             phase = .recording(since: at)
             update = TranscriptionUpdate(volatileText: "", finalisedText: "")
+            isListening = false
             return [.prewarmCapture, .startTranscribing]
 
         case (.arming(_), .holdRecognised(let at)):
             phase = .recording(since: at)
+            isListening = false
             return [.startTranscribing]
 
         // Lifted before the popover ever appeared. Not a mis-touch worth
@@ -226,6 +237,7 @@ public struct VoiceRecordingMachine: Sendable, Hashable {
         case (.recording(_), .transcriptUpdated(let value)),
              (.finishing(_), .transcriptUpdated(let value)):
             update = value
+            isListening = true
             return []
 
         case (.recording(let since), .touchUp(let at)):

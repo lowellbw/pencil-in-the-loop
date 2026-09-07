@@ -210,6 +210,13 @@ public actor DeferredSpeechTranscriber: SpeechTranscribing {
         return await build.task.value.finishedClip()
     }
 
+    /// Reaches the built engine only: nothing built means nothing warmed. A
+    /// recording in flight is left alone, as the contract says.
+    public func releaseCapture() async {
+        guard recording == nil, let build else { return }
+        await build.task.value.releaseCapture()
+    }
+
     /// Ends whatever is recording and returns its final text.
     ///
     /// Addresses the engine the running stream resolved, never the field: those

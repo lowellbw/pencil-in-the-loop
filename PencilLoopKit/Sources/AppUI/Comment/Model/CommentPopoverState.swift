@@ -88,6 +88,12 @@ public struct CommentPopoverState: Sendable, Hashable, Identifiable {
     /// either way and the user scribbles (docs/03-architecture.md § 4).
     public var isSpeechAvailable: Bool
 
+    /// True once the engine has said the microphone is live for this
+    /// recording (`VoiceRecordingMachine.isListening`). Until then `.recording`
+    /// is shown as starting, not listening — the honest word for a microphone
+    /// that is not on yet.
+    public var isListening: Bool
+
     public init(
         id: UUID = UUID(),
         anchor: Anchor,
@@ -96,7 +102,8 @@ public struct CommentPopoverState: Sendable, Hashable, Identifiable {
         stage: Stage = .waiting,
         update: TranscriptionUpdate = TranscriptionUpdate(volatileText: "", finalisedText: ""),
         scribbleText: String = "",
-        isSpeechAvailable: Bool = true
+        isSpeechAvailable: Bool = true,
+        isListening: Bool = false
     ) {
         self.id = id
         self.anchor = anchor
@@ -106,6 +113,7 @@ public struct CommentPopoverState: Sendable, Hashable, Identifiable {
         self.update = update
         self.scribbleText = scribbleText
         self.isSpeechAvailable = isSpeechAvailable
+        self.isListening = isListening
     }
 
     /// True while audio is being captured — the waveform's cue.

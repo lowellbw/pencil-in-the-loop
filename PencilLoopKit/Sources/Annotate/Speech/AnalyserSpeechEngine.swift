@@ -176,8 +176,10 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
 
     // MARK: Recording
 
-    /// Opens the audio session and prepares the engine graph, so the press that
-    /// follows does not pay for it.
+    /// Opens the audio session, prepares the engine graph and starts the
+    /// microphone into a one-second ring, so the press that follows pays for
+    /// none of it and the first word is not lost to setup
+    /// (MicrophoneCapture § prewarm).
     ///
     /// Idempotent, non-throwing, best-effort (Protocols.swift §
     /// SpeechTranscribing). It does nothing when a recording is already
@@ -194,6 +196,13 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
             // where there is a popover to show it.
             logger.debug("Speech prewarm did nothing: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Gives back a pre-warmed microphone that no recording followed. A running
+    /// recording is left alone (Protocols.swift § releaseCapture).
+    public func releaseCapture() async {
+        guard streamContinuation == nil, analyser == nil else { return }
+        await capture.stop()
     }
 
     public nonisolated func transcribe(
@@ -247,8 +256,13 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
             return
         }
 
-        guard await Self.isInstalled(locale) else {
-            cachedInstalled = false
+        // Asked of the system once per engine, not once per press. The answer
+        // does not change underneath a running app, and the query used to sit
+        // between the press and the microphone on every recording.
+        if cachedInstalled != true {
+            cachedInstalled = await Self.isInstalled(locale)
+        }
+        guard cachedInstalled == true else {
             await prepareAssets()
             finishStream(with: .speechUnavailable(
                 reason: "The dictation model for \(SpeechAvailability.displayName(for: locale)) is still downloading."
@@ -256,10 +270,13 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
             await teardown()
             return
         }
-        cachedInstalled = true
 
         do {
             let chunks = try await capture.startWaitingForInput(clipURL: clipDestination)
+            // The microphone is live from here — say so, before the analyser
+            // exists. The popover claims to be listening on this and on nothing
+            // earlier (VoiceRecordingMachine § isListening).
+            emit(volatile: "")
 
             let module = makeTranscriber(reportVolatileResults: true)
             transcriber = module

@@ -222,7 +222,7 @@ everywhere (`04-flows.md` § F3), so a build or a page without it leaves the not
 | Finger drag | Scroll. Always. |
 | Pencil drag | Draw. Always. (`drawingPolicy = .pencilOnly`) |
 | Pencil long-press (0.4s) on the page | Open the comment popover anchored at that point |
-| Pencil Pro squeeze | Toggle: squeeze to start talking, squeeze again to stop. Anchored at the current hover point if hovering |
+| Pencil Pro squeeze | Toggle: squeeze to start talking, squeeze again to stop. Anchored at the current hover point if hovering. The onset of the squeeze pre-warms the microphone, so the first word after the click is kept |
 | Finger long-press on text | Standard iOS text selection → "Comment" in the menu |
 | Tap a comment marker | Open that comment for review or deletion |
 | Two-finger tap | Undo (system standard) |

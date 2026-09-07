@@ -175,6 +175,13 @@ public actor LegacySpeechEngine: SpeechTranscribing {
         }
     }
 
+    /// Gives back a pre-warmed microphone that no recording followed. A running
+    /// recording is left alone (Protocols.swift § releaseCapture).
+    public func releaseCapture() async {
+        guard streamContinuation == nil, task == nil else { return }
+        await capture.stop()
+    }
+
     public nonisolated func transcribe(
         contextualTerms: [String]
     ) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
@@ -243,6 +250,10 @@ public actor LegacySpeechEngine: SpeechTranscribing {
 
         do {
             let chunks = try await capture.startWaitingForInput(clipURL: clipDestination)
+            // The microphone is live from here — say so, before the recogniser
+            // has anything. The popover claims to be listening on this and on
+            // nothing earlier (VoiceRecordingMachine § isListening).
+            streamContinuation?.yield(TranscriptionUpdate(volatileText: "", finalisedText: ""))
             startRecognition()
             pumpTask = Task { await self.pump(chunks) }
         } catch let error as PencilLoopError {

@@ -170,7 +170,24 @@ public protocol SpeechTranscribing: Sendable {
     /// cannot warm up says nothing — the failure surfaces from `transcribe`,
     /// where there is a UI to show it. A caller must never wait on this or
     /// branch on it; it is an optimisation, and dictation works without it.
+    ///
+    /// **It listens.** A warmed engine has the microphone running and keeps
+    /// the newest second of audio, which the recording that follows starts
+    /// with — so a word spoken as the hold resolves is in the transcript
+    /// rather than lost to setup. The system's recording indicator shows from
+    /// here. What is kept is discarded, never transcribed, if no recording
+    /// follows, and `releaseCapture()` is how a caller says none will.
     func prewarm() async
+
+    /// Gives the microphone back after a `prewarm()` that did not become a
+    /// recording — an arming press that lifted early, a squeeze that came to
+    /// nothing.
+    ///
+    /// Does nothing while a recording is running, which is what makes it safe
+    /// to call late: a release that arrives after the next recording has begun
+    /// must not end it. Does nothing when there is nothing to give back. Never
+    /// throws. Engines that warm nothing need not implement it.
+    func releaseCapture() async
 
     /// Starts recording and streams updates.
     ///
@@ -225,6 +242,15 @@ public protocol SpeechTranscribing: Sendable {
     /// app. Whether the assets for a given language are *installed* is a
     /// separate question, and `assetState()` is the one that answers it.
     func supportedLocales() async -> [Locale]
+}
+
+extension SpeechTranscribing {
+
+    /// The default for an engine with nothing to give back: previews and test
+    /// doubles, which warm nothing. The real engines and every wrapper around
+    /// them implement it, because a wrapper that let this default stand would
+    /// silently leave a warmed microphone running.
+    public func releaseCapture() async {}
 }
 
 /// Document-specific vocabulary and transcript repair.

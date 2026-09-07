@@ -154,7 +154,10 @@ public struct CommentPopoverView: View {
 
     private var placeholder: String {
         switch state.stage {
-        case .recording: return "Listening\u{2026}"
+        // "Listening…" only once the engine has said the microphone is live.
+        // Before that it is not, and the honest word is the one the siblings
+        // use for their own in-between moments.
+        case .recording: return state.isListening ? "Listening\u{2026}" : "Starting\u{2026}"
         case .finishing: return "Finishing\u{2026}"
         case .saving: return "Saving\u{2026}"
         case .failed: return "Nothing was captured."

@@ -90,7 +90,10 @@ public actor ContinuousTranscriber: SpeechTranscribing {
                     var produced = false
                     do {
                         for try await update in self.engine.transcribe(contextualTerms: contextualTerms) {
-                            produced = true
+                            // Words, not updates: the engines send one empty
+                            // update the moment the microphone is live, and a
+                            // segment that produced only that was a silent one.
+                            if update.displayText.isEmpty == false { produced = true }
                             continuation.yield(await self.fold(update))
                         }
                     } catch {
@@ -131,8 +134,6 @@ public actor ContinuousTranscriber: SpeechTranscribing {
         }
     }
 
-    /// Ends the recording and returns everything said during it, across however
-    /// many times the engine restarted.
     public func setClipDestination(_ url: URL?) async {
         await engine.setClipDestination(url)
     }
@@ -141,6 +142,16 @@ public actor ContinuousTranscriber: SpeechTranscribing {
         await engine.finishedClip()
     }
 
+    /// Only ever between recordings: a release that lands while the user is
+    /// talking is a stale one, and must not be the thing that ends the
+    /// recording (Protocols.swift § releaseCapture).
+    public func releaseCapture() async {
+        guard isRecording == false else { return }
+        await engine.releaseCapture()
+    }
+
+    /// Ends the recording and returns everything said during it, across however
+    /// many times the engine restarted.
     public func stop() async -> String {
         guard isRecording else { return "" }
         isRecording = false

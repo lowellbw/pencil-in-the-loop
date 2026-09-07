@@ -209,4 +209,40 @@ final class VoiceRecordingMachineTests: XCTestCase {
         XCTAssertEqual(machine.handle(.finalText("something else")), [])
         XCTAssertEqual(machine.savedText, "saved")
     }
+
+    // MARK: Listening is a claim the engine makes
+
+    /// "Listening…" is not true at the hold: the microphone goes live a moment
+    /// later, and the engine says so with its first update — an empty one.
+    func testListeningIsClaimedOnlyOnceTheEngineHasSpoken() {
+        var machine = heldMachine()
+        XCTAssertTrue(machine.isRecording)
+        XCTAssertFalse(machine.isListening, "Recording has started, but the microphone has not confirmed itself yet.")
+
+        _ = machine.handle(.transcriptUpdated(TranscriptionUpdate(volatileText: "", finalisedText: "")))
+
+        XCTAssertTrue(machine.isListening, "The engine's first update, empty or not, is the microphone being live.")
+    }
+
+    func testANewRecordingStartsWithoutTheLastOnesClaim() {
+        var machine = heldMachine()
+        _ = machine.handle(.transcriptUpdated(TranscriptionUpdate(volatileText: "hello", finalisedText: "")))
+        _ = machine.handle(.touchUp(at: start.addingTimeInterval(1)))
+        _ = machine.handle(.finalText("hello"))
+
+        var next = VoiceRecordingMachine()
+        _ = next.handle(.touchDown(at: start.addingTimeInterval(5)))
+        XCTAssertFalse(next.isListening)
+        _ = next.handle(.holdRecognised(at: start.addingTimeInterval(6)))
+        XCTAssertFalse(next.isListening)
+        XCTAssertTrue(machine.isListening, "The finished recording keeps its own answer.")
+    }
+
+    func testASqueezeStartedRecordingIsNotListeningUntilTheEngineSaysSo() {
+        var machine = VoiceRecordingMachine()
+        _ = machine.handle(.holdRecognised(at: start))
+
+        XCTAssertTrue(machine.isRecording)
+        XCTAssertFalse(machine.isListening)
+    }
 }
