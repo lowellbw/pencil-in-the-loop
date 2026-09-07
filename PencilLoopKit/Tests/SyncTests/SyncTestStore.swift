@@ -151,9 +151,18 @@ actor SyncTestStore: DocumentStoring {
 
     // MARK: - Comments
 
+    /// Comments by document, kept so a test can see what an upgrade rewrote
+    /// (`TranscriptUpgradeQueueTests`).
+    private var storedComments: [UUID: [CommentSnapshot]] = [:]
+
+    /// Puts a comment in with the id the test chose.
+    func seed(_ comment: CommentSnapshot, documentId: UUID) {
+        storedComments[documentId, default: []].append(comment)
+    }
+
     @discardableResult
     func addComment(_ draft: CommentDraft, documentId: UUID) throws -> CommentSnapshot {
-        CommentSnapshot(
+        let snapshot = CommentSnapshot(
             id: UUID(),
             createdAt: Date(timeIntervalSince1970: 0),
             text: draft.text,
@@ -161,16 +170,26 @@ actor SyncTestStore: DocumentStoring {
             anchor: draft.anchor,
             resolvedOnPage: draft.resolvedOnPage
         )
+        storedComments[documentId, default: []].append(snapshot)
+        return snapshot
     }
 
-    func updateComment(id: UUID, text: String) throws {}
+    func updateComment(id: UUID, text: String) throws {
+        for (documentId, comments) in storedComments {
+            guard let index = comments.firstIndex(where: { $0.id == id }) else { continue }
+            storedComments[documentId]?[index].text = text
+            return
+        }
+    }
 
     func deleteComment(id: UUID) throws {}
 
     @discardableResult
     func undoLastCommentDeletion() throws -> CommentSnapshot? { nil }
 
-    func comments(documentId: UUID) throws -> [CommentSnapshot] { [] }
+    func comments(documentId: UUID) throws -> [CommentSnapshot] {
+        storedComments[documentId] ?? []
+    }
 
     // MARK: - Review lifecycle
 

@@ -28,7 +28,8 @@ import Core
 ///
 /// **On failure:** never throws. A clip that cannot be upgraded is deferred
 /// with a longer backoff, and one that has been failing for a day is dropped.
-/// The only thing a caller learns is how many comments actually changed.
+/// The only thing a caller learns is which comments actually changed, and on
+/// which documents — so the reader showing one can be told to look again.
 public actor TranscriptUpgradeQueue {
 
     private static let log = Logger(subsystem: "co.pencil-loop.sync", category: "upgrade")
@@ -53,21 +54,25 @@ public actor TranscriptUpgradeQueue {
 
     /// Upgrades whatever is due.
     ///
-    /// - Returns: how many comments were rewritten. Zero is the normal answer
-    ///   and is not a failure — it usually means there is nothing queued.
+    /// - Returns: the comments that were rewritten, keyed by the document they
+    ///   are on — which is what a listener needs to re-read the right one.
+    ///   Empty is the normal answer and is not a failure; it usually means
+    ///   there is nothing queued.
     @discardableResult
-    public func drain(now: Date = Date()) async -> Int {
-        guard isDraining == false else { return 0 }
+    public func drain(now: Date = Date()) async -> [UUID: [UUID]] {
+        guard isDraining == false else { return [:] }
         isDraining = true
         defer { isDraining = false }
 
         clips.sweep()
-        var applied = 0
+        var applied: [UUID: [UUID]] = [:]
         for clip in clips.pending() where clip.isDue(at: now) {
             if Task.isCancelled { break }
             do {
                 let better = try await upgrade(clip)
-                if await apply(better, to: clip) { applied += 1 }
+                if await apply(better, to: clip) {
+                    applied[clip.documentId, default: []].append(clip.commentId)
+                }
                 clips.remove(commentId: clip.commentId)
             } catch {
                 // Deliberately not surfaced. The reader has their comment; an

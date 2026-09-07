@@ -435,7 +435,9 @@ public final class LibraryModel {
                 await load()
             case let .folderUnavailable(reason):
                 statusMessage = reason
-            case .scanStarted:
+            case .scanStarted, .transcriptsUpgraded:
+                // A rewritten transcript changes nothing the sidebar shows; the
+                // reader listens for that one itself (`ReaderModel` § Sync).
                 continue
             }
         }

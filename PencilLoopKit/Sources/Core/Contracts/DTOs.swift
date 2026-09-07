@@ -900,6 +900,10 @@ public enum SyncEvent: Sendable, Hashable {
     case replyReceived(documentId: UUID, replyURL: URL)
     /// Pass-through of a folder-level problem.
     case folderUnavailable(reason: String)
+    /// Voice comments whose transcript was replaced by a better one, made from
+    /// the recording after the fact (notes/pencil-loop-cloud-dictation.md).
+    /// A reader showing this document re-reads its comments on this.
+    case transcriptsUpgraded(documentId: UUID, commentIds: [UUID])
 }
 
 // MARK: - Export

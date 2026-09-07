@@ -488,13 +488,18 @@ public final class CommentCaptureModel {
         }
     }
 
-    /// Re-reads the comment list from the store. For after a review is sent, or
-    /// a reply arrives.
+    /// Re-reads the comment list from the store. For when Sync has rewritten a
+    /// comment underneath the reader — a voice comment's transcript improving
+    /// after it was saved (`ReaderModel` § Sync).
     public func refreshComments() {
         Task { [weak self] in
             guard let self else { return }
             guard let stored = try? await self.environment.store.comments(documentId: self.documentId) else { return }
             self.comments = Self.inDocumentOrder(stored)
+            // A marker's popover open on a comment that was just rewritten
+            // shows the rewrite, not the draft it opened with.
+            let current = Dictionary(stored.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            self.selectedComments = self.selectedComments.compactMap { current[$0.id] }
         }
     }
 

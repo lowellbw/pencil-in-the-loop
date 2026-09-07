@@ -268,8 +268,13 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         // the same reason staging is: a comment dictated a moment ago should
         // improve in this pass rather than the next one. It never throws, so it
         // cannot stop documents arriving — an upgrade is the least important
-        // thing this method does.
-        await upgrades?.drain()
+        // thing this method does. What it did change is announced, because the
+        // reader showing that document is still showing the draft.
+        if let upgrades {
+            for (documentId, commentIds) in await upgrades.drain() {
+                emit(.transcriptsUpgraded(documentId: documentId, commentIds: commentIds))
+            }
+        }
 
         // Anything the share extension left in the App Group, on its way up.
         // The folder coordinator does this at the same point in its own scan

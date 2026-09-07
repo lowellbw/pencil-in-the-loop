@@ -117,6 +117,10 @@ public final class ReaderModel {
     private var pageWriteTask: Task<Void, Never>?
     private var settingsWriteTask: Task<Void, Never>?
 
+    /// Follows Sync while a document is open, for the one event the reader
+    /// acts on: a voice comment's transcript improving after it was saved.
+    private var syncTask: Task<Void, Never>?
+
     public init() {}
 
     // MARK: - Opening and closing
@@ -218,6 +222,7 @@ public final class ReaderModel {
         self.capture = capture
         self.toolPicker = picker
         self.canvasPool = pool
+        self.observeSync(for: newDocumentId, environment: newEnvironment, capture: capture)
 
         // Last, and after the pool: this is what provokes the layout that asks
         // for the overlays.
@@ -362,6 +367,30 @@ public final class ReaderModel {
         self.onDocumentChanged?()
     }
 
+    // MARK: - Sync
+
+    /// Re-reads the comments when Sync rewrites one underneath this reader.
+    ///
+    /// A voice comment is saved with the on-device transcript, and a better
+    /// one can replace it in the store a few seconds later
+    /// (`TranscriptUpgradeQueue`). The reader's copy is as old as its last
+    /// load, so without this the marker would go on showing the draft while
+    /// the review sheet, which reads the store, sent something else.
+    private func observeSync(
+        for documentId: UUID,
+        environment: any AppEnvironment,
+        capture: CommentCaptureModel
+    ) {
+        self.syncTask?.cancel()
+        self.syncTask = Task { [weak capture] in
+            for await event in environment.sync.events() {
+                guard case let .transcriptsUpgraded(upgraded, _) = event,
+                      upgraded == documentId else { continue }
+                capture?.refreshComments()
+            }
+        }
+    }
+
     private func closeCurrent() async {
         guard let closing = self.documentId else { return }
         let pool = self.canvasPool
@@ -369,6 +398,8 @@ public final class ReaderModel {
 
         self.pageWriteTask?.cancel()
         self.settingsWriteTask?.cancel()
+        self.syncTask?.cancel()
+        self.syncTask = nil
         self.hideToolPicker()
         capture?.detach()
 
