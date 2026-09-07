@@ -317,8 +317,10 @@ Opened by the Review button. A `.large` sheet.
 - Header: "*n* comments, *m* inked pages" and a subtitle with the document title and time
   spent.
 - A list of comments in document order. Each row: marker, quoted excerpt (dimmed, one
-  line), the comment text, and a small source line — "voice · on-device" or "handwriting ·
-  recognised". Swipe to delete. Tap to edit the text.
+  line), the comment text, and a small source line — "voice · transcribed" or "handwriting ·
+  recognised". Swipe to delete. Tap to edit the text. The voice label does not say *where*
+  it was transcribed: the draft is made on the device and a queued upgrade may replace it
+  (docs/03-architecture.md § 4), and the reader re-reads the text when that lands.
 - **Include** toggles: Comments, Inked pages, Recognised text, Full document. First three
   on by default.
 - **Closing instruction**: a multi-line text field. Placeholder: "Anything to add?"

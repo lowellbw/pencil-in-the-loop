@@ -78,10 +78,17 @@ public enum CommentSource: String, Codable, Sendable, CaseIterable, Hashable {
         }
     }
 
-    /// The one-line source label shown in the review sheet (docs/02-spec.md § S4).
+    /// The one-line source label shown in the review sheet and under a marker
+    /// (docs/02-spec.md § S4).
+    ///
+    /// `.voice` says "transcribed" and not where, for the same reason
+    /// `attribution` does: the draft is made on the device and the recording
+    /// may be transcribed again by a better model afterwards, so a label naming
+    /// either would be wrong some of the time — and this one said "on-device"
+    /// for every voice comment, upgraded or not.
     public var displayName: String {
         switch self {
-        case .voice: return "voice · on-device"
+        case .voice: return "voice · transcribed"
         case .handwriting: return "handwriting · recognised"
         case .typed: return "typed"
         }

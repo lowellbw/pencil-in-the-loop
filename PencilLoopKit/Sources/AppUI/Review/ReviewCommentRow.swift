@@ -67,7 +67,7 @@ struct ReviewCommentRow: View {
             .accessibilityHidden(true)
     }
 
-    /// "voice · on-device" or "handwriting · recognised", plus the page it sits
+    /// "voice · transcribed" or "handwriting · recognised", plus the page it sits
     /// on. Both halves are frozen in Core so the sheet and the export agree.
     private var sourceLine: String {
         "\(comment.source.displayName) · page \(comment.resolvedOnPage + 1)"
