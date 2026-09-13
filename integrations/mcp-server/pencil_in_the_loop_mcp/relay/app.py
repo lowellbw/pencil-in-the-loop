@@ -250,6 +250,17 @@ def create_app(
         meta = relay_files.strip_return_path_secrets(meta)
 
         existing = index.document_by_id(meta["id"])
+        if existing is not None and existing.deleted_at is not None:
+            # The idempotency key outlives the document: `document_id` is
+            # UNIQUE and a tombstone keeps the row. Answering "already here"
+            # for something that was withdrawn would swallow the re-send
+            # silently, which is the one failure this API is built to avoid.
+            raise ApiError(
+                409,
+                "document_removed",
+                f"{existing.folder_name} was removed. Send it again without a "
+                "documentId to make a new document.",
+            )
         if existing is not None:
             return JSONResponse(
                 {
@@ -698,13 +709,44 @@ def create_app(
 
     def delete_document(request: Request) -> Response:
         folder_name = _folder(request)
-        if index.document(folder_name) is None:
+        row = index.document(folder_name)
+        if row is None or row.deleted_at is not None:
             raise ApiError(404, "not_found", f"No document named {folder_name}.")
-        import shutil as _shutil
-
-        _shutil.rmtree(inbox / folder_name, ignore_errors=True)
+        try:
+            core.remove_inbox_bundle(root, folder_name)
+        except FileNotFoundError:
+            pass  # indexed but already gone from the volume: tombstone it anyway
         seq = index.delete_document(folder_name)
         return JSONResponse({"folderName": folder_name, "seq": seq})
+
+    def post_revision(request: Request) -> Response:
+        """Rewrite a document in place: a correction, or an addendum.
+
+        The storage layer does the rewrite and the index re-enters the
+        document in the feed with its new sizes and hashes. A device that had
+        already caught up then sees it again, re-pins it and re-ingests it —
+        under the reader's ink and comments, which it never touches
+        (docs/12-relay.md § 4d).
+        """
+        folder_name = _folder(request)
+        row = index.document(folder_name)
+        if row is None or row.deleted_at is not None:
+            raise ApiError(404, "not_found", f"No document named {folder_name}.")
+        body = request.state.body
+        try:
+            result = core.revise_inbox_bundle(
+                root,
+                folder_name,
+                content=body.get("content"),
+                mode=body.get("mode"),
+                title=body.get("title"),
+            )
+        except core.ValidationError as error:
+            raise ApiError(400, "invalid_input", str(error)) from error
+        except FileNotFoundError as error:
+            raise ApiError(404, "not_found", str(error)) from error
+        seq = index.note_bundle_rewritten(folder_name, inbox)
+        return JSONResponse({**result, "seq": seq})
 
     # --------------------------------------------------------------- reviews
 
@@ -939,6 +981,7 @@ def create_app(
         Route("/v1/clips", post_clip, methods=["POST"]),
         Route("/v1/clips/{clipId}/audio", put_clip_audio, methods=["PUT"]),
         Route("/v1/documents/{folderName}", delete_document, methods=["DELETE"]),
+        Route("/v1/documents/{folderName}/revision", post_revision, methods=["POST"]),
         Route(
             "/v1/documents/{folderName}/files/{name}",
             put_document_file,

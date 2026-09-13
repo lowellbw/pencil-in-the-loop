@@ -87,13 +87,28 @@ public struct PinnedDocumentWriter: Sendable {
         /// did.
         public var revision: String?
 
+        /// Lowercase hex SHA-256 of each copied file, by name, as the relay
+        /// declared it and the pinner verified it.
+        ///
+        /// What lets a later feed entry be recognised as *the same bytes under
+        /// a new sequence number* — which is what the relay sends when it adds
+        /// a narration to a document, and is not a revision — rather than
+        /// re-downloading and re-ingesting the document to find out
+        /// (`RemoteDocumentPinner.isPinnedAndCurrent(_:)`).
+        ///
+        /// Optional for exactly the reason `revision` is: sidecars without it
+        /// are on devices now, and those answer by revision alone as they
+        /// always did.
+        public var fileHashes: [String: String]?
+
         public init(
             folderName: String,
             modifiedAt: Date,
             byteCount: Int64,
             pinnedAt: Date,
             fileNames: [String],
-            revision: String? = nil
+            revision: String? = nil,
+            fileHashes: [String: String]? = nil
         ) {
             self.folderName = folderName
             self.modifiedAt = modifiedAt
@@ -101,6 +116,7 @@ public struct PinnedDocumentWriter: Sendable {
             self.pinnedAt = pinnedAt
             self.fileNames = fileNames
             self.revision = revision
+            self.fileHashes = fileHashes
         }
     }
 

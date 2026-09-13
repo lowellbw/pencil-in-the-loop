@@ -7,6 +7,7 @@ module only turns tool calls into those functions and shapes the replies.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,8 @@ from .core import (
     read_json_file,
     read_review,
     read_text_file,
+    remove_inbox_bundle,
+    revise_inbox_bundle,
     scan_inbox_groups,
     validate_bundle_id,
     validate_group,
@@ -65,6 +68,34 @@ server = _Server(
 
 def _sync_root():
     return resolve_sync_root()
+
+
+#: The relay's index, when these tools run inside it; None against a plain
+#: folder. The tools write bundles the way the folder transport did and the
+#: relay's `reconcile()` adopts a *new* directory on the next poll — but a
+#: change *inside* a directory it already knows is invisible to it, because the
+#: feed is answered from the index (relay/db.py § note_file_added, and the bug
+#: that taught it). So a tool that rewrites or removes a bundle, or adds a file
+#: to one, tells the index here. Against a plain folder there is no feed and
+#: nothing to tell.
+_index: Any = None
+
+
+def _tell_index_rewritten(folder: str) -> None:
+    if _index is not None:
+        _index.note_bundle_rewritten(folder, Path(_sync_root()) / "inbox")
+
+
+def _tell_index_removed(folder: str) -> None:
+    if _index is not None and _index.document(folder) is not None:
+        _index.delete_document(folder)
+
+
+def _tell_index_file_added(folder: str, name: str, payload: bytes) -> None:
+    if _index is not None:
+        _index.note_file_added(
+            folder, name, byte_count=len(payload), sha256=hashlib.sha256(payload).hexdigest()
+        )
 
 
 @server.tool(
@@ -281,6 +312,10 @@ def narrate(folder_name: str, depth: str = "standard", hosts: int = 2) -> dict[s
         return {"ok": False, "error": str(exc)}
 
     (directory / "narration.mp3").write_bytes(made.audio)
+    # Hosted in the relay, the feed is answered from the index and a file
+    # written inside a known bundle reaches no device until the index is told
+    # (relay/app.py § _make_narration, which does the same).
+    _tell_index_file_added(folder, "narration.mp3", made.audio)
     state = {"state": "ready", **made.as_dict()}
     write_file(state_path, json.dumps(state) + "\n")
 
@@ -341,6 +376,118 @@ def set_group(group: str, folder_names: list[str]) -> dict[str, Any]:
             f"{len(cleaned)} document(s) will move to {name} on the iPad's next poll."
             if name
             else f"Withdrew the suggestion for {len(cleaned)} document(s)."
+        ),
+    }
+
+
+@server.tool(
+    name="revise_on_ipad",
+    description=(
+        "Change a document already on the user's iPad, in place: correct a "
+        "mistake, or add an addendum. `mode` is `replace` — `content` is the "
+        "whole document again, corrected — or `append` — `content` is only the "
+        "new section, added at the end after a blank line.\n\n"
+        "The iPad picks the revision up on its next poll and re-renders the "
+        "document. Everything the reader has done to it stays: ink, comments, "
+        "reading position, filing. Ink is kept per page, so `append` — which "
+        "leaves the earlier pages exactly as they were — keeps every mark on "
+        "the text it was drawn on; `replace` can re-paginate, and a change in "
+        "the middle of a document can leave marks on a different passage. "
+        "Prefer `append` for an addendum, and `replace` when the document is "
+        "wrong and the reader has not annotated it much.\n\n"
+        "The title changes only when you pass one. Only a markdown document "
+        "can be revised: a PDF sent by address has no text to change, so "
+        "remove it and send it again. A narration made from the old text is "
+        "dropped; ask for a new one if it matters. Folder names are the ids "
+        "send_to_ipad and list_reviews return, e.g. "
+        "2026-08-18-auth-refactor-plan."
+    ),
+)
+def revise_on_ipad(
+    folder_name: str,
+    content: str,
+    mode: str,
+    title: str | None = None,
+) -> dict[str, Any]:
+    """Rewrite one document's markdown in place.
+
+    Args:
+        folder_name: the document, by folder name — the id `send_to_ipad`
+            returned when it was sent.
+        content: for ``replace``, the whole document as markdown; for
+            ``append``, only the new section.
+        mode: ``replace`` or ``append``. Required, because the two mistakes
+            are different and both bad: replacing with an addendum leaves
+            only the addendum, and appending a whole document doubles it.
+        title: a new title. Omit it to keep the current one.
+    """
+    try:
+        result = revise_inbox_bundle(
+            _sync_root(), folder_name, content=content, mode=mode, title=title
+        )
+    except ValidationError as exc:
+        return {"ok": False, "error": f"invalid input: {exc}"}
+    except FileNotFoundError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "hint": "folder names are the ids send_to_ipad and list_reviews return",
+        }
+    except OSError as exc:
+        return {"ok": False, "error": f"could not write to the sync folder: {exc}"}
+
+    _tell_index_rewritten(result["folderName"])
+    what = "Replaced" if mode == "replace" else "Added to"
+    message = (
+        f"{what} {result['title']}. The iPad re-renders it on its next poll, "
+        "with the reader's ink and comments kept."
+    )
+    if "narration.mp3" in result["removed"]:
+        message += " Its narration was made from the old text and was dropped."
+    return {"ok": True, **result, "message": message}
+
+
+@server.tool(
+    name="remove_from_ipad",
+    description=(
+        "Take back a document you sent: the wrong one, a duplicate, a draft "
+        "a corrected send has replaced. The relay deletes it, and the iPad, "
+        "on its next poll, moves it to Archived — nothing the reader wrote is "
+        "lost, their ink and comments stay with it, they can restore it, and "
+        "only they can delete it from the device. A document that had not "
+        "reached the iPad yet never will.\n\n"
+        "Reviews the reader already sent back are untouched. To fix a mistake "
+        "in a document rather than withdraw it, use revise_on_ipad. Folder "
+        "names are the ids send_to_ipad and list_reviews return."
+    ),
+)
+def remove_from_ipad(folder_name: str) -> dict[str, Any]:
+    """Delete one inbox bundle; the iPad archives its copy.
+
+    Args:
+        folder_name: the document, by folder name — the id `send_to_ipad`
+            returned when it was sent.
+    """
+    try:
+        result = remove_inbox_bundle(_sync_root(), folder_name)
+    except ValidationError as exc:
+        return {"ok": False, "error": f"invalid input: {exc}"}
+    except FileNotFoundError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "hint": "folder names are the ids send_to_ipad and list_reviews return",
+        }
+    except OSError as exc:
+        return {"ok": False, "error": f"could not remove it from the sync folder: {exc}"}
+
+    _tell_index_removed(result["folderName"])
+    return {
+        "ok": True,
+        **result,
+        "message": (
+            f"Removed {result['folderName']}. On the iPad it moves to Archived on the "
+            "next poll; the reader's ink and comments stay with it."
         ),
     }
 
@@ -573,7 +720,7 @@ def _image_block(path: Path) -> Any:
         return {"type": "image", "data": data, "mimeType": "image/png"}
 
 
-def streamable_http_app(sync_root: Path | None = None) -> Any:
+def streamable_http_app(sync_root: Path | None = None, index: Any = None) -> Any:
     """The MCP server as an ASGI app, for mounting inside the relay.
 
     The tools are unchanged and still read `PENCIL_SYNC_ROOT` through
@@ -582,10 +729,17 @@ def streamable_http_app(sync_root: Path | None = None) -> Any:
     API and these tools are two faces on one storage layer, which is less code
     than a second implementation of every verb and cannot drift from it.
 
+    - Parameter index: the relay's `Index`, so a tool that changes a bundle the
+      feed already describes can re-enter it there (`_index`). Without it the
+      tools still write correctly; nothing polls a plain folder.
+
     Stateless, so that a redeploy does not strand a session mid-conversation.
     """
+    global _index
     if sync_root is not None:
         os.environ.setdefault("PENCIL_SYNC_ROOT", str(sync_root))
+    if index is not None:
+        _index = index
 
     kwargs: dict[str, Any] = {"streamable_http_path": "/", "stateless_http": True}
     try:

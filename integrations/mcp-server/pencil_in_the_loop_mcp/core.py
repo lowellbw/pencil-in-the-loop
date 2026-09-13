@@ -609,6 +609,151 @@ def write_inbox_bundle(
     }
 
 
+# ------------------------------------------------ revising and withdrawing
+#
+# A sender gets two things wrong often enough to need a verb for each: the
+# document (a mistake, or something it wanted to add) and the decision to send
+# it at all. Both act on a bundle that already landed, by folder name, and both
+# leave the reader's side untouched — the iPad re-renders a revised document
+# under the reader's ink and comments, and files a withdrawn one under
+# Archived rather than deleting anything (docs/12-relay.md § 4d).
+
+REVISION_MODES = ("replace", "append")
+
+# Files a revision makes stale: the ones derived from the previous `source.md`
+# rather than written by the sender. `document.pdf` and `sourcemap.json` because
+# the iPad prefers a PDF it is given over one it renders, so a stale PDF would
+# hide the new text; the narration and its sidecar because a narration is a
+# cache of the source it was read from (docs/05-file-contracts.md).
+_DERIVED_FROM_SOURCE = ("document.pdf", "sourcemap.json", "narration.mp3", ".narration.json")
+
+
+def _write_replacing(path: Path, text: str) -> None:
+    """Rewrite one file in place through a hidden sibling and one rename.
+
+    The bundle directory already exists and is already being served, so the
+    staging-directory dance the writers above use does not apply — but a
+    reader must still never see a half-written file, and `os.replace` is the
+    one primitive that guarantees it. The sibling is dot-prefixed so that, if
+    the process dies between the write and the rename, every scanner here
+    already ignores what it left behind.
+    """
+    temporary = path.parent / f".{path.name}.{uuid.uuid4().hex[:8]}.tmp"
+    try:
+        _write_file(temporary, text)
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def revise_inbox_bundle(
+    sync_root: Path,
+    folder_name: Any,
+    *,
+    content: Any,
+    mode: Any,
+    title: Any = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Rewrite a document's markdown in place — a correction, or an addendum.
+
+    ``mode`` is ``replace`` (``content`` is the whole document again) or
+    ``append`` (``content`` is a new section, added after a blank line). The
+    title changes only when one is passed; a replacement whose text has no H1
+    is given the title as one, exactly as a first send is.
+
+    Only a markdown document can be revised. A bundle with no ``source.md`` —
+    a PDF sent by address — is refused, because there is no text to correct or
+    extend: remove it and send it again.
+
+    Everything derived from the previous text goes with it (`_DERIVED_FROM_SOURCE`),
+    and goes *first*: a failure half way then leaves a bundle that still reads
+    from its old ``source.md``, never one whose PDF disagrees with its markdown.
+
+    - Returns: the folder name, the title now in ``meta.json``, the mode, when
+      it was revised, and the names of the derived files that were removed.
+    - Raises: ``ValidationError`` for bad input, ``FileNotFoundError`` when
+      there is no such bundle, ``OSError`` when the volume would not take it.
+    """
+    folder = validate_bundle_id(folder_name)
+    if mode not in REVISION_MODES:
+        raise ValidationError(f"mode must be one of {list(REVISION_MODES)}")
+    directory = Path(sync_root).expanduser() / "inbox" / folder
+    if not directory.is_dir():
+        raise FileNotFoundError(f"no document named {folder}")
+
+    source_path = directory / "source.md"
+    existing = _read_text(source_path)
+    if existing is None:
+        raise ValidationError(
+            "this document is a PDF with no markdown to revise; "
+            "remove it and send it again"
+        )
+    text = validate_content(content)
+
+    meta = _read_json_file(directory / "meta.json")
+    meta = meta if isinstance(meta, dict) else {}
+    current_title = meta.get("title")
+    if not isinstance(current_title, str) or not current_title.strip():
+        current_title = derive_title(existing)
+    if title is None or (isinstance(title, str) and not title.strip()):
+        new_title = current_title
+    else:
+        new_title = validate_title(title, text)
+
+    if mode == "replace":
+        source = _ensure_h1(text, new_title)
+    else:
+        source = existing.rstrip("\n") + "\n\n" + text.strip("\n") + "\n"
+
+    meta["title"] = new_title
+    meta["revisedAt"] = utc_now_iso(now)
+
+    removed: list[str] = []
+    for name in _DERIVED_FROM_SOURCE:
+        stale = directory / name
+        if stale.is_file():
+            stale.unlink()
+            removed.append(name)
+
+    _write_replacing(source_path, source)
+    _write_replacing(
+        directory / "meta.json",
+        json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
+    )
+    _fsync_dir(directory)
+
+    return {
+        "id": folder,
+        "folderName": folder,
+        "title": new_title,
+        "mode": mode,
+        "revisedAt": meta["revisedAt"],
+        "bytes": len(source.encode("utf-8")),
+        "removed": removed,
+    }
+
+
+def remove_inbox_bundle(sync_root: Path, folder_name: Any) -> dict[str, Any]:
+    """Take a document back: delete its inbox bundle.
+
+    The outbox is not touched. A review the reader already sent is their work
+    and stays listable, whatever became of the document it was about.
+
+    - Returns: the folder name that was removed.
+    - Raises: ``ValidationError`` for an id that is not a bundle name,
+      ``FileNotFoundError`` when there is no such bundle.
+    """
+    folder = validate_bundle_id(folder_name)
+    directory = Path(sync_root).expanduser() / "inbox" / folder
+    if not directory.is_dir():
+        raise FileNotFoundError(f"no document named {folder}")
+    shutil.rmtree(directory)
+    _fsync_dir(directory.parent)
+    return {"id": folder, "folderName": folder}
+
+
 # ----------------------------------------------------------- reading reviews
 # Strictly read-only. Nothing below creates, moves or deletes anything.
 

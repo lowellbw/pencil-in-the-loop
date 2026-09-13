@@ -107,6 +107,7 @@ either:
 |---|---|---|
 | `sourceURL` | the sender | Absolute URL the document came from on the web. The share extension writes it for a shared link: it does no network work, so it stages a placeholder `source.md` and records the address for the app to fetch and render later. Any sender may write it; nothing in ingest branches on it today, and a reader that does not know the key ignores it. |
 | `group` | the sender | A name that sections the library on the iPad. A document belongs to at most one, and there is no registry: a name used for the first time starts a group and a name nothing uses stops being one. At most 64 characters. Advisory — see below. |
+| `revisedAt` | the sender | ISO 8601, like `createdAt`. Present once the sender has rewritten `source.md` in place — a correction, or an addendum — and updated on each rewrite. Informational: what tells a reader the bundle changed is the bundle changing, and a reader that does not know the key ignores it. |
 
 **A group is its name.** There is no id, which is what lets a sender file five papers under
 "Attention Papers" without knowing anything about the reader's library. Two documents are
@@ -134,6 +135,25 @@ So a re-send cannot move a document the reader filed by hand, and a re-send carr
 `returnPath` is one route per document, not a list of candidates. `checkin` is the v1
 default; `poke` is used only when the sender knows the Mac watcher is installed. If a
 second route is ever needed, add an ordered array rather than overloading this field.
+
+## A bundle can be rewritten in place
+
+A sender may rewrite an inbox bundle after it landed — `source.md` corrected or extended,
+`meta.json` given a `revisedAt` — and may delete it. Same folder name, so the same identity;
+that is the point, because the reader's ink, comments and reading position are filed under
+it. What a reader owes such a bundle:
+
+- **Re-ingest under the reader's marks.** A folder whose contents changed is copied and
+  rendered again, and nothing the reader did to it is touched — the source was regenerated,
+  the marks were not. Ink is per page and stays on its page number; comments anchor on
+  quoted text and follow it (non-negotiable 5).
+- **A deleted bundle is archived, never deleted.** The reader keeps its pinned copy and
+  everything on it, files it under Archived, and only the reader purges it.
+
+Everything derived from the previous text goes with a rewrite — `document.pdf`,
+`sourcemap.json`, `narration.mp3` — so a rewritten markdown bundle is `source.md` and
+`meta.json`, and the reader renders it. A bundle with no `source.md` is not rewritten,
+only deleted and sent again. `docs/12-relay.md` § 4d has the routes and the reasons.
 
 ## `review.md` — the primary payload
 

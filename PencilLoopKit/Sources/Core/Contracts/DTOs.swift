@@ -904,6 +904,14 @@ public enum SyncEvent: Sendable, Hashable {
     /// the recording after the fact (notes/pencil-loop-cloud-dictation.md).
     /// A reader showing this document re-reads its comments on this.
     case transcriptsUpgraded(documentId: UUID, commentIds: [UUID])
+    /// A document the library already had arrived again with different bytes:
+    /// the sender revised it. The pages were re-rendered; ink, comments,
+    /// reading position and filing were kept (docs/12-relay.md § 4d).
+    case revised(documentId: UUID, title: String)
+    /// The sender took a document back. It was moved to Archived and nothing
+    /// was deleted: the reader can restore it, and only the reader can purge
+    /// it (docs/02-spec.md § S1).
+    case withdrawn(documentId: UUID, title: String)
 }
 
 // MARK: - Export

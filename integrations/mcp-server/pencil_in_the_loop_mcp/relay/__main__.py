@@ -60,7 +60,7 @@ def build_app():
             print(f"indexed {indexed} document(s) already on the volume", flush=True)
 
     mcp_token = os.environ.get("PENCIL_MCP_TOKEN", "").strip() or None
-    mcp_app = _mcp_app(sync_root) if mcp_token else None
+    mcp_app = _mcp_app(sync_root, index) if mcp_token else None
 
     return create_app(
         sync_root=sync_root,
@@ -71,19 +71,23 @@ def build_app():
     )
 
 
-def _mcp_app(sync_root: Path):
+def _mcp_app(sync_root: Path, index: Index):
     """The MCP server as an ASGI app, or None when the SDK is not installed.
 
     Optional rather than required so the API can be deployed and exercised
     before the MCP half exists, and so a missing SDK is a missing feature
     rather than a service that will not boot.
+
+    The index goes with it: a tool that rewrites, removes or adds a file to a
+    bundle the feed already describes has to re-enter it there, or no device
+    ever hears (server.py § _index).
     """
     try:
         from ..server import streamable_http_app
     except ImportError as error:  # pragma: no cover - depends on the install
         print(f"MCP endpoint not mounted: {error}", flush=True)
         return None
-    return streamable_http_app(sync_root)
+    return streamable_http_app(sync_root, index=index)
 
 
 def main() -> None:

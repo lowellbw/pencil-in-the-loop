@@ -65,9 +65,9 @@ final class RemoteDocumentPinnerTests: XCTestCase {
             pinner.isPinnedAndCurrent(Self.document(
                 folderName: "2026-08-19-auth",
                 seq: 8,
-                files: ["document.pdf": pdf, "meta.json": meta]
+                files: ["document.pdf": Data("%PDF-1.4 revised".utf8), "meta.json": meta]
             )),
-            "a new sequence number is a new revision, and it has to be fetched"
+            "new bytes under a new sequence number are a new revision, and it has to be fetched"
         )
         XCTAssertFalse(
             temp.names(in: temp.pinnedRootURL).contains { $0.hasPrefix(".") },
@@ -337,6 +337,82 @@ final class RemoteDocumentPinnerTests: XCTestCase {
             temp.names(in: temp.pinnedRootURL).isEmpty,
             "not even a staging directory survives a failed pin"
         )
+    }
+
+    // MARK: - Currency by hash
+
+    func testTheSidecarRecordsTheHashEachFileWasVerifiedAgainst() async throws {
+        let temp = try SyncTemporaryFolder()
+        defer { temp.removeAll() }
+        let pdf = Data("%PDF-1.4 pretend".utf8)
+        let meta = Data(SyncTemporaryFolder.completeMetaJSON.utf8)
+        let transport = SyncTestHTTPTransport()
+        await serve(transport, folderName: "2026-08-19-auth", files: ["document.pdf": pdf, "meta.json": meta])
+        let pinner = RemoteDocumentPinner(
+            client: SyncServerClient(baseURL: base, token: "t", transport: transport),
+            writer: PinnedDocumentWriter(destinationRoot: temp.pinnedRootURL)
+        )
+
+        _ = try await pinner.pin(Self.document(folderName: "2026-08-19-auth", seq: 7, files: ["document.pdf": pdf, "meta.json": meta]))
+
+        let snapshot = try XCTUnwrap(pinner.writer.pinnedSnapshot(forFolderNamed: "2026-08-19-auth"))
+        XCTAssertEqual(
+            snapshot.fileHashes,
+            ["document.pdf": RemoteDocumentPinner.sha256Hex(pdf), "meta.json": RemoteDocumentPinner.sha256Hex(meta)]
+        )
+    }
+
+    func testARestampedDocumentWithTheSameBytesIsCurrentWithoutADownload() async throws {
+        let temp = try SyncTemporaryFolder()
+        defer { temp.removeAll() }
+        let pdf = Data("%PDF-1.4 pretend".utf8)
+        let meta = Data(SyncTemporaryFolder.completeMetaJSON.utf8)
+        let transport = SyncTestHTTPTransport()
+        await serve(transport, folderName: "2026-08-19-auth", files: ["document.pdf": pdf, "meta.json": meta])
+        let pinner = RemoteDocumentPinner(
+            client: SyncServerClient(baseURL: base, token: "t", transport: transport),
+            writer: PinnedDocumentWriter(destinationRoot: temp.pinnedRootURL)
+        )
+        _ = try await pinner.pin(Self.document(folderName: "2026-08-19-auth", seq: 7, files: ["document.pdf": pdf, "meta.json": meta]))
+        let requestsSoFar = await transport.requestedPaths.count
+
+        // The relay re-stamps a document when it adds a narration; the files
+        // this pinner copies are exactly as they were.
+        let restamped = Self.document(folderName: "2026-08-19-auth", seq: 8, files: ["document.pdf": pdf, "meta.json": meta])
+        XCTAssertTrue(pinner.isPinnedAndCurrent(restamped))
+        let requests = await transport.requestedPaths.count
+        XCTAssertEqual(requests, requestsSoFar, "currency is decided from the sidecar, never by fetching")
+
+        // Whereas a change to any one file is a new revision, whatever the number.
+        let revised = Self.document(folderName: "2026-08-19-auth", seq: 8, files: ["document.pdf": pdf, "meta.json": Data("{}".utf8)])
+        XCTAssertFalse(pinner.isPinnedAndCurrent(revised))
+
+        // And a file the feed offers without a hash proves nothing.
+        var unverifiable = restamped
+        unverifiable.files = [
+            RemoteDocument.File(name: "document.pdf", bytes: Int64(pdf.count), sha256: nil),
+            RemoteDocument.File(name: "meta.json", bytes: Int64(meta.count), sha256: RemoteDocumentPinner.sha256Hex(meta)),
+        ]
+        XCTAssertFalse(pinner.isPinnedAndCurrent(unverifiable))
+        XCTAssertNil(RemoteDocumentPinner.declaredHashes(of: unverifiable))
+    }
+
+    func testDeclaredHashesCoverOnlyTheFilesThatWouldBePinned() {
+        let document = RemoteDocument(
+            folderName: "2026-08-19-auth",
+            seq: 9,
+            files: [
+                RemoteDocument.File(name: "source.md", bytes: 3, sha256: "ABC"),
+                RemoteDocument.File(name: "narration.mp3", bytes: 3, sha256: "def"),
+                RemoteDocument.File(name: "meta.json", bytes: 2, sha256: "0F0"),
+            ]
+        )
+        XCTAssertEqual(
+            RemoteDocumentPinner.declaredHashes(of: document),
+            ["source.md": "abc", "meta.json": "0f0"],
+            "a narration is fetched on its own and must not make a document look revised; hex is compared case-insensitively"
+        )
+        XCTAssertNil(RemoteDocumentPinner.declaredHashes(of: RemoteDocument(folderName: "x", seq: 1, files: [])))
     }
 
     // MARK: - Helpers

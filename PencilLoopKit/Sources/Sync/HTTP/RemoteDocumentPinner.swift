@@ -54,13 +54,45 @@ public struct RemoteDocumentPinner: Sendable {
 
     // MARK: - Deciding whether there is work
 
-    /// Whether the pinned copy is already the revision the feed describes.
+    /// Whether the pinned copy already holds the bytes the feed describes.
     ///
-    /// The relay allocates a monotonic sequence number per document, so this is
-    /// an equality check rather than a date comparison: an unchanged number
-    /// means unchanged bytes.
+    /// Two ways to be current. The relay allocates a monotonic sequence number
+    /// per document, so an unchanged number means unchanged bytes and nothing
+    /// else needs comparing. A *changed* number does not mean changed bytes,
+    /// though: the relay re-stamps a document when it adds a narration to it
+    /// (docs/12-relay.md § 4c), and the four files this pinner copies are
+    /// exactly as they were. So a pinned copy whose recorded hashes match what
+    /// the feed now declares is current too — and is not re-downloaded,
+    /// re-copied and re-ingested to find that out. A copy pinned before hashes
+    /// were recorded answers by sequence number alone, as it always did.
+    ///
+    /// The corollary matters to the coordinator: a document that fails this
+    /// check *and* has recorded hashes has genuinely changed, which is what
+    /// lets it say "revised" and mean it (`HTTPSyncCoordinator.ingest(_:)`).
     public func isPinnedAndCurrent(_ document: RemoteDocument) -> Bool {
-        writer.isPinnedAndCurrent(folderName: document.folderName, revision: document.revision)
+        if writer.isPinnedAndCurrent(folderName: document.folderName, revision: document.revision) {
+            return true
+        }
+        guard let pinned = writer.pinnedSnapshot(forFolderNamed: document.folderName)?.fileHashes,
+              let declared = RemoteDocumentPinner.declaredHashes(of: document) else {
+            return false
+        }
+        return pinned == declared
+    }
+
+    /// The feed's hash for every file that would be pinned, by name — or nil
+    /// when any of them is offered without one, because a set with a hole in
+    /// it cannot prove anything.
+    ///
+    /// Lowercased on the way in, as `mismatchReason` compares, so a relay that
+    /// changes the case of its hex does not read as a new revision.
+    public static func declaredHashes(of document: RemoteDocument) -> [String: String]? {
+        var hashes: [String: String] = [:]
+        for file in document.pinnableFiles {
+            guard let hash = file.sha256 else { return nil }
+            hashes[file.name] = hash.lowercased()
+        }
+        return hashes.isEmpty ? nil : hashes
     }
 
     /// Where a relay document's pinned copy lives.
@@ -105,6 +137,7 @@ public struct RemoteDocumentPinner: Sendable {
 
         do {
             var pinnedNames: [String] = []
+            var pinnedHashes: [String: String] = [:]
             var totalBytes: Int64 = 0
 
             for file in files {
@@ -114,9 +147,10 @@ public struct RemoteDocumentPinner: Sendable {
                     inDocumentNamed: folderName,
                     to: target
                 )
-                let bytes = try verify(file, at: target, folderName: folderName)
+                let verified = try verify(file, at: target, folderName: folderName)
                 pinnedNames.append(file.name)
-                totalBytes += bytes
+                pinnedHashes[file.name] = verified.hash
+                totalBytes += verified.bytes
             }
 
             let snapshot = PinnedDocumentWriter.Snapshot(
@@ -125,7 +159,8 @@ public struct RemoteDocumentPinner: Sendable {
                 byteCount: totalBytes,
                 pinnedAt: Date(),
                 fileNames: pinnedNames,
-                revision: document.revision
+                revision: document.revision,
+                fileHashes: pinnedHashes
             )
             let destination = try writer.commit(staging: staging, snapshot: snapshot)
 
@@ -207,8 +242,14 @@ public struct RemoteDocumentPinner: Sendable {
 
     // MARK: - Internals
 
-    /// Checks one downloaded file, returning how many bytes it holds.
-    private func verify(_ file: RemoteDocument.File, at url: URL, folderName: String) throws -> Int64 {
+    /// Checks one downloaded file, returning how many bytes it holds and the
+    /// hash they were verified against — which is then what the sidecar
+    /// records, so the record is of bytes that were actually checked.
+    private func verify(
+        _ file: RemoteDocument.File,
+        at url: URL,
+        folderName: String
+    ) throws -> (bytes: Int64, hash: String) {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey])
         let downloadedBytes = Int64(values?.fileSize ?? 0)
         let downloadedHash: String
@@ -227,7 +268,7 @@ public struct RemoteDocumentPinner: Sendable {
         ) {
             throw PencilLoopError.materialisationFailed(folderName: folderName, reason: reason)
         }
-        return downloadedBytes
+        return (downloadedBytes, downloadedHash.lowercased())
     }
 
     /// The pinned directory, as the thing Ingest is handed.

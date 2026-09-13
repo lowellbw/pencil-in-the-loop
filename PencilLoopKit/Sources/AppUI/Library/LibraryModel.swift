@@ -424,6 +424,18 @@ public final class LibraryModel {
             switch event {
             case .ingested, .ingestFailed, .replyReceived:
                 await load()
+            case let .revised(_, title):
+                // The row is already in the list; what changed is under it.
+                // One line says so, because a document that silently changes
+                // under the reader's ink is worse than one that says it did.
+                await load()
+                statusMessage = "\(title) was updated by the sender"
+            case let .withdrawn(_, title):
+                // Gone from the list and into Archived, with everything the
+                // reader did to it. The line says where, so a document that
+                // vanishes from the sidebar is never a document that vanished.
+                await load()
+                statusMessage = "\(title) was withdrawn by the sender and moved to Archived"
             case let .scanFinished(ingestedCount):
                 if ingestedCount > 0 {
                     await load()

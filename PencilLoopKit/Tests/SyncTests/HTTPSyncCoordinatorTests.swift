@@ -71,9 +71,10 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
         folderName: String = "2026-08-18-auth-refactor-plan",
         seq: Int = 2,
         epoch: String = "epoch-1",
-        cursor: Int? = nil
+        cursor: Int? = nil,
+        source markdown: String = "# Auth refactor plan\n\nBody.\n"
     ) async -> (source: Data, meta: Data) {
-        let source = Data("# Auth refactor plan\n\nBody.\n".utf8)
+        let source = Data(markdown.utf8)
         let meta = Data(#"{"id":"F7A1","title":"Auth refactor plan"}"#.utf8)
 
         await transport.route("/v1/documents/\(folderName)/files/source.md", bytes: source)
@@ -98,6 +99,31 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
         }
         """)
         return (source, meta)
+    }
+
+    /// The feed carrying only a tombstone for one document: the sender took
+    /// it back (`DELETE /v1/documents/{folder}`).
+    private func offerTombstone(
+        folderName: String = "2026-08-18-auth-refactor-plan",
+        seq: Int = 3,
+        epoch: String = "epoch-1"
+    ) async {
+        await transport.route("/v1/changes", json: """
+        {
+          "epoch": "\(epoch)",
+          "cursor": \(seq),
+          "hasMore": false,
+          "documents": [{
+            "folderName": "\(folderName)",
+            "documentId": "F7A1",
+            "title": "Auth refactor plan",
+            "seq": \(seq),
+            "deletedAt": "2026-08-19T09:00:00Z",
+            "files": []
+          }],
+          "replies": []
+        }
+        """)
     }
 
     private func emptyFeed(epoch: String = "epoch-1", cursor: Int = 0) async {
@@ -192,6 +218,131 @@ final class HTTPSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(ingested, 0)
         let received = await ingester.received
         XCTAssertTrue(received.isEmpty)
+    }
+
+    // MARK: - Withdrawn and revised documents
+
+    func testATombstoneArchivesTheDocumentAndDeletesNothing() async throws {
+        await offerDocument(seq: 2)
+        let subject = coordinator()
+        _ = try await subject.refresh()
+        let found = try await store.documentId(forFolderName: "2026-08-18-auth-refactor-plan")
+        let id = try XCTUnwrap(found)
+        let stream = subject.events()
+        let listening = Task<String?, Never> {
+            for await event in stream {
+                if case let .withdrawn(_, title) = event { return title }
+            }
+            return nil
+        }
+
+        await offerTombstone(seq: 3)
+        let ingested = try await subject.refresh()
+
+        let deadline = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            listening.cancel()
+        }
+        let announced = await listening.value
+        deadline.cancel()
+
+        XCTAssertEqual(ingested, 0)
+        let changes = await store.stateChanges
+        XCTAssertEqual(changes, [SyncTestStore.StateChange(state: .archived, documentId: id)])
+        XCTAssertEqual(announced, "Auth refactor plan", "the sidebar says where the document went")
+        let pinnedSource = pinnedRoot
+            .appendingPathComponent("2026-08-18-auth-refactor-plan", isDirectory: true)
+            .appendingPathComponent("source.md", isDirectory: false)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: pinnedSource.path),
+            "a sender's mistake must not be able to delete the reader's copy — only the reader purges (docs/02-spec.md § S6)"
+        )
+    }
+
+    func testATombstoneForADocumentTheLibraryNeverHadIsIgnored() async throws {
+        await offerTombstone(seq: 3)
+        let ingested = try await coordinator().refresh()
+        XCTAssertEqual(ingested, 0)
+        let changes = await store.stateChanges
+        XCTAssertTrue(changes.isEmpty)
+        let received = await ingester.received
+        XCTAssertTrue(received.isEmpty, "a tombstone carries no files and nothing is fetched")
+    }
+
+    func testATombstoneForADocumentTheReaderAlreadyArchivedChangesNothing() async throws {
+        store = SyncTestStore(existing: [
+            DocumentSummary(
+                id: UUID(),
+                title: "Auth refactor plan",
+                originDisplayName: OriginKind.claudeCode.displayName,
+                addedAt: Date(),
+                pageCount: 4,
+                state: .archived,
+                localState: .local,
+                commentCount: 0,
+                hasInk: false,
+                folderName: "2026-08-18-auth-refactor-plan"
+            )
+        ])
+        await offerTombstone(seq: 3)
+
+        _ = try await coordinator().refresh()
+
+        let changes = await store.stateChanges
+        XCTAssertTrue(changes.isEmpty, "archiving what is archived is a write for nothing")
+    }
+
+    func testARevisedDocumentIsRePinnedAndAnnouncedAsARevision() async throws {
+        await offerDocument(seq: 2)
+        let subject = coordinator()
+        _ = try await subject.refresh()
+        let stream = subject.events()
+        let listening = Task<UUID?, Never> {
+            for await event in stream {
+                if case let .revised(documentId, _) = event { return documentId }
+            }
+            return nil
+        }
+
+        await offerDocument(seq: 3, source: "# Auth refactor plan\n\nCorrected.\n")
+        let ingested = try await subject.refresh()
+
+        let deadline = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            listening.cancel()
+        }
+        let announced = await listening.value
+        deadline.cancel()
+
+        XCTAssertEqual(ingested, 1)
+        let attempts = await ingester.attempts(forFolderName: "2026-08-18-auth-refactor-plan")
+        XCTAssertEqual(attempts, 2, "new bytes are pinned and ingested again, under the reader's marks")
+        let id = try await store.documentId(forFolderName: "2026-08-18-auth-refactor-plan")
+        XCTAssertEqual(announced, id, "the event names the row the sidebar shows")
+        let upserted = await store.upserted
+        XCTAssertEqual(upserted.count, 2, "an upsert, not an insert: the row and everything on it survive")
+    }
+
+    func testARestampedDocumentWithTheSameBytesIsNotFetchedAgain() async throws {
+        // The relay re-stamps a document's sequence number when it adds a
+        // narration to it. The four files this app pins are unchanged, and
+        // downloading them again to discover that was the previous behaviour.
+        await offerDocument(seq: 2)
+        let subject = coordinator()
+        _ = try await subject.refresh()
+        let requestsSoFar = await transport.requestedPaths.count
+
+        await offerDocument(seq: 3)
+        let ingested = try await subject.refresh()
+
+        XCTAssertEqual(ingested, 0)
+        let attempts = await ingester.attempts(forFolderName: "2026-08-18-auth-refactor-plan")
+        XCTAssertEqual(attempts, 1)
+        let requests = await transport.requestedPaths
+        XCTAssertEqual(
+            requests.count, requestsSoFar + 1,
+            "one poll of the feed and not a single file: \(requests)"
+        )
     }
 
     // MARK: - The cursor

@@ -105,7 +105,8 @@ Everything under `/v1` requires the device token. `/healthz` requires nothing.
 | `POST` | `/v1/clips` | Declare a voice clip. `{clipId, language?, keyterms?}` |
 | `PUT` | `/v1/clips/{clipId}/audio` | Upload the audio; returns the transcript. |
 | `GET` | `/v1/documents/{folder}/files/{name}` | Bytes, with `ETag: "<sha256>"`. |
-| `DELETE` | `/v1/documents/{folder}` | Remove it. Becomes a tombstone in the feed. |
+| `DELETE` | `/v1/documents/{folder}` | Take it back. Becomes a tombstone in the feed; the iPad archives its copy (§ 4d). |
+| `POST` | `/v1/documents/{folder}/revision` | Rewrite it in place. `{content, mode, title?}`, `mode` ∈ `replace` · `append` (§ 4d). |
 | `GET` | `/v1/changes?since=<seq>` | **The only feed a device needs.** |
 | `POST` | `/v1/documents/{folder}/review` | Declare a review bundle. |
 | `PUT` | `/v1/reviews/{folder}/files/{path}` | Upload `ink/page-NN.png`. |
@@ -363,12 +364,88 @@ character on `eleven_multilingual_v2`. A `standard` narration of a 5,000-word pa
 roughly fifteen minutes, about 15,000 characters, about an eighth of a $22 Creator month.
 That is why the MCP tool's description names the price of `deep`.
 
+## 4d · Revising and withdrawing — a sender's second thoughts
+
+A sender gets two things wrong often enough to need a verb for each: the document (a
+mistake, or something it wanted to add) and the decision to send it at all. Both act on a
+bundle that already landed, by folder name — the id `send_to_ipad` returned — and the MCP
+tools `revise_on_ipad` and `remove_from_ipad` are these two routes with the same storage
+layer underneath (`core.revise_inbox_bundle`, `core.remove_inbox_bundle`).
+
+```
+POST /v1/documents/{folder}/revision   {"content": "…", "mode": "append", "title": "…"}
+  → 200 {"folderName": "…", "title": "…", "mode": "append", "seq": 418,
+         "revisedAt": "2026-08-19T09:00:00Z", "removed": ["narration.mp3"]}
+DELETE /v1/documents/{folder}
+  → 200 {"folderName": "…", "seq": 419}
+```
+
+**A revision rewrites `source.md` in place.** `replace` takes the whole document again;
+`append` takes only the new section and adds it after a blank line. The title changes only
+when one is passed. Everything derived from the previous text goes with it — `document.pdf`
+and `sourcemap.json`, because the iPad prefers a PDF it is given over one it renders and a
+stale one would hide the new text; `narration.mp3` and its sidecar, because a narration is
+a cache of the source it was read from (`docs/05` § `narration.mp3`). They go *first*, so a
+failure half way leaves a bundle that still reads from its old markdown, never one whose PDF
+disagrees with it. `meta.json` gains `revisedAt`. Only a markdown document can be revised:
+a PDF sent by address has no text to change, and the answer is `400 invalid_input` — remove
+it and send it again.
+
+**Then the index is told**, the third way a document's files change and the one neither of
+the other two covers. `reconcile()` adopts whole bundles and skips a directory it already
+knows; `note_file_added` records one file the server wrote. A revision rewrites files the
+index already describes *and removes some*, so `note_bundle_rewritten` rebuilds the file
+rows from the directory, re-reads the title, and re-stamps the document — a device that had
+caught up sees it again with the new sizes and hashes, for the reason § 4c gives. Hosted
+inside the relay, the MCP tools reach the same index (`server.py` § `_index`); against a
+plain folder there is no feed and nothing to tell.
+
+**What the iPad does with a revision** it already did: `isPinnedAndCurrent` says no, the
+document is downloaded, verified and pinned again, and `DocumentStore.upsert` re-renders the
+pages under the reader's marks — ink, comments, reading position and filing all stay, which
+is what the folder transport's "same folder, newer contents" case always meant. It says
+"*title* was updated by the sender" in the library's status line (`SyncEvent.revised`), so a
+document that changes under someone's ink is never a document that changed silently.
+
+What that costs, and the tool description says so: ink is kept **per page**. `append`
+leaves the earlier pages exactly as they were, so every mark stays on the text it was drawn
+on. `replace` can re-paginate, and a change in the middle of a document can leave a mark on
+a different passage. Comments are safe either way — they anchor on quoted text, never on a
+position (CLAUDE.md non-negotiable 5). So: `append` for an addendum; `replace` when the
+document is wrong and the reader has not annotated it much.
+
+**A withdrawal is a tombstone, and on the iPad a tombstone archives.** The relay deletes the
+bundle and the feed carries `deletedAt`; the iPad moves its copy to Archived and deletes
+nothing — not the pinned bytes, not the ink, not the comments. The reader can restore it,
+and only the reader can purge it (`docs/02-spec.md` § S6: the user decides what leaves the
+device, the system never does). A sender's mistake must not be able to cost a morning's
+annotations. A document that had not reached the iPad yet never will; one the reader had
+already archived, or never received, is left exactly as it is. The outbox is never touched:
+a review already sent back is the reader's work and stays listable.
+
+**The idempotency key outlives the document.** `document_id` is UNIQUE and a tombstone keeps
+the row, so a re-send carrying a withdrawn document's id answers `409 document_removed`
+rather than "already here" — swallowing the re-send silently is the one failure this API is
+built to avoid. Send it again without a `documentId` to make a new document.
+
+**Re-stamped is not revised.** The relay re-stamps a document's sequence number whenever it
+changes what the feed says about it, and adding a narration (§ 4c) is one such change with
+the four pinnable files untouched. The iPad used to re-download, re-copy and re-ingest the
+document to find that out. The pinned sidecar now records the hash of every file it
+verified, and a feed entry whose declared hashes match is current whatever its number
+(`RemoteDocumentPinner.isPinnedAndCurrent`) — which is also what lets the iPad say
+"revised" and mean it. A copy pinned before hashes were recorded answers by number alone,
+as it always did, and is announced as an arrival rather than as a revision it might not be.
+
+---
+
 ## 5 · Idempotency
 
 `meta.json`'s `id` is the key for documents. It is already a minted UUID and already the
 correlation key in `review.json` and `manifest.json`, so nothing new was invented. **Send
 the same id to retry; send no id to mean a second document.** Idempotency is about
-retrying one call, not deduplicating intent.
+retrying one call, not deduplicating intent. A retry never *changes* a document: to change
+one, revise it (§ 4d).
 
 `folderName` is derived and *server-allocated*, using the same `-2`/`-3` collision ladder
 as the folder transport used, because two callers can want one name and only the server can

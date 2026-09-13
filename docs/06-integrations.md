@@ -106,7 +106,9 @@ review sheet's Sent screen offers "Copy review" for exactly this.
 ## Claude Code
 
 An MCP server exposing `send_to_ipad(content, title, tags, group)`, `list_groups()`,
-`list_reviews()` and `get_review(id)`.
+`list_reviews()` and `get_review(id)` — and, for a sender's second thoughts,
+`revise_on_ipad(folder_name, content, mode, title)` and `remove_from_ipad(folder_name)`
+(`docs/12-relay.md` § 4d).
 
 `group` files a document under a name that sections the iPad's library, which is what
 makes it possible to send five papers on one subject and have them arrive together

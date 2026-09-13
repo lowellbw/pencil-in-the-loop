@@ -310,6 +310,52 @@ class Index:
             )
         return seq
 
+    def note_bundle_rewritten(self, folder_name: str, inbox: Path) -> int | None:
+        """Re-read a bundle its sender rewrote in place, and re-enter the feed.
+
+        The third way a document's files change, and neither of the other two
+        covers it. `reconcile()` adopts whole bundles and skips a directory it
+        already knows; `note_file_added` records one file the server wrote.
+        A revision (`core.revise_inbox_bundle`) rewrites files the index
+        already describes *and removes some* — the narration made from the
+        old text goes with it — so the file rows are rebuilt from the
+        directory, the title is re-read from `meta.json`, and the document is
+        re-stamped so a device that had caught up sees it again with the new
+        sizes and hashes.
+
+        - Returns: the new sequence number, or None when the folder is not
+          indexed — a bundle written straight to the volume and revised before
+          any poll adopted it, which the next `reconcile()` takes in whole.
+        """
+        row = self.document(folder_name)
+        if row is None or row.deleted_at is not None:
+            return None
+        directory = Path(inbox) / folder_name
+        meta = core.read_json_file(directory / "meta.json")
+        meta = meta if isinstance(meta, dict) else {}
+        files = [
+            entry
+            for entry in sorted(directory.iterdir())
+            if entry.is_file() and not entry.name.startswith(".")
+        ]
+        with self.transaction():
+            self.connection.execute(
+                "DELETE FROM document_files WHERE folder_name = ?", (folder_name,)
+            )
+            for entry in files:
+                self.connection.execute(
+                    "INSERT INTO document_files (folder_name, name, bytes, sha256, present) "
+                    "VALUES (?, ?, ?, ?, 1)",
+                    (folder_name, entry.name, entry.stat().st_size, _sha256_of(entry)),
+                )
+            seq = self.next_seq()
+            self.connection.execute(
+                "UPDATE documents SET seq = ?, updated_at = ?, title = ? "
+                "WHERE folder_name = ?",
+                (seq, core.utc_now_iso(), meta.get("title", row.title), folder_name),
+            )
+        return seq
+
     def missing_files(self, folder_name: str) -> list[str]:
         rows = self.connection.execute(
             "SELECT name FROM document_files WHERE folder_name = ? AND present = 0 "

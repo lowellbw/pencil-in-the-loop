@@ -45,6 +45,11 @@
       "maxLength": 64,
       "description": "A name that sections the library on the iPad. Groups have no ids — the name is the identity, compared with case, accents and punctuation ignored and displayed as first written (see docs/05-file-contracts.md). A document belongs to at most one. Advisory: the app files a document it has not seen before and never overrides a group the reader chose on the device, so a re-send cannot move something they filed by hand. Optional, and absent from most documents by design."
     },
+    "revisedAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$",
+      "description": "ISO 8601, like createdAt. Present once the sender has rewritten source.md in place — a correction or an addendum — and updated on each rewrite. Informational: what tells a reader the bundle changed is the bundle changing."
+    },
     "origin": { "$ref": "#/$defs/origin" }
   },
   "$defs": {

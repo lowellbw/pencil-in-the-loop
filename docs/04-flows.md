@@ -56,6 +56,14 @@ as title and `origin.kind = "manual"`. Nothing in `meta.json` is required for a 
 be readable, and decoding it cannot throw. A document that can't be rendered shows in the
 library with an error row rather than vanishing.
 
+The same directory again, with different bytes, is the sender revising the document
+(`docs/12-relay.md` § 4d): it goes through the same download, pin and render, and
+`DocumentStore.upsert` keeps the row and everything the reader put on it. The same
+directory again with the *same* bytes under a new sequence number — the relay re-stamps a
+document when it adds a narration — is nothing to do, decided from the hashes the pinned
+sidecar recorded and never by fetching. A tombstone in the feed is the sender withdrawing
+the document: the row moves to Archived and no byte is deleted.
+
 ## F2 · Read
 
 Tap row → reader opens at last read position → chrome auto-hides on first scroll.

@@ -163,6 +163,16 @@ filing, because a document in there is not anywhere. Swipe one to **Restore**, w
 it to Read rather than Unread: it has been in the library and been seen, and calling it
 unread would claim it had just arrived.
 
+**Two things the sender can do to a document after sending it**, and how each shows here.
+A sender that revises a document (`docs/12-relay.md` § 4d) changes what is under the
+reader's ink, not the row: the pages are rendered again and ink, comments, reading position
+and filing all stay, and the status line says "*title* was updated by the sender", because
+a document that changes silently under someone's marks is worse than one that says it did.
+A sender that withdraws a document moves it to Archived — it leaves the list and the status
+line says so and where — and nothing is deleted: the pinned bytes, the ink and the comments
+are all still there, Restore brings it back, and only the purge in Settings removes it. The
+sender's mistake is never allowed to cost the reader's work.
+
 A **New** menu in the toolbar makes a document rather than waiting for one
 (`11-backlog.md` § B1): a blank notebook — plain, lined or grid paper, eight pages to
 start — or a document typed as markdown and rendered by the same path as anything sent.

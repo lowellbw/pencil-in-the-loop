@@ -637,6 +637,156 @@ class OpsTests(RelayApiTestCase):
 
 
 @unittest.skipIf(TestClient is None, "starlette is not installed")
+class RevisionTests(RelayApiTestCase):
+    """Revising and withdrawing a document after it landed.
+
+    The test that matters most is the first: a device that had already caught
+    up has to see the document *again*, with the new bytes' sizes and hashes,
+    or the revision is text on a volume that reaches nobody — the same failure
+    the narration route had before `note_file_added`.
+    """
+
+    def revise(self, folder: str, **body):
+        return self.client.post(
+            f"/v1/documents/{folder}/revision", json=body, headers=self.auth
+        )
+
+    def feed_since(self, cursor: int) -> dict:
+        return self.client.get(f"/v1/changes?since={cursor}", headers=self.auth).json()
+
+    def test_a_revised_document_re_enters_the_feed_with_its_new_hashes(self) -> None:
+        folder = self.send().json()["folderName"]
+        caught_up = self.feed_since(0)["cursor"]
+
+        response = self.revise(folder, content="# Auth refactor plan\n\nCorrected.\n", mode="replace")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["mode"], "replace")
+
+        feed = self.feed_since(caught_up)
+        self.assertEqual([entry["folderName"] for entry in feed["documents"]], [folder])
+        entry = feed["documents"][0]
+        self.assertIsNone(entry["deletedAt"])
+        source = next(f for f in entry["files"] if f["name"] == "source.md")
+        new_bytes = b"# Auth refactor plan\n\nCorrected.\n"
+        self.assertEqual(source["bytes"], len(new_bytes))
+        self.assertEqual(source["sha256"], sha(new_bytes))
+
+        served = self.client.get(
+            f"/v1/documents/{folder}/files/source.md", headers=self.auth
+        )
+        self.assertEqual(served.content, new_bytes)
+
+    def test_append_keeps_the_earlier_text_and_re_enters_the_feed(self) -> None:
+        folder = self.send("# Plan\n\nBody.\n").json()["folderName"]
+        caught_up = self.feed_since(0)["cursor"]
+
+        response = self.revise(folder, content="## Addendum\n\nMore.\n", mode="append")
+        self.assertEqual(response.status_code, 200, response.text)
+
+        served = self.client.get(
+            f"/v1/documents/{folder}/files/source.md", headers=self.auth
+        ).content
+        self.assertEqual(served, b"# Plan\n\nBody.\n\n## Addendum\n\nMore.\n")
+        self.assertEqual(len(self.feed_since(caught_up)["documents"]), 1)
+
+    def test_a_new_title_reaches_the_feed(self) -> None:
+        folder = self.send().json()["folderName"]
+        self.revise(folder, content="Body.\n", mode="replace", title="Renamed")
+        entry = next(e for e in self.feed_since(0)["documents"] if e["folderName"] == folder)
+        self.assertEqual(entry["title"], "Renamed")
+
+    def test_a_narration_made_from_the_old_text_leaves_the_feed(self) -> None:
+        folder = self.send().json()["folderName"]
+        audio = b"ID3 pretend"
+        path = self.root / "inbox" / folder / "narration.mp3"
+        path.write_bytes(audio)
+        self.index.note_file_added(folder, "narration.mp3", byte_count=len(audio), sha256=sha(audio))
+        before = next(e for e in self.feed_since(0)["documents"] if e["folderName"] == folder)
+        self.assertIn("narration.mp3", [f["name"] for f in before["files"]])
+
+        self.revise(folder, content="# Auth refactor plan\n\nNew.\n", mode="replace")
+
+        after = next(e for e in self.feed_since(0)["documents"] if e["folderName"] == folder)
+        self.assertNotIn("narration.mp3", [f["name"] for f in after["files"]])
+        self.assertFalse(path.exists())
+
+    def test_a_pdf_cannot_be_revised(self) -> None:
+        pdf = b"%PDF-1.4 pretend"
+        declared = self.client.post(
+            "/v1/documents",
+            json={
+                "sourceFormat": "pdf",
+                "title": "A paper",
+                "expectedFiles": [{"name": "document.pdf", "bytes": len(pdf), "sha256": sha(pdf)}],
+            },
+            headers=self.auth,
+        )
+        self.assertEqual(declared.status_code, 201, declared.text)
+        folder = declared.json()["folderName"]
+        uploaded = self.client.put(
+            f"/v1/documents/{folder}/files/document.pdf",
+            content=pdf,
+            headers={**self.auth, "Content-Length": str(len(pdf))},
+        )
+        self.assertTrue(uploaded.json()["complete"], uploaded.text)
+
+        response = self.revise(folder, content="# Paper\n\nText.\n", mode="replace")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "invalid_input")
+        self.assertEqual((self.root / "inbox" / folder / "document.pdf").read_bytes(), pdf)
+
+    def test_bad_input_is_a_400_and_changes_nothing(self) -> None:
+        folder = self.send().json()["folderName"]
+        caught_up = self.feed_since(0)["cursor"]
+        for body in (
+            {"content": "x", "mode": "rewrite"},
+            {"content": "x"},
+            {"content": "", "mode": "replace"},
+            {"mode": "replace"},
+        ):
+            response = self.revise(folder, **body)
+            self.assertEqual(response.status_code, 400, body)
+            self.assertEqual(response.json()["error"], "invalid_input")
+        self.assertEqual(self.feed_since(caught_up)["documents"], [])
+
+    def test_an_unknown_or_removed_document_is_a_404(self) -> None:
+        missing = self.revise("2026-01-01-nope", content="x", mode="replace")
+        self.assertEqual(missing.status_code, 404)
+
+        folder = self.send().json()["folderName"]
+        self.client.delete(f"/v1/documents/{folder}", headers=self.auth)
+        removed = self.revise(folder, content="x", mode="replace")
+        self.assertEqual(removed.status_code, 404)
+
+    def test_revising_needs_the_device_token(self) -> None:
+        folder = self.send().json()["folderName"]
+        response = self.client.post(
+            f"/v1/documents/{folder}/revision", json={"content": "x", "mode": "replace"}
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_removing_twice_is_a_404_the_second_time(self) -> None:
+        folder = self.send().json()["folderName"]
+        first = self.client.delete(f"/v1/documents/{folder}", headers=self.auth)
+        second = self.client.delete(f"/v1/documents/{folder}", headers=self.auth)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 404)
+
+    def test_re_sending_a_removed_document_id_is_refused_rather_than_swallowed(self) -> None:
+        """The idempotency key outlives the document. Answering "already here"
+        for something withdrawn would lose the re-send silently."""
+        sent = self.send(documentId="DOC-1").json()
+        self.client.delete(f"/v1/documents/{sent['folderName']}", headers=self.auth)
+
+        again = self.send(documentId="DOC-1")
+        self.assertEqual(again.status_code, 409)
+        self.assertEqual(again.json()["error"], "document_removed")
+
+        fresh = self.send()
+        self.assertEqual(fresh.status_code, 201)
+
+
+@unittest.skipIf(TestClient is None, "starlette is not installed")
 class ClipTests(RelayApiTestCase):
     """Upgrading a voice comment's transcript.
 

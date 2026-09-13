@@ -143,6 +143,52 @@ class TombstoneTests(IndexTestCase):
         self.assertIsNotNone(feed[0].deleted_at)
 
 
+class RewrittenBundleTests(IndexTestCase):
+    """A bundle its sender rewrote in place: files changed, files gone, and the
+    document re-stamped so a device that had caught up sees it again."""
+
+    def land(self, name: str, files: dict[str, bytes]) -> None:
+        directory = self.inbox / name
+        directory.mkdir(parents=True, exist_ok=True)
+        for file_name, payload in files.items():
+            (directory / file_name).write_bytes(payload)
+
+    def test_a_rewritten_bundle_re_enters_the_feed_with_its_files_rebuilt(self) -> None:
+        name = self.reserve("2026-08-18-plan", "DOC1")
+        self.land(name, {"source.md": b"# Plan\n", "meta.json": b"{}", "narration.mp3": b"audio"})
+        self.index.complete_document(name)
+        for entry in (self.inbox / name).iterdir():
+            self.index.mark_file_present(name, entry.name, byte_count=entry.stat().st_size, sha256="x")
+        caught_up = self.index.cursor
+
+        (self.inbox / name / "narration.mp3").unlink()
+        (self.inbox / name / "source.md").write_bytes(b"# Plan\n\nCorrected.\n")
+        (self.inbox / name / "meta.json").write_bytes(json.dumps({"title": "Renamed"}).encode())
+        seq = self.index.note_bundle_rewritten(name, self.inbox)
+
+        self.assertIsNotNone(seq)
+        feed = self.index.changes_since(caught_up)
+        self.assertEqual([row.folder_name for row in feed], [name])
+        self.assertEqual(feed[0].title, "Renamed")
+        names = {entry["name"]: entry for entry in feed[0].files}
+        self.assertNotIn("narration.mp3", names)
+        self.assertEqual(names["source.md"]["bytes"], len(b"# Plan\n\nCorrected.\n"))
+        self.assertEqual(len(names["source.md"]["sha256"]), 64)
+
+    def test_a_bundle_the_index_does_not_know_is_left_to_reconcile(self) -> None:
+        self.land("2026-08-18-plan", {"source.md": b"# Plan\n", "meta.json": b"{}"})
+        self.assertIsNone(self.index.note_bundle_rewritten("2026-08-18-plan", self.inbox))
+        self.assertEqual(self.index.reconcile(self.root), ["2026-08-18-plan"])
+
+    def test_a_tombstoned_document_is_not_revived_by_a_rewrite(self) -> None:
+        name = self.reserve("2026-08-18-plan", "DOC1")
+        self.index.complete_document(name)
+        self.index.delete_document(name)
+        self.land(name, {"source.md": b"# Plan\n", "meta.json": b"{}"})
+        self.assertIsNone(self.index.note_bundle_rewritten(name, self.inbox))
+        self.assertIsNotNone(self.index.document(name).deleted_at)
+
+
 class ReviewTests(IndexTestCase):
     def declare(self, manifest_sha: str, expected=()) -> tuple[int, bool]:
         return self.index.record_review(

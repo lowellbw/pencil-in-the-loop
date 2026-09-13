@@ -193,6 +193,7 @@ final class PinnedDocumentWriterTests: XCTestCase {
             snapshot.revision,
             "a required field here would report every already-pinned document as unpinned"
         )
+        XCTAssertNil(snapshot.fileHashes, "and the same for hashes, which arrived a release later")
         XCTAssertEqual(snapshot.byteCount, 4096)
         XCTAssertEqual(snapshot.folderName, "2026-08-18-auth-refactor-plan")
     }

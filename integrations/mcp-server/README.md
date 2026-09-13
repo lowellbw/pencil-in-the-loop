@@ -84,6 +84,40 @@ would be a decision to get wrong on every call; the reply is bounded instead.
 Groups the reader created or renamed on the iPad itself are not visible here, and the reply
 says so — this is what has been sent, not everything that exists.
 
+### `revise_on_ipad(folder_name, content, mode, title?)`
+
+Rewrites a document's `source.md` in place, by folder name — the id `send_to_ipad`
+returned. `mode` is `replace` (`content` is the whole document again, corrected) or
+`append` (`content` is only the new section, added after a blank line), and it is required
+because the two mistakes are different and both bad: replacing with an addendum leaves only
+the addendum, and appending a whole document doubles it. The title changes only when one is
+passed. `meta.json` gains `revisedAt`.
+
+Everything derived from the previous text is removed first — `document.pdf`,
+`sourcemap.json`, `narration.mp3` and its sidecar — so the iPad renders the new markdown
+rather than showing a stale PDF, and a narration read from the old text does not outlive
+it. Only a markdown document can be revised; a PDF sent by address has no text to change,
+and the reply says to remove it and send it again.
+
+The iPad re-renders the document on its next poll under the reader's ink, comments, reading
+position and filing, all of which stay. Ink is per page, so `append` — earlier pages
+unchanged — keeps every mark on the text it was drawn on, while `replace` can re-paginate.
+The tool description says so, because the model choosing the mode never reads this file.
+
+Hosted in the relay, the tool also re-enters the document in the change feed
+(`docs/12-relay.md` § 4d); against a plain folder there is no feed and nothing to tell.
+
+### `remove_from_ipad(folder_name)`
+
+Deletes one inbox bundle, by folder name. On the iPad the document moves to Archived and
+nothing is deleted — the reader's ink and comments stay with it, Restore brings it back, and
+only the reader's purge removes it. A document that had not reached the iPad yet never
+will. The outbox is never touched: a review the reader already sent stays listable.
+
+Hosted in the relay, the bundle becomes a tombstone in the change feed, and a later
+`send_to_ipad` carrying the removed document's id is refused rather than swallowed as a
+retry.
+
 ### `list_reviews()`
 
 Enumerates `outbox/*.review/`, newest first: document title, review time, comment

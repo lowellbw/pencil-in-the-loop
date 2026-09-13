@@ -317,6 +317,7 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
         var everythingLanded = true
         for document in page.documents {
             if document.isDeleted {
+                await withdraw(document)
                 continue
             }
             guard document.hasUsableFolderName else {
@@ -384,14 +385,34 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
     /// - Returns: whether the document landed. A false answer defers the folder
     ///   and holds the cursor back, so the next scan tries again.
     private func ingest(_ document: RemoteDocument) async -> Bool {
+        // Decided before the pin, because the pin replaces the copy this is
+        // read from: is this a revision of a document the reader could already
+        // open? Only when the previous copy recorded its hashes can a re-pin be
+        // known to mean changed bytes rather than a re-stamped sequence number
+        // (`RemoteDocumentPinner.isPinnedAndCurrent(_:)`), so a copy pinned
+        // before hashes existed is announced as an arrival, never as a
+        // revision it might not be.
+        let previousHashes = pinner.writer.pinnedSnapshot(forFolderNamed: document.folderName)?.fileHashes
+        var isRevision = false
+        if previousHashes != nil {
+            isRevision = await isReadable(folderName: document.folderName)
+        }
+
         do {
             let item = try await pinner.pin(document)
             let ingested = try await ingester.ingest(item)
-            try await store.upsert(ingested)
+            // The row keeps its own id across a re-ingest, whatever id the
+            // incoming document carries (`DocumentStoring.upsert`), so the
+            // event names the row the sidebar shows, not the id Ingest minted.
+            let row = try await store.upsert(ingested)
             // Never throws: see the same call in SyncCoordinator. A group that
             // could not be filed must not cost the document that arrived.
             try? await groups?.adoptGroupName(ingested.groupName, forFolderName: ingested.folderName)
-            emit(.ingested(documentId: ingested.id, title: ingested.title))
+            if isRevision {
+                emit(.revised(documentId: row.id, title: row.title))
+            } else {
+                emit(.ingested(documentId: row.id, title: row.title))
+            }
             return true
         } catch {
             let reason = (error as? PencilLoopError)?.message ?? error.localizedDescription
@@ -404,6 +425,47 @@ public actor HTTPSyncCoordinator: SyncCoordinating {
             SyncLog.coordinator.error("\(document.folderName) did not ingest: \(reason)")
             return false
         }
+    }
+
+    /// Whether the library holds a readable copy of a folder — a row with its
+    /// bytes pinned, not a placeholder left by a failed ingest.
+    private func isReadable(folderName: String) async -> Bool {
+        guard let id = try? await store.documentId(forFolderName: folderName),
+              let summary = try? await store.summary(id: id) else {
+            return false
+        }
+        return summary.isLocal
+    }
+
+    /// The sender took the document back (`DELETE /v1/documents/{folder}`).
+    ///
+    /// **Archived, never deleted.** The pinned bytes, the ink, the comments and
+    /// the reading position all stay: the reader can restore the document from
+    /// Archived, and only the reader can purge it (docs/02-spec.md § S6 —
+    /// "the user decides what leaves the device; the system never does"). A
+    /// sender's mistake must not be able to cost a morning's annotations, and
+    /// a document the reader already archived, or never received, is left
+    /// exactly as it is.
+    ///
+    /// Never throws: a tombstone that cannot be applied is retried on the next
+    /// page — the cursor only advances past it once the store took it — and
+    /// it must not stop the documents behind it from arriving.
+    private func withdraw(_ document: RemoteDocument) async {
+        guard let id = try? await store.documentId(forFolderName: document.folderName),
+              let summary = try? await store.summary(id: id) else {
+            return
+        }
+        guard summary.state != .archived else { return }
+        do {
+            try await store.setState(.archived, documentId: id)
+        } catch {
+            SyncLog.coordinator.error(
+                "\(document.folderName) was withdrawn by the sender but could not be archived: \(error.localizedDescription)"
+            )
+            return
+        }
+        SyncLog.coordinator.info("\(document.folderName) was withdrawn by the sender; moved to Archived.")
+        emit(.withdrawn(documentId: id, title: summary.title))
     }
 
     // MARK: - Sending
