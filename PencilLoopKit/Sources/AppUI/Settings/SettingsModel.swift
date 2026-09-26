@@ -97,6 +97,14 @@ public final class SettingsModel {
     public func load() async {
         settings = await environment.settings.settings
         speechAssetState = await environment.transcriber.assetState()
+        if case .unavailable = speechAssetState {
+            // The row below says the model "downloads once, in the background,
+            // next time you're online". Something has to start that: first run
+            // did, and nothing after it, so a new language or a model the
+            // system removed was never fetched.
+            await environment.transcriber.prepareAssets()
+            speechAssetState = await environment.transcriber.assetState()
+        }
         supportedLocaleIdentifiers = await environment.transcriber
             .supportedLocales()
             .map { $0.identifier(.bcp47) }

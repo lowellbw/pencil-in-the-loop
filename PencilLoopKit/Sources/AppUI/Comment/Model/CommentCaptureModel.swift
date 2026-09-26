@@ -880,7 +880,18 @@ public final class CommentCaptureModel {
     private func refreshSpeechAvailability() {
         let transcriber = environment.transcriber
         Task { [weak self] in
-            let state = await transcriber.assetState()
+            var state = await transcriber.assetState()
+            if case .unavailable = state {
+                // Asked for again whenever it is found missing. It used to be
+                // asked for at first run and never after, so a model the
+                // system removed — or a language chosen in Settings since —
+                // left every popover a handwriting field for good, under a
+                // Settings row promising a download that nothing would start.
+                // Nothing on screen waits on this: `prepareAssets()` queues
+                // the download and returns.
+                await transcriber.prepareAssets()
+                state = await transcriber.assetState()
+            }
             self?.speechAssetState = state
         }
     }

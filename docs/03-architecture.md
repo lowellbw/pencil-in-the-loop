@@ -185,7 +185,11 @@ Never emit a line number as the primary anchor. Include it as a hint only.
 
 `SpeechAnalyzer` with `SpeechTranscriber`. Language assets download once via the system
 asset catalog — trigger this on first run, in the background, and surface a one-line
-Settings row if it hasn't completed. After that, dictation itself needs no network: the
+Settings row if it hasn't completed. Trigger it again whenever the assets are found
+missing — a comment popover opening, or Settings appearing — because first run is not the
+only time they can be: a language chosen later has none yet, and the system can remove
+them. First run used to be the only trigger, which left dictation off for good after
+either. After that, dictation itself needs no network: the
 transcript is made on device and the comment is saved before anything else happens.
 
 **The first word is kept.** The microphone starts when a comment becomes plausible — the

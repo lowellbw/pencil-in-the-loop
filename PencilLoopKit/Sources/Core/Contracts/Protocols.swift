@@ -150,7 +150,8 @@ public protocol SpeechTranscribing: Sendable {
     func assetState() async -> SpeechAssetState
 
     /// Triggers the one-time asset download, in the background, on first run
-    /// (docs/03-architecture.md § 4).
+    /// and again whenever `assetState()` finds the assets missing — a language
+    /// chosen since, or a model the system removed (docs/03-architecture.md § 4).
     ///
     /// Idempotent, non-throwing, and returns as soon as the request is queued —
     /// not when the download completes. Poll `assetState()` for progress.
