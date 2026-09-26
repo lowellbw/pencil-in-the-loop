@@ -837,6 +837,18 @@ public final class CommentCaptureModel {
         clipRecordingId = nil
         guard let recorded = await environment.transcriber.finishedClip() else { return }
 
+        // This recording's own audio, or nothing. The engine hands back
+        // whichever clip it last closed, and a comment started while this one
+        // was still saving can own that. Filed here it would be transcribed as
+        // this comment's words, and the upgrade would replace what was said
+        // with a transcript of something else. Nothing can collect it now, so
+        // it goes.
+        let expected = clips.audioURL(forCommentId: recordingId)
+        guard recorded.standardizedFileURL == expected.standardizedFileURL else {
+            try? FileManager.default.removeItem(at: recorded)
+            return
+        }
+
         let destination = clips.audioURL(forCommentId: commentId)
         do {
             try? FileManager.default.removeItem(at: destination)

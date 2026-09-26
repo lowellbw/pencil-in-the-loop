@@ -14,7 +14,9 @@
 //  the disk it describes is a queue that can disagree with it — a row for a clip
 //  that was never written, or a clip nobody remembers needing. Here the pair
 //  being present *is* the pending work, so a crash between the two writes leaves
-//  an orphan that the next sweep tidies rather than a lie that survives.
+//  an orphan that a later sweep tidies rather than a lie that survives. Later,
+//  not next: a recording in progress looks exactly like that orphan, which is
+//  what `VoiceClipStore.orphanGracePeriod` is for.
 //
 //  Nothing here is coordinated with `NSFileCoordinator`: these files are in the
 //  app's own container, not the user's synced folder, and nothing outside this
@@ -115,7 +117,22 @@ public struct VoiceClipStore: Sendable {
         try? FileManager.default.removeItem(at: audioURL(forCommentId: commentId))
     }
 
-    /// Deletes audio with no sidecar and sidecars with no audio.
+    /// How long a file may sit without its partner before `sweep()` calls it
+    /// an orphan.
+    ///
+    /// Unpaired is not the same as abandoned. A recording in progress is audio
+    /// with no sidecar — it is written here, under its own name, and gets a
+    /// sidecar only once its comment is saved — and so, for the moment between
+    /// the rename and `enqueue`, is a clip being filed. The sweep runs on every
+    /// sync poll, every fifteen seconds, and deleted both: any comment longer
+    /// than the gap to the next poll lost its audio mid-sentence, and with it
+    /// the better transcript it was recorded for. Both are written to
+    /// continuously or were a moment ago, so an hour since the last write is
+    /// far past either and still tidies a real orphan the same day.
+    public static let orphanGracePeriod: TimeInterval = 60 * 60
+
+    /// Deletes audio with no sidecar and sidecars with no audio, once they
+    /// have been that way for `orphanGracePeriod`.
     ///
     /// The first is a recording whose comment was never saved — the reader
     /// cancelled, or the save threw — and the second is a queue entry that can
@@ -124,7 +141,7 @@ public struct VoiceClipStore: Sendable {
     ///
     /// - Returns: how many files were removed.
     @discardableResult
-    public func sweep() -> Int {
+    public func sweep(now: Date = Date()) -> Int {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else {
             return 0
         }
@@ -132,10 +149,26 @@ public struct VoiceClipStore: Sendable {
         let sidecars = Set(names.filter { $0.hasSuffix(".json") }.map { String($0.dropLast(5)) })
         var removed = 0
         for orphan in audio.symmetricDifference(sidecars) {
-            guard let commentId = UUID(uuidString: orphan) else { continue }
+            guard let commentId = UUID(uuidString: orphan),
+                  isStale(commentId: commentId, now: now) else { continue }
             remove(commentId: commentId)
             removed += 1
         }
         return removed
+    }
+
+    /// Whether neither of a clip's files has been written to within
+    /// `orphanGracePeriod`. A file whose date cannot be read counts as stale,
+    /// which is what the sweep did with every orphan before there was a grace.
+    private func isStale(commentId: UUID, now: Date) -> Bool {
+        let paths = [audioURL(forCommentId: commentId).path, sidecarURL(forCommentId: commentId).path]
+        for path in paths {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+                  let modified = attributes[.modificationDate] as? Date else { continue }
+            if now.timeIntervalSince(modified) < VoiceClipStore.orphanGracePeriod {
+                return false
+            }
+        }
+        return true
     }
 }

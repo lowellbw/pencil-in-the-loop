@@ -64,7 +64,7 @@ public actor TranscriptUpgradeQueue {
         isDraining = true
         defer { isDraining = false }
 
-        clips.sweep()
+        clips.sweep(now: now)
         var applied: [UUID: [UUID]] = [:]
         for clip in clips.pending() where clip.isDue(at: now) {
             if Task.isCancelled { break }

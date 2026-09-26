@@ -123,13 +123,18 @@ final class VoiceClipStoreTests: XCTestCase {
 
     // MARK: - Sweeping
 
+    /// Long enough after the files were written that an orphan is an orphan.
+    private var later: Date {
+        Date().addingTimeInterval(VoiceClipStore.orphanGracePeriod + 60)
+    }
+
     func testAudioWithNoSidecarIsSweptAway() throws {
         // A recording whose comment was never saved: the reader cancelled, or
         // the save threw.
         let abandoned = UUID()
         try writeAudio(abandoned)
 
-        XCTAssertEqual(store.sweep(), 1)
+        XCTAssertEqual(store.sweep(now: later), 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.audioURL(forCommentId: abandoned).path))
     }
 
@@ -139,8 +144,20 @@ final class VoiceClipStoreTests: XCTestCase {
         store.enqueue(orphan)
         try FileManager.default.removeItem(at: store.audioURL(forCommentId: orphan.commentId))
 
-        XCTAssertEqual(store.sweep(), 1)
+        XCTAssertEqual(store.sweep(now: later), 1)
         XCTAssertEqual(store.pending(), [])
+    }
+
+    /// A recording in progress is audio with no sidecar, written a moment ago.
+    /// The sweep runs on every sync poll, and it used to delete this — any
+    /// comment longer than the gap to the next poll lost its audio mid-sentence
+    /// and was never upgraded.
+    func testARecordingInProgressIsLeftAlone() throws {
+        let recording = UUID()
+        try writeAudio(recording)
+
+        XCTAssertEqual(store.sweep(), 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.audioURL(forCommentId: recording).path))
     }
 
     func testSweepingLeavesCompletePairsAlone() throws {
