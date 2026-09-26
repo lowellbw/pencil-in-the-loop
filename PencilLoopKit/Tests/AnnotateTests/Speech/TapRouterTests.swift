@@ -142,6 +142,36 @@ final class TapRouterTests: XCTestCase {
         XCTAssertEqual(seen, [])
     }
 
+    /// `MicrophoneCapture.start()` finishes one recording's streams and starts
+    /// the next on the same tap. What the tap delivers in between must start
+    /// the next recording, not vanish into streams that have already finished.
+    func testHoldingBetweenRecordingsKeepsTheHandOverForTheNext() async throws {
+        let router = TapRouter(preRollSeconds: 1.0)
+        let (firstStream, first) = AsyncStream<MicrophoneCapture.Chunk>.makeStream()
+        let (firstClipStream, firstClip) = AsyncStream<MicrophoneCapture.Chunk>.makeStream()
+        router.beginStreaming(engine: first, clip: firstClip)
+        let during = try Self.chunk(frames: 4_800)
+        router.deliver(during)
+
+        router.hold()
+        first.finish()
+        firstClip.finish()
+        let between = try Self.chunk(frames: 9_600)
+        router.deliver(between)
+
+        let (secondStream, second) = AsyncStream<MicrophoneCapture.Chunk>.makeStream()
+        let replayed = router.beginStreaming(engine: second, clip: nil)
+        second.finish()
+
+        let heardFirst = await Self.lengths(of: firstStream)
+        let keptFirst = await Self.lengths(of: firstClipStream)
+        let heardSecond = await Self.lengths(of: secondStream)
+        XCTAssertEqual(heardFirst, [4_800])
+        XCTAssertEqual(keptFirst, [4_800], "A held router no longer feeds the old clip.")
+        XCTAssertEqual(heardSecond, [9_600])
+        XCTAssertEqual(replayed, 0.2, accuracy: 0.001)
+    }
+
     // MARK: - Giving it back
 
     func testResetForgetsTheRingAndStopsStreaming() async throws {

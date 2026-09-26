@@ -120,6 +120,45 @@ final class ContinuousTranscriberTests: XCTestCase {
         }
     }
 
+    /// A recording that fails has nobody left to stop it, so the transcriber
+    /// must. The engine underneath holds the microphone and the clip until it
+    /// is told; left holding them, the next recording waited behind the open
+    /// clip for good, and every comment after sat at "Starting…".
+    func testAFailedRecordingStillStopsTheEngine() async {
+        let engine = SegmentedTranscriberDouble(segments: [], failure: .speechUnavailable(reason: "Route lost."))
+        let transcriber = ContinuousTranscriber(engine: engine)
+
+        do {
+            for try await _ in transcriber.transcribe(contextualTerms: []) {}
+            XCTFail("the failure should have been rethrown")
+        } catch {
+            let stopped = await engine.stopCount
+            XCTAssertEqual(stopped, 1, "the engine should be told before the failure is reported")
+        }
+
+        // And the transcriber is free: the next recording reaches the engine
+        // rather than being refused as "already running".
+        do {
+            for try await _ in transcriber.transcribe(contextualTerms: []) {}
+        } catch {}
+        let started = await engine.startCount
+        XCTAssertEqual(started, 2, "a failed recording must not hold the transcriber")
+    }
+
+    /// Giving up is the same: every segment the engine was started for, it is
+    /// told to stop — the last one included, which nothing else would reach.
+    func testGivingUpStillStopsTheEngine() async throws {
+        let engine = SegmentedTranscriberDouble(segments: [])
+        let transcriber = ContinuousTranscriber(engine: engine)
+
+        for try await _ in transcriber.transcribe(contextualTerms: []) {}
+
+        let started = await engine.startCount
+        let stopped = await engine.stopCount
+        XCTAssertGreaterThan(started, 0)
+        XCTAssertEqual(stopped, started, "every segment started should be stopped")
+    }
+
     /// An engine that yields one word per segment, then finishes normally —
     /// which is precisely what the real ones do at end-of-speech.
     private actor SegmentedTranscriberDouble: SpeechTranscribing {
@@ -128,6 +167,7 @@ final class ContinuousTranscriberTests: XCTestCase {
         private let failure: PencilLoopError?
         private var index = 0
         private(set) var startCount = 0
+        private(set) var stopCount = 0
         private var settled = ""
 
         init(segments: [String], failure: PencilLoopError? = nil) {
@@ -172,6 +212,7 @@ final class ContinuousTranscriberTests: XCTestCase {
         func finishedClip() async -> URL? { nil }
 
         func stop() async -> String {
+            stopCount += 1
             let text = settled
             settled = ""
             return text

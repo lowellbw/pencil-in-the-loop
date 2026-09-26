@@ -68,6 +68,14 @@ public actor LegacySpeechEngine: SpeechTranscribing {
     /// When recognition was last renewed, for the spin guard in `mayRenew()`.
     private var recentRenewals: [Date] = []
 
+    /// Which recording the engine's state belongs to, and which one `stop()`
+    /// was last asked to end — so a `begin` that suspended can tell on waking
+    /// whether it is still wanted. The same rule as `AnalyserSpeechEngine`'s,
+    /// for the same reason: a stop that lands while a recording is starting
+    /// must end it, not be overtaken by it. `begin` numbers from one.
+    private var recordingNumber = 0
+    private var stoppedRecording = 0
+
     /// A recogniser that finalises this often, this fast, is not listening to
     /// anybody — it is failing. Silence is not the same thing and must never
     /// trip this: a person pausing to think produces no finalisations at all.
@@ -201,12 +209,14 @@ public actor LegacySpeechEngine: SpeechTranscribing {
         contextualTerms: [String],
         continuation: AsyncThrowingStream<TranscriptionUpdate, Error>.Continuation
     ) async {
-        // The microphone is left alone: `capture.start()` replaces the tap
+        // The microphone is left alone: `capture.start()` hands the tap over
         // itself, and handing the audio session back on the way into a
         // recording would throw away the pre-warm (MicrophoneCapture § start).
         finishStream(with: .speechUnavailable(reason: "Another recording started."))
         await teardown(releasingCapture: false)
 
+        recordingNumber += 1
+        let recording = recordingNumber
         streamContinuation = continuation
         settledText = ""
         latestText = ""
@@ -214,7 +224,14 @@ public actor LegacySpeechEngine: SpeechTranscribing {
         // Every path out of here that is not a recording gives the microphone
         // back, pre-warmed session included: leaving it active would leave the
         // system recording indicator lit for a comment that never started.
+        //
+        // And every await below is somewhere a lift can land; each wake-up
+        // asks whether one did (`isCurrent`).
         let microphone = await SpeechAvailability.requestMicrophone()
+        guard isCurrent(recording) else {
+            await abandon(recording)
+            return
+        }
         guard microphone != .denied else {
             finishStream(with: .permissionDenied(what: "Microphone"))
             await teardown()
@@ -222,6 +239,10 @@ public actor LegacySpeechEngine: SpeechTranscribing {
         }
         let speech = await SpeechAvailability.requestSpeechRecognition()
         authorisationRequested = true
+        guard isCurrent(recording) else {
+            await abandon(recording)
+            return
+        }
         guard speech != .denied else {
             finishStream(with: .permissionDenied(what: "Speech recognition"))
             await teardown()
@@ -250,19 +271,44 @@ public actor LegacySpeechEngine: SpeechTranscribing {
 
         do {
             let chunks = try await capture.startWaitingForInput(clipURL: clipDestination)
+            guard isCurrent(recording) else {
+                await abandon(recording)
+                return
+            }
             // The microphone is live from here — say so, before the recogniser
             // has anything. The popover claims to be listening on this and on
             // nothing earlier (VoiceRecordingMachine § isListening).
             streamContinuation?.yield(TranscriptionUpdate(volatileText: "", finalisedText: ""))
             startRecognition()
             pumpTask = Task { await self.pump(chunks) }
-        } catch let error as PencilLoopError {
-            finishStream(with: error)
-            await teardown()
         } catch {
-            finishStream(with: .speechUnavailable(reason: error.localizedDescription))
+            // A start that `stop()` overtook throws too; that is not a failure
+            // to report, and the teardown may no longer be this one's to do.
+            guard isCurrent(recording) else {
+                await abandon(recording)
+                return
+            }
+            let failure = (error as? PencilLoopError)
+                ?? PencilLoopError.speechUnavailable(reason: error.localizedDescription)
+            finishStream(with: failure)
             await teardown()
         }
+    }
+
+    /// Whether `recording` is still the one anybody wants: not replaced by a
+    /// newer `begin`, not stopped, and not already failed.
+    private func isCurrent(_ recording: Int) -> Bool {
+        recordingNumber == recording
+            && stoppedRecording != recording
+            && streamContinuation != nil
+    }
+
+    /// A `begin` that woke to find itself stopped, failed or replaced. The
+    /// newer recording owns the microphone when there is one; otherwise it is
+    /// given back again, in case this start brought it up after `stop()` had.
+    private func abandon(_ recording: Int) async {
+        guard recordingNumber == recording else { return }
+        await capture.stop()
     }
 
     private func pump(_ chunks: AsyncStream<MicrophoneCapture.Chunk>) async {
@@ -419,13 +465,22 @@ public actor LegacySpeechEngine: SpeechTranscribing {
 
     public func stop() async -> String {
         guard streamContinuation != nil || task != nil else { return "" }
+        // Already being stopped; the first stop returns the text.
+        guard stoppedRecording != recordingNumber else { return "" }
 
         // Before anything else: the task about to be finished will report once
         // more, and `ingest` must not read that as an utterance ending and
-        // start listening again after the user has let go.
+        // start listening again after the user has let go. And a `begin` still
+        // starting this recording must see that it has been stopped
+        // (`isCurrent`).
         generation += 1
+        let recording = recordingNumber
+        stoppedRecording = recording
 
         await capture.stop()
+        // A newer recording that began while the microphone was being given
+        // back owns everything from here on.
+        guard recordingNumber == recording else { return "" }
         pumpTask?.cancel()
         pumpTask = nil
         request?.endAudio()

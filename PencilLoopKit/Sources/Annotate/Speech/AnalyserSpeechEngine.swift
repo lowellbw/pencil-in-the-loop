@@ -68,6 +68,17 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
     /// Everything the transcriber has settled, cumulative for this recording.
     private var settledText = ""
 
+    /// Which recording the engine's state belongs to. Bumped by every
+    /// `begin`, so a `begin` that suspended — and a results loop outliving its
+    /// recording — can tell on waking whether it is still the one anybody
+    /// wants (`isCurrent`).
+    private var recordingNumber = 0
+
+    /// The recording `stop()` was last asked to end. Set before it awaits
+    /// anything, which is what a `begin` still starting that recording checks.
+    /// Zero, before any, names none: `begin` numbers from one.
+    private var stoppedRecording = 0
+
     private var installationProgress: Progress?
     private var downloadTask: Task<Void, Never>?
     private var cachedSupported: Bool?
@@ -236,20 +247,33 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
         // One recording at a time: a second `transcribe` finishes the first
         // stream rather than interleaving two (Protocols.swift § Lifecycle).
         //
-        // The microphone is left alone here. `capture.start()` below tears the
-        // previous tap and engine down itself, and giving the audio session
-        // back on the way into a recording would throw away the pre-warm this
-        // path is timed around (MicrophoneCapture § start).
+        // The microphone is left alone here. `capture.start()` below hands the
+        // tap from the previous recording to this one itself, and giving the
+        // audio session back on the way into a recording would throw away the
+        // pre-warm this path is timed around (MicrophoneCapture § start).
         finishStream(with: .speechUnavailable(reason: "Another recording started."))
         await teardown(releasingCapture: false)
 
+        recordingNumber += 1
+        let recording = recordingNumber
         streamContinuation = continuation
         settledText = ""
 
         // Every path out of here that is not a recording gives the microphone
         // back, pre-warmed session included: leaving it active would leave the
         // system recording indicator lit for a comment that never started.
+        //
+        // And every await below is somewhere a lift can land. `stop()` does not
+        // wait for this to finish starting; it marks the recording stopped and
+        // gives the microphone back, so each wake-up asks whether that happened
+        // and gives up if it did. Carrying on regardless is how a recording
+        // used to be finished for nobody — microphone on, clip open — and the
+        // next one hung behind it.
         let permission = await SpeechAvailability.requestMicrophone()
+        guard isCurrent(recording) else {
+            await abandon(recording)
+            return
+        }
         guard permission != .denied else {
             finishStream(with: .permissionDenied(what: "Microphone"))
             await teardown()
@@ -261,6 +285,10 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
         // between the press and the microphone on every recording.
         if cachedInstalled != true {
             cachedInstalled = await Self.isInstalled(locale)
+            guard isCurrent(recording) else {
+                await abandon(recording)
+                return
+            }
         }
         guard cachedInstalled == true else {
             await prepareAssets()
@@ -273,6 +301,10 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
 
         do {
             let chunks = try await capture.startWaitingForInput(clipURL: clipDestination)
+            guard isCurrent(recording) else {
+                await abandon(recording)
+                return
+            }
             // The microphone is live from here — say so, before the analyser
             // exists. The popover claims to be listening on this and on nothing
             // earlier (VoiceRecordingMachine § isListening).
@@ -288,29 +320,72 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
             )
             inputContinuation = input
 
-            resultsTask = Task { await self.consumeResults(from: module) }
+            resultsTask = Task { await self.consumeResults(from: module, recording: recording) }
             try await session.start(inputSequence: inputSequence)
+            guard isCurrent(recording) else {
+                input.finish()
+                await abandon(recording)
+                return
+            }
 
             guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module]) else {
                 throw PencilLoopError.speechUnavailable(reason: "No compatible audio format.")
             }
+            guard isCurrent(recording) else {
+                input.finish()
+                await abandon(recording)
+                return
+            }
             pumpTask = Task { await self.pump(chunks, to: format) }
-        } catch let error as PencilLoopError {
-            finishStream(with: error)
-            await teardown()
         } catch {
-            finishStream(with: .speechUnavailable(reason: error.localizedDescription))
+            // A start that `stop()` overtook throws too. That is not a
+            // failure to report, and the teardown is not this one's to do:
+            // the state it would clear may already be a newer recording's.
+            guard isCurrent(recording) else {
+                await abandon(recording)
+                return
+            }
+            let failure = (error as? PencilLoopError)
+                ?? PencilLoopError.speechUnavailable(reason: error.localizedDescription)
+            finishStream(with: failure)
             await teardown()
         }
+    }
+
+    /// Whether `recording` is still the one anybody wants: not replaced by a
+    /// newer `begin`, not stopped, and not already failed.
+    private func isCurrent(_ recording: Int) -> Bool {
+        recordingNumber == recording
+            && stoppedRecording != recording
+            && streamContinuation != nil
+    }
+
+    /// A `begin` that woke to find itself stopped, failed or replaced.
+    ///
+    /// Replaced: the newer recording owns the microphone, and nothing is
+    /// touched. Otherwise the microphone is given back again. `stop()` gave it
+    /// back once already, but a capture this start was still waiting on can
+    /// have come up after that — and left there it stays on, indicator lit,
+    /// with nobody listening and the next recording queued behind its clip.
+    private func abandon(_ recording: Int) async {
+        guard recordingNumber == recording else { return }
+        await capture.stop()
     }
 
     /// Volatile results are the in-progress hypothesis and are replaced
     /// wholesale; finalised results are appended and never change again. Both
     /// go out on every update so the popover can render settled text solid and
     /// the tail dimmer (DTOs.swift § TranscriptionUpdate).
-    private func consumeResults(from module: SpeechTranscriber) async {
+    ///
+    /// Scoped to the recording that started it. A loop that outlives its
+    /// recording — cancelled by the next one's teardown, throwing on the way
+    /// out — must not fail the stream or fill the transcript of the recording
+    /// that replaced it. It still runs through `stop()`, which is when the
+    /// last finalised result arrives and is the point of the comment.
+    private func consumeResults(from module: SpeechTranscriber, recording: Int) async {
         do {
             for try await result in module.results {
+                guard recordingNumber == recording else { return }
                 let text = String(result.text.characters)
                 if result.isFinal {
                     settledText += text
@@ -320,6 +395,7 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
                 }
             }
         } catch {
+            guard recordingNumber == recording else { return }
             logger.error("Transcription stream ended: \(error.localizedDescription, privacy: .public)")
             finishStream(with: .speechUnavailable(reason: error.localizedDescription))
         }
@@ -360,26 +436,48 @@ public actor AnalyserSpeechEngine: SpeechTranscribing {
 
     public func stop() async -> String {
         guard streamContinuation != nil || analyser != nil else { return "" }
+        // Already being stopped: a second finalise of the same analyser is
+        // at best an error in the log, and the first stop returns the text.
+        guard stoppedRecording != recordingNumber else { return "" }
+
+        // Marked before anything is awaited, so a `begin` still starting this
+        // recording sees on waking that it has been stopped, and gives up
+        // rather than finishing the job for nobody (`isCurrent`).
+        let recording = recordingNumber
+        stoppedRecording = recording
+
+        // This recording's pieces, taken before the first await for the same
+        // reason: a recording that starts while this one finishes must not
+        // have its analyser finalised or its results waited on by this stop.
+        let pump = pumpTask
+        let input = inputContinuation
+        let session = analyser
+        let results = resultsTask
 
         await capture.stop()
-        pumpTask?.cancel()
-        pumpTask = nil
-        inputContinuation?.finish()
-        inputContinuation = nil
+        pump?.cancel()
+        input?.finish()
+        if recordingNumber == recording {
+            pumpTask = nil
+            inputContinuation = nil
+        }
 
         // Drains what is still in flight and delivers the last finalised
         // result, which is why this is awaited rather than cancelled: the
         // trailing word of a comment is usually the point of the comment.
-        if let analyser {
+        if let session {
             do {
-                try await analyser.finalizeAndFinishThroughEndOfInput()
+                try await session.finalizeAndFinishThroughEndOfInput()
             } catch {
                 logger.error("Analyser did not finish cleanly: \(error.localizedDescription, privacy: .public)")
             }
         }
-        await resultsTask?.value
-        resultsTask = nil
+        await results?.value
 
+        // A newer recording that began while this one was finishing owns
+        // everything from here on; clearing it would end that one too.
+        guard recordingNumber == recording else { return "" }
+        resultsTask = nil
         let text = settledText.trimmingCharacters(in: .whitespacesAndNewlines)
         finishStream(with: nil)
         analyser = nil

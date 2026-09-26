@@ -197,6 +197,15 @@ popover says "Listening…" only once the engine confirms the microphone is live
 "Starting…" until then. Nothing buffered is transcribed or written unless a recording
 follows; a press that lifts early gives the microphone straight back.
 
+**Every recording ends, whoever ends it.** The tap outlives each recording, so the hand-over
+between them is where things go wrong, and in September they did: a recording the engine
+was never told had ended — one that failed mid-comment, or one a lift overtook while it was
+still starting — kept the microphone and its clip open, and the next recording waited
+behind that clip for good, showing "Starting…" and transcribing nothing. So a start closes
+both of the last recording's streams before it waits on anything; a stop that lands while a
+recording is still starting ends it rather than being overtaken by it; and a recording that
+fails or is abandoned still stops the engine underneath it.
+
 **A queued upgrade may then improve it** (`notes/pencil-loop-cloud-dictation.md`). The
 recording is kept, sent to a model that can be told the document's own vocabulary, and the
 better text replaces the draft — unless the reader edited it meanwhile, in which case what

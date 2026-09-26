@@ -103,6 +103,19 @@ final class TapRouter: @unchecked Sendable {
         }
     }
 
+    /// Back to buffering, keeping what arrives: one recording's streams are
+    /// about to be finished and the next one started on the same tap.
+    ///
+    /// Without this the tap would go on yielding into streams that had already
+    /// finished, and whatever it delivered during the hand-over would be lost.
+    /// Here it goes to the ring, and the next `beginStreaming` replays it.
+    func hold() {
+        state.withLock { state in
+            state.engine = nil
+            state.clip = nil
+        }
+    }
+
     /// Back to buffering, with nothing kept: the tap is coming down, or the
     /// recording it fed has ended.
     func reset() {

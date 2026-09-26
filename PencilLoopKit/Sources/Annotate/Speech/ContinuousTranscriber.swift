@@ -78,6 +78,14 @@ public actor ContinuousTranscriber: SpeechTranscribing {
     ) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         AsyncThrowingStream { continuation in
             let work = Task {
+                // Walked away from before it began. The stop that cancelling
+                // asks for may already have been and gone, and claiming now
+                // would hold the transcriber for a recording nobody will ever
+                // stop — refusing every one after it as "already running".
+                guard Task.isCancelled == false else {
+                    continuation.finish()
+                    return
+                }
                 guard await self.claimRecording() else {
                     continuation.finish(throwing: PencilLoopError.speechUnavailable(
                         reason: "Another recording is already running."
@@ -97,7 +105,7 @@ public actor ContinuousTranscriber: SpeechTranscribing {
                             continuation.yield(await self.fold(update))
                         }
                     } catch {
-                        await self.finishRecording()
+                        await self.abandonRecording()
                         continuation.finish(throwing: error)
                         return
                     }
@@ -105,11 +113,12 @@ public actor ContinuousTranscriber: SpeechTranscribing {
                     // Ended because `stop()` was called: that is the recording
                     // finishing normally, and the caller already has the text.
                     guard await self.isRecording else { break }
+                    if Task.isCancelled { break }
 
                     silentRestarts = produced ? 0 : silentRestarts + 1
                     guard silentRestarts < ContinuousTranscriber.maximumSilentRestarts else {
                         await self.logGivingUp()
-                        await self.finishRecording()
+                        await self.abandonRecording()
                         continuation.finish()
                         return
                     }
@@ -120,6 +129,10 @@ public actor ContinuousTranscriber: SpeechTranscribing {
                     }
                     if Task.isCancelled { break }
                 }
+                // Out of the loop because the consumer walked away, and the
+                // stop that asks for may not have run yet. Nothing is left to
+                // collect the text; the engine still has to let go.
+                await self.abandonRecording()
                 continuation.finish()
             }
 
@@ -193,8 +206,20 @@ public actor ContinuousTranscriber: SpeechTranscribing {
         return true
     }
 
-    private func finishRecording() {
+    /// Ends a recording nobody is going to `stop()` — it failed, it gave up,
+    /// or its consumer walked away — and tells the engine underneath as well.
+    ///
+    /// This used to do only the first half. The engine was never told, so it
+    /// kept the microphone running and its clip open; `releaseCapture()`
+    /// rightly refuses an engine that still holds a recording, so nothing
+    /// gave either back; and the next recording's capture waited behind that
+    /// open clip for good. A recording `stop()` already ended is left alone.
+    private func abandonRecording() async {
+        guard isRecording else { return }
         isRecording = false
+        carried = ""
+        current = ""
+        _ = await engine.stop()
     }
 
     /// Re-frames one update so the caller sees the whole recording rather than

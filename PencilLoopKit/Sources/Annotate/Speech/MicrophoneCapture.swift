@@ -28,6 +28,13 @@
 //     existed the first word was reliably lost to setup.
 //  7. Press and lift before the hold resolves. The recording indicator must go
 //     out: a pre-warm that never became a recording has been given back.
+//  8. Dictate a dozen comments back to back, some of them with a lift the
+//     instant the popover opens. Every one that was held must transcribe; none
+//     may sit at "Starting…". That was the September hang: a recording started
+//     on a capture nobody had stopped waited for ever on the last clip's drain.
+//  9. Mid-comment, raise Siri or take a call, then dictate again. The next
+//     comment must hear you: a warm tap whose engine the system stopped is
+//     started again rather than trusted.
 //  ─────────────────────────────────────────────────────────────────────────────
 //
 
@@ -165,6 +172,15 @@ actor MicrophoneCapture {
     ///
     /// Idempotent, and cheap on the second call.
     func prewarm() async throws {
+        if isTapped, engine.isRunning == false {
+            // Warm on paper, silent in fact. The system stops the engine
+            // underneath a tap it has not been told about — a call, Siri, a
+            // route change — and everything here still says the microphone is
+            // live. A recording started on that would stream nothing for as
+            // long as the Pencil was held, so start again from the top.
+            logger.notice("The audio engine had stopped under a warm tap; starting it again.")
+            await stop()
+        }
         try await activateSessionIfNeeded()
         guard isTapped == false else { return }
         do {
@@ -253,6 +269,12 @@ actor MicrophoneCapture {
         for attempt in 0..<max(1, attempts) {
             do {
                 return try await start(clipURL: clipURL)
+            } catch let stopped as CancellationError {
+                // `stop()` overtook the start. The recording this was for is
+                // over before it began, and trying again would bring the
+                // microphone back up after the hand that asked for it had let
+                // go — with nobody left to give it back.
+                throw stopped
             } catch {
                 lastError = error
                 if attempt < attempts - 1 {
@@ -282,24 +304,39 @@ actor MicrophoneCapture {
     /// - Parameter clipURL: where to also write the audio, or nil to keep none.
     ///   Writing is best-effort in one direction only: a clip that cannot be
     ///   written costs a later upgrade and never the recording in progress.
+    /// - Throws: `CancellationError` when `stop()` lands while this is still
+    ///   starting — the recording is over before it began, and nothing here is
+    ///   left running for it.
     func start(clipURL: URL? = nil) async throws -> AsyncStream<Chunk> {
-        // A stream already running ends here. The tap stays up: tearing it
-        // down to put it straight back would cost the buffers in between.
+        // Whatever the previous recording was feeding ends here — both of its
+        // streams, not only the recogniser's. The tap stays up: tearing it down
+        // to put it straight back would cost the buffers in between, so it
+        // goes back to the ring for the moment it takes to start this one.
+        //
+        // **The clip's stream is the one that matters.** Its drain task is
+        // awaited below, and that task ends only when its stream does. This
+        // used to call `stopCapture()`, which finished it; when that call was
+        // dropped to keep the tap up, the finish went with it. A capture that
+        // reached here without a `stop()` since its last recording — an
+        // engine that failed mid-comment, a lift that landed while the last
+        // one was still starting — then waited on that task for ever, and
+        // every comment after it sat at "Starting…" with nothing transcribed.
+        router.hold()
         continuation?.finish()
         continuation = nil
+        recordingContinuation?.finish()
+        recordingContinuation = nil
+
         try await prewarm()
+        let started = generation
 
-        // Deep enough to hold the pre-roll and everything the tap delivers
-        // while the recogniser is still being built — which, cold, is seconds.
-        let (stream, continuation) = AsyncStream<Chunk>.makeStream(
-            bufferingPolicy: .bufferingNewest(128)
-        )
-        self.continuation = continuation
-        let format = engine.inputNode.outputFormat(forBus: 0)
+        // Whatever the previous tap was still draining lands before this
+        // segment's first buffer, so the file stays in order. Its stream was
+        // finished above, so this is the tail of a queue and not a wait on
+        // anything.
+        await recordingTask?.value
+        recordingTask = nil
 
-        // The clip's own stream, drained by a task rather than written here:
-        // the tap block is the render thread and must not touch a file.
-        //
         // The recorder outlives the tap. `ContinuousTranscriber` restarts the
         // engine whenever it finalises an utterance mid-comment, and every
         // restart comes back through here. A fresh recorder each time would
@@ -307,38 +344,51 @@ actor MicrophoneCapture {
         // comment — which an upgrade would then confidently transcribe as the
         // whole of it. So a recorder already writing to this destination is
         // kept and appended to; only a *different* destination starts a file.
-        var clipContinuation: AsyncStream<Chunk>.Continuation?
-        if let clipURL {
-            // Whatever the previous tap was still draining lands before this
-            // segment's first buffer, so the file stays in order.
-            await recordingTask?.value
-            recordingTask = nil
-            let recorder: ClipRecorder
-            if let current = self.recorder, current.url == clipURL {
-                recorder = current
-            } else {
-                await self.recorder?.discard()
-                recorder = ClipRecorder(url: clipURL)
-                self.recorder = recorder
+        let recorder: ClipRecorder?
+        if let clipURL, let current = self.recorder, current.url == clipURL {
+            recorder = current
+        } else {
+            // A different clip, or none: a recording nobody collected,
+            // abandoned before it was saved. Its file is not this recording's
+            // and must not be handed on as it.
+            if let stale = self.recorder {
+                self.recorder = nil
+                await stale.discard()
             }
-            let (clipStream, continuation) = AsyncStream<Chunk>.makeStream(
+            recorder = clipURL.map { ClipRecorder(url: $0) }
+            self.recorder = recorder
+        }
+
+        // Stopped while this was starting. `stop()` has already taken the tap
+        // down and given the session back; carrying on would hand the engine a
+        // stream nothing feeds, and open a clip nothing would ever close.
+        guard generation == started else {
+            throw CancellationError()
+        }
+
+        // Deep enough to hold the pre-roll and everything the tap delivers
+        // while the recogniser is still being built — which, cold, is seconds.
+        let (stream, continuation) = AsyncStream<Chunk>.makeStream(
+            bufferingPolicy: .bufferingNewest(128)
+        )
+        self.continuation = continuation
+
+        // The clip's own stream, drained by a task rather than written here:
+        // the tap block is the render thread and must not touch a file.
+        var clipContinuation: AsyncStream<Chunk>.Continuation?
+        if let recorder {
+            let format = engine.inputNode.outputFormat(forBus: 0)
+            let (clipStream, clipInput) = AsyncStream<Chunk>.makeStream(
                 bufferingPolicy: .bufferingNewest(128)
             )
-            clipContinuation = continuation
-            self.recordingContinuation = continuation
+            clipContinuation = clipInput
+            self.recordingContinuation = clipInput
             self.recordingTask = Task {
                 guard await recorder.begin(format: format) else { return }
                 for await chunk in clipStream {
                     await recorder.append(chunk.buffer)
                 }
             }
-        } else if let stale = self.recorder {
-            // A recording nobody collected — abandoned before it was saved.
-            // Its file is not this recording's and must not be handed on as it.
-            await recordingTask?.value
-            recordingTask = nil
-            await stale.discard()
-            self.recorder = nil
         }
 
         // Everything buffered since pre-warm goes first, then live audio, in
@@ -390,7 +440,12 @@ actor MicrophoneCapture {
     /// - Returns: the clip's URL, or nil when there is nothing worth keeping —
     ///   no clip was asked for, the write failed, or the press was too short to
     ///   be a comment. Call after `stop()`, so the last buffers are in.
+    ///   Nil, and nothing touched, while a recording is running: a collector
+    ///   that arrives then is a late one from the comment before, and closing
+    ///   the file now would cut the live recording's clip short and hand its
+    ///   audio to a comment it does not belong to.
     func finishClip() async -> URL? {
+        guard continuation == nil else { return nil }
         recordingContinuation?.finish()
         recordingContinuation = nil
         await recordingTask?.value
@@ -414,7 +469,9 @@ actor MicrophoneCapture {
     /// call from a stream's termination handler.
     ///
     /// This is the end of a recording, not the start of the next one — see
-    /// `start()`, which tears the graph down without touching the session.
+    /// `start()`, which hands the tap from one recording to the next without
+    /// taking it down or touching the session. A `start()` still in flight when
+    /// this lands gives up (`CancellationError`) rather than finishing after it.
     func stop() async {
         stopCapture()
         await releaseSession()
