@@ -67,10 +67,15 @@ MARKDOWN_ONLY_FILE = os.path.join(
 # `Security` is here for one reason: `SyncTokenKeychain`'s seam answers in
 # `OSStatus`, and a test that asserts on a failed write has to be able to name
 # `errSecSuccess` and `errSecDuplicateItem` rather than write -25299 down.
+#
+# `AVFoundation` is here for the same kind of reason: the parts of dictation
+# that can be tested without a microphone — the pre-roll ring, the clip file —
+# take `AVAudioPCMBuffer`s, and a test has to be able to make one. No audio
+# session or input node is reachable from a test either way.
 TEST_ALLOWED = UNIVERSAL | {
     "XCTest", "Testing", "Core", "Storage", "Sync", "Ingest", "Annotate",
     "Export", "AppUI", "SwiftData", "PDFKit", "PencilKit", "UIKit", "SwiftUI",
-    "CoreGraphics", "Security",
+    "CoreGraphics", "Security", "AVFoundation",
 }
 
 IMPORT_RE = re.compile(

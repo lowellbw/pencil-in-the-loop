@@ -180,6 +180,7 @@ final class ContinuousTranscriberTests: XCTestCase {
         func assetState() async -> SpeechAssetState { .ready }
         func prepareAssets() async {}
         func prewarm() async {}
+        func releaseCapture() async {}
         func supportedLocales() async -> [Locale] { [] }
     }
 }

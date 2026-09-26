@@ -375,6 +375,10 @@ public struct PreviewSpeechTranscriber: SpeechTranscribing {
 
     public nonisolated func prewarm() async {}
 
+    /// Nothing was warmed, so nothing is given back. Written out rather than
+    /// left to the protocol's default so `check_contracts` can see it.
+    public nonisolated func releaseCapture() async {}
+
     public nonisolated func transcribe(contextualTerms: [String]) -> AsyncThrowingStream<TranscriptionUpdate, Error> {
         AsyncThrowingStream { continuation in continuation.finish() }
     }

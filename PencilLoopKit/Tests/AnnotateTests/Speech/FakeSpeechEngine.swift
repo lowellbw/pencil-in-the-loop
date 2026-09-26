@@ -60,6 +60,7 @@ actor FakeSpeechEngine: SpeechTranscribing {
     private(set) var receivedTerms: [String] = []
     private(set) var prepareCount = 0
     private(set) var prewarmCount = 0
+    private(set) var releaseCount = 0
     private(set) var startCount = 0
     private(set) var stopCount = 0
 
@@ -83,6 +84,11 @@ actor FakeSpeechEngine: SpeechTranscribing {
     /// it changed nothing.
     func prewarm() async {
         prewarmCount += 1
+    }
+
+    /// Counted, like `prewarm()`: there is no microphone here to give back.
+    func releaseCapture() async {
+        releaseCount += 1
     }
 
     nonisolated func transcribe(
