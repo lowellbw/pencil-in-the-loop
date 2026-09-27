@@ -869,8 +869,10 @@ def create_app(
                 404, "not_found", f"No review bundle in flight for {folder_name}."
             )
 
+        # By name, not the general cap: a review's `document.pdf` is the same
+        # file a document's is, and takes the same limit.
         length = _declared_length(
-            request.headers, relay_files.MAX_OTHER_FILE_BYTES, name
+            request.headers, relay_files.max_bytes_for(name), name
         )
         _check_room(root, length)
 

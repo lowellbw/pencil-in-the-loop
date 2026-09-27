@@ -448,6 +448,45 @@ class ReviewTests(RelayApiTestCase):
             (self.root / "outbox" / f"{folder}.review" / "ink" / "page-01.png").is_file()
         )
 
+    def test_a_review_carrying_the_full_document_lands(self) -> None:
+        """The review sheet's "Full document" toggle.
+
+        docs/02 § S5 offers it and the iPad puts `document.pdf` in the bundle
+        when it is on. This relay refused the name, so the declaration came back
+        400 and the iPad said only "The server would not accept the review
+        (400)" — for every review sent with the toggle on, on every retry.
+        """
+        folder = self.send().json()["folderName"]
+        pdf = b"%PDF-1.7\n" + b"pages"
+        manifest, review_md = self.bundle(folder)
+        manifest["files"].append(
+            {"path": "document.pdf", "bytes": len(pdf), "sha256": sha(pdf)}
+        )
+
+        declared = self.client.post(
+            f"/v1/documents/{folder}/review",
+            json={"manifest": manifest},
+            headers=self.auth,
+        )
+        self.assertEqual(declared.status_code, 201, declared.text)
+
+        self.client.put(
+            f"/v1/reviews/{folder}/files/review.md",
+            content=review_md.encode(),
+            headers=self.auth,
+        )
+        uploaded = self.client.put(
+            f"/v1/reviews/{folder}/files/document.pdf",
+            content=pdf,
+            headers=self.auth,
+        )
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        self.assertTrue(uploaded.json()["complete"])
+        self.assertEqual(
+            (self.root / "outbox" / f"{folder}.review" / "document.pdf").read_bytes(),
+            pdf,
+        )
+
     def test_the_same_bundle_twice_is_one_review(self) -> None:
         folder = self.send().json()["folderName"]
         first = self.deliver(folder)

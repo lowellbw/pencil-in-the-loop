@@ -18,6 +18,7 @@ these formats stable — external tools depend on them.
       ├─ review.json           structured equivalent for tools
       ├─ manifest.json         inventory, written last; the completeness signal
       ├─ reply.md              written by the agent, when it replies
+      ├─ document.pdf          the whole document, when "Full document" was on
       └─ ink/
          ├─ page-01.png
          └─ page-03.png

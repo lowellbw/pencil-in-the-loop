@@ -45,7 +45,14 @@ CLIPS_DIRECTORY = ".clips"
 NARRATION_FILE = "narration.mp3"
 
 # The review bundle. `ink/page-NN.png` is the only nested path in the contract.
-REVIEW_FILES = frozenset({"review.md", "review.json", "manifest.json", "reply.md"})
+#
+# `document.pdf` is there when the reviewer turned on "Full document" in the
+# review sheet (docs/02 § S5). It was missing from this set, so every review
+# sent with that toggle on was refused at the declaration with a 400 the iPad
+# could only report as "the server would not accept the review".
+REVIEW_FILES = frozenset(
+    {"review.md", "review.json", "manifest.json", "reply.md", "document.pdf"}
+)
 INK_PATH_RE = re.compile(r"^ink/page-[0-9]{2,}\.png$")
 
 # Checked against Content-Length before a byte is read. A container with 512MB
