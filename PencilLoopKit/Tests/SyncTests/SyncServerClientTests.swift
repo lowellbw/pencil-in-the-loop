@@ -67,6 +67,29 @@ final class SyncServerClientTests: XCTestCase {
         }
     }
 
+    /// "Would not accept the review (400)" was all the iPad could say, and it
+    /// is not something anyone can act on. The relay says why in the body; the
+    /// refusal now quotes it — and is still a refusal the queue steps over.
+    func testARefusedUploadQuotesTheServersReason() throws {
+        let body = Data(#"{"error":"bad_manifest","message":"not a review file: 'document.pdf'."}"#.utf8)
+        let failure = try XCTUnwrap(SyncServerClient.failure(forStatusCode: 400, in: .upload, body: body))
+        guard case let .outboxWriteFailed(reason) = failure else {
+            return XCTFail("a refused upload must stay an outboxWriteFailed")
+        }
+        XCTAssertTrue(reason.contains("(400): not a review file: 'document.pdf'."), reason)
+        XCTAssertTrue(SyncServerClient.isRefusal(failure), "quoting the reason must not stop it counting as a refusal")
+    }
+
+    func testARefusalWithNoUsableBodyIsReportedByItsCodeAlone() throws {
+        for body in [nil, Data("<html>Bad Gateway</html>".utf8), Data(#"{"message":"  "}"#.utf8)] {
+            let failure = try XCTUnwrap(SyncServerClient.failure(forStatusCode: 400, in: .upload, body: body))
+            guard case let .outboxWriteFailed(reason) = failure else {
+                return XCTFail("a refused upload must stay an outboxWriteFailed")
+            }
+            XCTAssertTrue(reason.hasPrefix("The server would not accept the review (400). "), reason)
+        }
+    }
+
     func testTheSameCodeOnAFetchCostsNewDocumentsOnly() throws {
         for status in [400, 404, 409, 422] {
             let failure = try XCTUnwrap(SyncServerClient.failure(forStatusCode: status, in: .fetch))

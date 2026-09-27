@@ -191,7 +191,15 @@ public struct SyncServerClient: Sendable {
     /// the 404 a reply fetch treats as "not yet" — that one is decided by
     /// `reply(forReviewNamed:)`, which is the only caller that can tell the
     /// difference between an absent reply and a missing document.
-    public static func failure(forStatusCode statusCode: Int, in call: Call) -> PencilLoopError? {
+    ///
+    /// - Parameter body: what the server sent back, when the caller has it. A
+    ///   refused upload quotes the relay's own reason from it, because "would
+    ///   not accept the review (400)" alone gives nobody anything to act on.
+    public static func failure(
+        forStatusCode statusCode: Int,
+        in call: Call,
+        body: Data? = nil
+    ) -> PencilLoopError? {
         if (200..<300).contains(statusCode) { return nil }
 
         switch statusCode {
@@ -224,9 +232,10 @@ public struct SyncServerClient: Sendable {
 
         if (400..<500).contains(statusCode) {
             if call == .upload {
+                let said = SyncServerClient.serverReason(in: body).map { ": " + $0 } ?? ""
                 return .outboxWriteFailed(
                     reason: SyncServerClient.refusedPrefix
-                        + " (\(statusCode)). It is still on this iPad, and can be "
+                        + " (\(statusCode))\(said). It is still on this iPad, and can be "
                         + "shared or saved from the review sheet."
                 )
             }
@@ -248,6 +257,22 @@ public struct SyncServerClient: Sendable {
     /// which every exhaustive switch in the app would have to grow a branch for
     /// to express something only one call site acts on.
     static let refusedPrefix = "The server would not accept the review"
+
+    /// The relay's own sentence for a refusal, from the `{"error", "message"}`
+    /// body every one of its 4xx answers carries (docs/12-relay.md § 6).
+    ///
+    /// - Returns: nil when there is no body, it is not that shape, or the
+    ///   message is empty — the refusal is then reported by its code alone, as
+    ///   it always was. Capped, because it is going into a status line.
+    static func serverReason(in body: Data?) -> String? {
+        guard let body,
+              let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let message = object["message"] as? String else { return nil }
+        var reason = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        while reason.hasSuffix(".") { reason.removeLast() }
+        guard reason.isEmpty == false else { return nil }
+        return reason.count > 200 ? String(reason.prefix(200)) + "\u{2026}" : reason
+    }
 
     /// Whether an upload failure is the server refusing rather than the network
     /// failing. A refusal will be refused again on every future poll.
@@ -456,7 +481,9 @@ public struct SyncServerClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let (data, response) = try await perform(request)
-        if let failure = SyncServerClient.failure(forStatusCode: response.statusCode, in: .upload) {
+        if let failure = SyncServerClient.failure(
+            forStatusCode: response.statusCode, in: .upload, body: data
+        ) {
             throw failure
         }
         return data
@@ -476,7 +503,9 @@ public struct SyncServerClient: Sendable {
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let (data, response) = try await perform(request)
-        if let failure = SyncServerClient.failure(forStatusCode: response.statusCode, in: .upload) {
+        if let failure = SyncServerClient.failure(
+            forStatusCode: response.statusCode, in: .upload, body: data
+        ) {
             throw failure
         }
         return data
